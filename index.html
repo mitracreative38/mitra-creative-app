@@ -1,0 +1,1286 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CV Mitra Creative — Laporan Keuangan</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app">
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-mark">MC</div>
+      <div class="brand-text">
+        <div class="brand-name" id="companyNameLabel">CV Mitra Creative</div>
+        <div class="brand-sub">Laporan Keuangan</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <button class="nav-item active" data-page="dashboard">
+        <svg viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
+        Dashboard
+      </button>
+      <button class="nav-item" data-page="kasUsaha">
+        <svg viewBox="0 0 24 24"><path d="M3 6h18v12H3V6zm2 2v8h14V8H5zm7 1a3 3 0 110 6 3 3 0 010-6z"/></svg>
+        Kas Perusahaan
+      </button>
+      <button class="nav-item" data-page="kasPribadi">
+        <svg viewBox="0 0 24 24"><path d="M12 12a5 5 0 100-10 5 5 0 000 10zm0 2c-4.4 0-8 2.2-8 5v3h16v-3c0-2.8-3.6-5-8-5z"/></svg>
+        Kas Pribadi
+      </button>
+      <button class="nav-item" data-page="proyek">
+        <svg viewBox="0 0 24 24"><path d="M4 4h16v4H4V4zm0 6h10v10H4V10zm12 0h4v10h-4V10z"/></svg>
+        Margin Proyek
+      </button>
+      <div class="nav-sep"></div>
+      <button class="nav-item" data-page="karyawan">
+        <svg viewBox="0 0 24 24"><path d="M12 12a5 5 0 100-10 5 5 0 000 10zm0 2c-3.3 0-6.2 1.34-8.28 3.5A2 2 0 002 18.94V21h20v-2.06a2 2 0 00-1.72-1.44C18.2 15.34 15.3 14 12 14z"/></svg>
+        Karyawan &amp; Gaji
+      </button>
+      <div class="nav-sep"></div>
+      <button class="nav-item" data-page="stok">
+        <svg viewBox="0 0 24 24"><path d="M12 2L2 7v10l10 5 10-5V7L12 2zm0 2.18L18.82 7 12 10.18 5.18 7 12 4.18zM4 8.82l7 3.5v7.86l-7-3.5V8.82zm9 11.36v-7.86l7-3.5v7.86l-7 3.5z"/></svg>
+        Stok Material &amp; Alat
+      </button>
+      <div class="nav-sep"></div>
+      <button class="nav-item" data-page="ahsp">
+        <svg viewBox="0 0 24 24"><path d="M6 2h12a2 2 0 012 2v16a2 2 0 01-2 2H6a2 2 0 01-2-2V4a2 2 0 012-2zm0 4v3h12V6H6zm0 5v2h3v-2H6zm5 0v2h3v-2h-3zm5 0v2h3v-2h-3zm-10 4v2h3v-2H6zm5 0v2h3v-2h-3zm5 0v2h3v-2h-3z"/></svg>
+        AHSP
+      </button>
+      <button class="nav-item" data-page="rab">
+        <svg viewBox="0 0 24 24"><path d="M4 4h16v16H4V4zm2 2v3h12V6H6zm0 5v3h5v-3H6zm7 0v3h5v-3h-5zm-7 5v3h5v-3H6zm7 0v3h5v-3h-5z"/></svg>
+        RAB
+      </button>
+      <button class="nav-item" data-page="penawaran">
+        <svg viewBox="0 0 24 24"><path d="M4 4h16v2H4V4zm0 5h16v2H4V9zm0 5h10v2H4v-2zm0 5h10v2H4v-2zM17 14l4 4-4 1 1-4z"/></svg>
+        Penawaran Harga
+      </button>
+      <div class="nav-sep"></div>
+      <button class="nav-item" data-page="pengaturan">
+        <svg viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 100-7 3.5 3.5 0 000 7zm7.4-3.5c0 .5-.04 1-.12 1.45l2.1 1.65-2 3.45-2.5-1a7.6 7.6 0 01-2.5 1.45l-.38 2.5h-4l-.38-2.5a7.6 7.6 0 01-2.5-1.45l-2.5 1-2-3.45 2.1-1.65C4.54 13 4.5 12.5 4.5 12s.04-1 .12-1.45L2.52 8.9l2-3.45 2.5 1a7.6 7.6 0 012.5-1.45L9.9 2.5h4l.38 2.5a7.6 7.6 0 012.5 1.45l2.5-1 2 3.45-2.1 1.65c.08.45.12.95.12 1.45z"/></svg>
+        Pengaturan
+      </button>
+    </nav>
+    <div class="sidebar-footer">
+      <button class="btn-ghost" id="printBtn">🖨️ Cetak Laporan</button>
+    </div>
+  </aside>
+
+  <button class="mobile-toggle" id="mobileToggle">☰</button>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <!-- Main -->
+  <main class="main">
+
+    <!-- DASHBOARD -->
+    <section class="page active" id="page-dashboard">
+      <header class="page-header">
+        <div>
+          <h1>Dashboard</h1>
+          <p class="page-sub">Ringkasan keuangan usaha, pribadi, dan proyek — semua dihitung otomatis.</p>
+        </div>
+        <div class="today" id="todayLabel"></div>
+      </header>
+
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-label">Saldo Kas Perusahaan</div>
+          <div class="stat-value" id="dashSaldoUsaha">Rp 0</div>
+          <div class="stat-meta" id="dashSaldoUsahaMeta">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Saldo Kas Pribadi</div>
+          <div class="stat-value" id="dashSaldoPribadi">Rp 0</div>
+          <div class="stat-meta" id="dashSaldoPribadiMeta">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Margin Proyek</div>
+          <div class="stat-value" id="dashMarginTotal">Rp 0</div>
+          <div class="stat-meta" id="dashMarginMeta">—</div>
+        </div>
+        <div class="stat-card accent">
+          <div class="stat-label">Piutang Belum Diterima</div>
+          <div class="stat-value" id="dashPiutang">Rp 0</div>
+          <div class="stat-meta">Kas masuk yang belum cair (Kas Perusahaan)</div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="panel">
+          <h3>Pemasukan vs Pengeluaran</h3>
+          <div id="chartCashflow" class="bar-chart"></div>
+        </div>
+        <div class="panel">
+          <h3>Margin per Proyek</h3>
+          <div id="chartMargin" class="bar-chart"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>Transaksi Terbaru</h3>
+        <div class="table-wrap">
+          <table class="tbl" id="recentTable">
+            <thead><tr><th>Tanggal</th><th>Sumber</th><th>Keterangan</th><th>Tipe</th><th class="num">Jumlah</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- KAS USAHA -->
+    <section class="page" id="page-kasUsaha">
+      <header class="page-header">
+        <div>
+          <h1>Kas Perusahaan</h1>
+          <p class="page-sub">Catat semua transaksi kas yang berhubungan dengan usaha. Jangan campur dengan uang pribadi.</p>
+        </div>
+        <button class="btn-primary" data-open-modal="txn" data-book="kasUsaha">+ Tambah Transaksi</button>
+      </header>
+
+      <div class="stat-grid stat-grid-5">
+        <div class="stat-card">
+          <div class="stat-label">Saldo Awal</div>
+          <input type="text" inputmode="numeric" class="saldo-awal-input" id="ku_saldoAwal" data-book="kasUsaha">
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Pemasukan</div>
+          <div class="stat-value good" id="ku_pemasukan">Rp 0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Pengeluaran</div>
+          <div class="stat-value bad" id="ku_pengeluaran">Rp 0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Saldo Akhir</div>
+          <div class="stat-value" id="ku_saldoAkhir">Rp 0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Piutang (Belum Diterima)</div>
+          <div class="stat-value warn" id="ku_piutang">Rp 0</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="toolbar">
+          <input type="search" placeholder="Cari keterangan / klien..." class="search-input" id="ku_search">
+          <select id="ku_filterTipe">
+            <option value="">Semua Tipe</option>
+            <option value="Masuk">Masuk</option>
+            <option value="Keluar">Keluar</option>
+          </select>
+          <select id="ku_filterStatus">
+            <option value="">Semua Status</option>
+            <option value="lunas">Lunas / Diterima</option>
+            <option value="pending">Piutang / Pending</option>
+          </select>
+          <button class="btn-ghost" id="ku_exportCsv">⬇ Export CSV</button>
+        </div>
+        <div class="table-wrap">
+          <table class="tbl" id="ku_table">
+            <thead><tr>
+              <th>Tanggal</th><th>Keterangan</th><th>Kategori</th><th>Klien/Proyek</th>
+              <th>Tipe</th><th>Status</th><th class="num">Jumlah</th><th></th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- KAS PRIBADI -->
+    <section class="page" id="page-kasPribadi">
+      <header class="page-header">
+        <div>
+          <h1>Kas Pribadi</h1>
+          <p class="page-sub">Uang pribadi (gaji/prive dari usaha + pengeluaran pribadi). Terpisah total dari Kas Perusahaan.</p>
+        </div>
+        <button class="btn-primary" data-open-modal="txn" data-book="kasPribadi">+ Tambah Transaksi</button>
+      </header>
+
+      <div class="stat-grid stat-grid-5">
+        <div class="stat-card">
+          <div class="stat-label">Saldo Awal</div>
+          <input type="text" inputmode="numeric" class="saldo-awal-input" id="kp_saldoAwal" data-book="kasPribadi">
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Pemasukan</div>
+          <div class="stat-value good" id="kp_pemasukan">Rp 0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Pengeluaran</div>
+          <div class="stat-value bad" id="kp_pengeluaran">Rp 0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Saldo Akhir</div>
+          <div class="stat-value" id="kp_saldoAkhir">Rp 0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Prive Bulan Ini</div>
+          <div class="stat-value" id="kp_priveBulanIni">Rp 0</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="toolbar">
+          <input type="search" placeholder="Cari keterangan..." class="search-input" id="kp_search">
+          <select id="kp_filterTipe">
+            <option value="">Semua Tipe</option>
+            <option value="Masuk">Masuk</option>
+            <option value="Keluar">Keluar</option>
+          </select>
+          <button class="btn-ghost" id="kp_exportCsv">⬇ Export CSV</button>
+        </div>
+        <div class="table-wrap">
+          <table class="tbl" id="kp_table">
+            <thead><tr>
+              <th>Tanggal</th><th>Keterangan</th><th>Kategori</th><th>Sumber Dana</th>
+              <th>Tipe</th><th class="num">Jumlah</th><th></th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- MARGIN PROYEK -->
+    <section class="page" id="page-proyek">
+      <header class="page-header">
+        <div>
+          <h1>Margin per Proyek</h1>
+          <p class="page-sub">Isi data proyek + biaya. Margin & status otomatis terhitung.</p>
+        </div>
+        <button class="btn-primary" data-open-modal="proyek">+ Tambah Proyek</button>
+      </header>
+
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-label">Total Nilai Kontrak</div>
+          <div class="stat-value" id="pr_totalKontrak">Rp 0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Biaya</div>
+          <div class="stat-value bad" id="pr_totalBiaya">Rp 0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Margin/Laba</div>
+          <div class="stat-value good" id="pr_totalMargin">Rp 0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Rata-rata Margin</div>
+          <div class="stat-value" id="pr_avgMargin">0%</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="legend-note">
+          <span class="dot critical"></span> &lt;15% margin tipis/berisiko
+          <span class="dot warning"></span> 15–30% cukup sehat
+          <span class="dot good"></span> &gt;30% margin bagus
+        </div>
+        <div class="table-wrap">
+          <table class="tbl" id="pr_table">
+            <thead><tr>
+              <th>Nama Proyek / Klien</th><th class="num">Nilai Kontrak</th><th class="num">Biaya Bahan</th>
+              <th class="num">Biaya Upah</th><th class="num">Biaya Lain</th><th class="num">Total Biaya</th>
+              <th class="num">Margin</th><th class="num">Margin %</th><th></th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- KARYAWAN & GAJI -->
+    <section class="page" id="page-karyawan">
+      <header class="page-header">
+        <div>
+          <h1>Karyawan &amp; Gaji</h1>
+          <p class="page-sub">Daftar karyawan, absensi harian, dan penggajian mingguan — upah, lembur, uang makan, bon, dan potongan pinjaman dihitung otomatis, slip gaji siap cetak.</p>
+        </div>
+      </header>
+
+      <div class="subtabs">
+        <button class="subtab-item active" data-subtab="daftar">Daftar Karyawan</button>
+        <button class="subtab-item" data-subtab="absensi">Absensi Harian</button>
+        <button class="subtab-item" data-subtab="penggajian">Penggajian &amp; Slip Gaji</button>
+      </div>
+
+      <!-- Daftar Karyawan -->
+      <div class="subtab-panel active" id="ky_daftarPanel">
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-label">Karyawan Aktif</div>
+            <div class="stat-value" id="ky_totalAktif">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Total Upah Harian (Aktif)</div>
+            <div class="stat-value" id="ky_totalUpahHarian">Rp 0</div>
+          </div>
+          <div class="stat-card accent">
+            <div class="stat-label">Total Sisa Pinjaman</div>
+            <div class="stat-value warn" id="ky_totalPinjaman">Rp 0</div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="toolbar">
+            <input type="search" id="ky_search" class="search-input" placeholder="Cari nama karyawan...">
+            <button class="btn-primary" id="ky_addBtn">+ Tambah Karyawan</button>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="ky_table">
+              <thead><tr>
+                <th>Nama</th><th>Jabatan</th><th>Tipe Gaji</th><th class="num">Upah / Gaji</th>
+                <th class="num">Sisa Pinjaman</th><th>Status</th><th></th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Absensi Harian -->
+      <div class="subtab-panel" id="ky_absensiPanel">
+        <div class="panel">
+          <div class="toolbar">
+            <label class="field-label" style="margin:0 8px 0 0;">Tanggal</label>
+            <input type="date" id="ab_tanggal">
+            <button class="btn-ghost" id="ab_loadBtn">Muat Data Tanggal Ini</button>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="ab_table">
+              <thead><tr><th>Nama</th><th>Jabatan</th><th>Hadir</th><th class="num">Jam Lembur</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="modal-actions" style="justify-content:flex-start; margin-top:14px;">
+            <button class="btn-primary" id="ab_saveBtn">Simpan Absensi Tanggal Ini</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Penggajian & Slip Gaji -->
+      <div class="subtab-panel" id="ky_penggajianPanel">
+        <div class="panel">
+          <div class="form-grid">
+            <div class="field">
+              <label>Karyawan</label>
+              <select id="pg_karyawan"></select>
+            </div>
+            <div class="field">
+              <label>Periode Mulai</label>
+              <input type="date" id="pg_mulai">
+            </div>
+            <div class="field">
+              <label>Periode Selesai</label>
+              <input type="date" id="pg_selesai">
+            </div>
+          </div>
+          <button class="btn-ghost" id="pg_hitungBtn" style="margin-top:10px;">Hitung Otomatis dari Absensi</button>
+        </div>
+
+        <div class="panel narrow">
+          <h3>Rincian Gaji</h3>
+
+          <div class="summary-rows" id="pg_harianSummary">
+            <div class="summary-row"><span>Hari Hadir</span><strong id="pg_hariHadir">0 hari</strong></div>
+            <div class="summary-row"><span>Upah Harian × Hari Hadir</span><strong id="pg_totalUpahHarian">Rp 0</strong></div>
+            <div class="summary-row"><span>Jam Lembur</span><strong id="pg_jamLembur">0 jam</strong></div>
+            <div class="summary-row"><span>Total Lembur</span><strong id="pg_totalLembur">Rp 0</strong></div>
+          </div>
+
+          <div class="summary-rows" id="pg_bulananSummary" style="display:none;">
+            <div class="summary-row"><span>Gaji Bulanan</span><strong id="pg_gajiBulananDisplay">Rp 0</strong></div>
+            <div class="summary-row">
+              <span>Target Bulan Ini (Rp)</span>
+              <input type="text" inputmode="numeric" id="pg_target" style="width:140px" placeholder="0">
+            </div>
+            <div class="summary-row">
+              <span>Realisasi Bulan Ini (Rp)</span>
+              <input type="text" inputmode="numeric" id="pg_realisasi" style="width:140px" placeholder="0">
+            </div>
+            <div class="summary-row">
+              <span>% Bonus dari Kelebihan Target</span>
+              <input type="number" id="pg_persenBonus" min="0" max="100" step="0.1" style="width:80px">
+            </div>
+            <div class="summary-row"><span>Bonus Target</span><strong id="pg_bonusTarget">Rp 0</strong></div>
+          </div>
+
+          <div class="summary-rows" style="margin-top:6px;">
+            <div class="summary-row total"><span id="pg_upahKotorLabel">Upah Kotor</span><strong id="pg_upahKotor">Rp 0</strong></div>
+            <div class="summary-row">
+              <span>Uang Makan Diterima Minggu Ini (Rp)</span>
+              <input type="text" inputmode="numeric" id="pg_uangMakan" style="width:140px" placeholder="0">
+            </div>
+            <div class="summary-row">
+              <span>Bon Mingguan (Rp)</span>
+              <input type="text" inputmode="numeric" id="pg_bon" style="width:140px" placeholder="0">
+            </div>
+            <div class="summary-row">
+              <span>Potongan Pinjaman Minggu Ini (Rp)</span>
+              <input type="text" inputmode="numeric" id="pg_potonganPinjaman" style="width:140px" placeholder="0">
+            </div>
+            <div class="summary-row"><span>Sisa Pinjaman Sebelum</span><strong id="pg_sisaSebelum">Rp 0</strong></div>
+            <div class="summary-row"><span>Sisa Pinjaman Sesudah</span><strong id="pg_sisaSesudah">Rp 0</strong></div>
+            <div class="summary-row total"><span>Gaji Bersih (Take Home)</span><strong id="pg_gajiBersih">Rp 0</strong></div>
+          </div>
+          <div class="modal-actions" style="justify-content:flex-start; margin-top:16px;">
+            <button class="btn-primary" id="pg_simpanCetakBtn">Simpan &amp; Cetak Slip Gaji</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>Riwayat Slip Gaji</h3>
+          <div class="table-wrap">
+            <table class="tbl" id="pg_riwayatTable">
+              <thead><tr>
+                <th>Periode</th><th class="num">Keterangan</th><th class="num">Upah Kotor</th><th class="num">Total Potongan</th><th class="num">Gaji Bersih</th><th></th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- STOK MATERIAL & ALAT -->
+    <section class="page" id="page-stok">
+      <div id="stok_listView">
+        <header class="page-header">
+          <div>
+            <h1>Stok Material &amp; Alat</h1>
+            <p class="page-sub">Kelola stok material &amp; alat. Stok saat ini dihitung otomatis dari riwayat barang masuk/keluar — tidak pernah ditimpa manual, jadi selalu bisa diaudit.</p>
+          </div>
+          <button class="btn-primary" id="stok_addBtn">+ Tambah Barang</button>
+        </header>
+
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-label">Total Jenis Barang</div>
+            <div class="stat-value" id="stok_totalJenis">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Total Nilai Stok</div>
+            <div class="stat-value" id="stok_totalNilai">Rp 0</div>
+          </div>
+          <div class="stat-card accent">
+            <div class="stat-label">Hampir Habis</div>
+            <div class="stat-value warn" id="stok_totalHampir">0</div>
+            <div class="stat-meta">Stok ≤ ambang minimum — segera restock</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Stok Habis</div>
+            <div class="stat-value bad" id="stok_totalHabis">0</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="toolbar">
+            <input type="search" placeholder="Cari nama barang..." class="search-input" id="stok_search">
+            <select id="stok_filterKategori">
+              <option value="">Semua Kategori</option>
+              <option value="Material">Material</option>
+              <option value="Alat">Alat</option>
+            </select>
+            <select id="stok_filterStatus">
+              <option value="">Semua Status</option>
+              <option value="aman">Aman</option>
+              <option value="hampir">Hampir Habis</option>
+              <option value="habis">Habis</option>
+            </select>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="stok_table">
+              <thead><tr>
+                <th>Nama Barang</th><th>Kategori</th><th>Satuan</th><th class="num">Stok Saat Ini</th>
+                <th class="num">Stok Minimum</th><th class="num">Harga Satuan</th><th class="num">Nilai Stok</th><th>Status</th><th></th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="stok_riwayatView" style="display:none;">
+        <header class="page-header">
+          <div>
+            <h1 id="stok_riwayatNama">Riwayat Stok</h1>
+            <p class="page-sub">Catat setiap barang masuk (pembelian/restock) dan keluar (pemakaian proyek). Stok saat ini otomatis mengikuti riwayat ini.</p>
+          </div>
+          <button class="btn-ghost" id="stok_backBtn">← Kembali ke Daftar</button>
+        </header>
+
+        <div class="stat-grid stat-grid-5">
+          <div class="stat-card">
+            <div class="stat-label">Kategori</div>
+            <div class="stat-value" id="stok_infoKategori">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Satuan</div>
+            <div class="stat-value" id="stok_infoSatuan">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Harga Satuan (Rp)</div>
+            <input type="text" inputmode="numeric" class="saldo-awal-input" id="stok_infoHarga">
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Stok Minimum</div>
+            <input type="text" inputmode="numeric" class="saldo-awal-input" id="stok_infoMinimum">
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Stok Saat Ini</div>
+            <div class="stat-value" id="stok_infoQty">0</div>
+            <div class="stat-meta" id="stok_infoStatus">-</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="toolbar">
+            <div class="muted" style="flex:1">Riwayat Barang Masuk / Keluar</div>
+            <button class="btn-ghost" id="stok_addTxnBtn">+ Catat Transaksi</button>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="stok_txnTable">
+              <thead><tr>
+                <th>Tanggal</th><th>Tipe</th><th class="num">Qty</th><th>Keterangan</th><th></th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- AHSP -->
+    <section class="page" id="page-ahsp">
+      <header class="page-header">
+        <div>
+          <h1>AHSP</h1>
+          <p class="page-sub">Analisa Harga Satuan Pekerjaan — database harga satuan per kategori usaha. Bisa dipakai otomatis saat membuat RAB &amp; Penawaran.</p>
+        </div>
+        <button class="btn-primary" data-open-modal="ahsp">+ Tambah Item AHSP</button>
+      </header>
+
+      <div class="panel">
+        <div class="toolbar">
+          <input type="search" placeholder="Cari uraian pekerjaan / kode..." class="search-input" id="ah_search">
+          <select id="ah_filterKategori">
+            <option value="">Semua Kategori</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table class="tbl" id="ah_table">
+            <thead><tr>
+              <th>Kategori</th><th>Kode</th><th>Uraian Pekerjaan</th><th>Satuan</th><th class="num">Harga Satuan</th><th>Sumber</th><th></th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- RAB -->
+    <section class="page" id="page-rab">
+      <div id="rab_listView">
+        <header class="page-header">
+          <div>
+            <h1>RAB</h1>
+            <p class="page-sub">Rencana Anggaran Biaya per proyek. Pilih item dari AHSP atau isi manual — volume &amp; total terhitung otomatis.</p>
+          </div>
+          <button class="btn-primary" id="rab_addBtn">+ Tambah RAB</button>
+        </header>
+        <div class="panel">
+          <div class="table-wrap">
+            <table class="tbl" id="rab_table">
+              <thead><tr>
+                <th>Nama Proyek / Klien</th><th>Kategori</th><th>Tanggal</th><th class="num">Total RAB</th><th></th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="rab_editorView" style="display:none;">
+        <header class="page-header">
+          <div>
+            <h1>Edit RAB</h1>
+            <p class="page-sub">Isi data proyek dan item pekerjaan. Total dihitung otomatis dari volume × harga satuan.</p>
+          </div>
+          <button class="btn-ghost" id="rab_backBtn">← Kembali ke Daftar</button>
+        </header>
+
+        <div class="panel">
+          <div class="form-grid">
+            <div class="field full">
+              <label>Nama Proyek</label>
+              <input type="text" id="rab_nama" placeholder="mis. Renovasi Interior Kantor Klien A">
+            </div>
+            <div class="field">
+              <label>Klien</label>
+              <input type="text" id="rab_klien" placeholder="Nama klien">
+            </div>
+            <div class="field">
+              <label>Lokasi</label>
+              <input type="text" id="rab_lokasi" placeholder="Lokasi proyek">
+            </div>
+            <div class="field">
+              <label>Kategori</label>
+              <select id="rab_kategori"></select>
+            </div>
+            <div class="field">
+              <label>Tanggal</label>
+              <input type="date" id="rab_tanggal">
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="toolbar">
+            <div class="muted" style="flex:1">Daftar Item Pekerjaan</div>
+            <button class="btn-ghost" id="rab_importBoqBtn">📁 Import BOQ (.xlsx)</button>
+            <input type="file" id="rab_importBoqInput" accept=".xlsx" hidden>
+            <button class="btn-ghost" id="rab_importImageBtn">🖼️ Baca dari Gambar (OCR)</button>
+            <input type="file" id="rab_importImageInput" accept="image/*" hidden>
+            <button class="btn-ghost" id="rab_addItemBtn">+ Tambah Item</button>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="rab_itemsTable">
+              <thead><tr>
+                <th>Uraian Pekerjaan</th><th>Satuan</th><th class="num">Volume</th><th class="num">Harga Satuan</th><th class="num">Jumlah</th><th></th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel narrow">
+          <h3>Ringkasan Biaya</h3>
+          <div class="summary-rows">
+            <div class="summary-row"><span>Subtotal</span><strong id="rab_subtotal">Rp 0</strong></div>
+            <div class="summary-row">
+              <span>PPN (%)</span>
+              <input type="number" id="rab_ppn" min="0" max="100" step="0.1" style="width:80px">
+            </div>
+            <div class="summary-row"><span>Nilai PPN</span><strong id="rab_ppnValue">Rp 0</strong></div>
+            <div class="summary-row">
+              <span>PPh (%)</span>
+              <input type="number" id="rab_pph" min="0" max="100" step="0.1" style="width:80px">
+            </div>
+            <div class="summary-row"><span>Nilai PPh</span><strong id="rab_pphValue">Rp 0</strong></div>
+            <div class="summary-row">
+              <span>Biaya Lain-lain (Rp)</span>
+              <input type="text" inputmode="numeric" id="rab_biayaLain" style="width:140px" placeholder="0">
+            </div>
+            <div class="summary-row total"><span>Total RAB</span><strong id="rab_total">Rp 0</strong></div>
+          </div>
+          <div class="modal-actions" style="margin-top:16px; justify-content:flex-start;">
+            <button class="btn-primary" id="rab_toPenawaranBtn">Buat Penawaran dari RAB Ini</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PENAWARAN HARGA -->
+    <section class="page" id="page-penawaran">
+      <div id="pw_listView">
+        <header class="page-header">
+          <div>
+            <h1>Penawaran Harga</h1>
+            <p class="page-sub">Buat &amp; cetak surat penawaran harga untuk klien, lengkap dengan kop surat dan tanda tangan owner.</p>
+          </div>
+          <button class="btn-primary" id="pw_addBtn">+ Tambah Penawaran</button>
+        </header>
+        <div class="panel">
+          <div class="table-wrap">
+            <table class="tbl" id="pw_table">
+              <thead><tr>
+                <th>No. Surat</th><th>Kepada</th><th>Perihal</th><th>Tanggal</th><th class="num">Total</th><th>Status</th><th></th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="pw_editorView" style="display:none;">
+        <header class="page-header">
+          <div>
+            <h1>Edit Penawaran</h1>
+            <p class="page-sub">Lengkapi data penawaran. Total dihitung otomatis, siap cetak untuk klien.</p>
+          </div>
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button class="btn-ghost" id="pw_backBtn">← Kembali</button>
+            <button class="btn-primary" id="pw_printBtn">🖨️ Cetak Penawaran</button>
+          </div>
+        </header>
+
+        <div class="panel">
+          <div class="form-grid">
+            <div class="field">
+              <label>No. Surat</label>
+              <input type="text" id="pw_nomor">
+            </div>
+            <div class="field">
+              <label>Tanggal</label>
+              <input type="date" id="pw_tanggal">
+            </div>
+            <div class="field full">
+              <label>Kepada Yth (Nama Klien/Perusahaan)</label>
+              <input type="text" id="pw_kepada" placeholder="mis. PT Sumber Makmur">
+            </div>
+            <div class="field full">
+              <label>Alamat Klien</label>
+              <input type="text" id="pw_alamatKlien" placeholder="Alamat lengkap klien">
+            </div>
+            <div class="field full">
+              <label>Perihal</label>
+              <input type="text" id="pw_perihal" placeholder="mis. Penawaran Harga Pengadaan Neon Box">
+            </div>
+            <div class="field">
+              <label>Kategori</label>
+              <select id="pw_kategori"></select>
+            </div>
+            <div class="field">
+              <label>Status</label>
+              <select id="pw_status">
+                <option value="draft">Draft</option>
+                <option value="terkirim">Terkirim</option>
+                <option value="disetujui">Disetujui</option>
+                <option value="ditolak">Ditolak</option>
+              </select>
+            </div>
+            <div class="field full">
+              <label>Impor Item dari RAB (opsional)</label>
+              <select id="pw_importRab">
+                <option value="">— Pilih RAB untuk mengisi item otomatis —</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="toolbar">
+            <div class="muted" style="flex:1">Rincian Item Penawaran</div>
+            <button class="btn-ghost" id="pw_importBoqBtn">📁 Import BOQ (.xlsx)</button>
+            <input type="file" id="pw_importBoqInput" accept=".xlsx" hidden>
+            <button class="btn-ghost" id="pw_importImageBtn">🖼️ Baca dari Gambar (OCR)</button>
+            <input type="file" id="pw_importImageInput" accept="image/*" hidden>
+            <button class="btn-ghost" id="pw_addItemBtn">+ Tambah Item</button>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="pw_itemsTable">
+              <thead><tr>
+                <th>Uraian Pekerjaan</th><th>Satuan</th><th class="num">Volume</th><th class="num">Harga Satuan</th><th class="num">Jumlah</th><th></th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel narrow">
+          <h3>Ringkasan Harga</h3>
+          <div class="summary-rows">
+            <div class="summary-row"><span>Subtotal</span><strong id="pw_subtotal">Rp 0</strong></div>
+            <div class="summary-row">
+              <span>Diskon (%)</span>
+              <input type="number" id="pw_diskon" min="0" max="100" step="0.1" style="width:80px">
+            </div>
+            <div class="summary-row">
+              <span>PPN (%)</span>
+              <input type="number" id="pw_ppn" min="0" max="100" step="0.1" style="width:80px">
+            </div>
+            <div class="summary-row">
+              <span>PPh (%)</span>
+              <input type="number" id="pw_pph" min="0" max="100" step="0.1" style="width:80px">
+            </div>
+            <div class="summary-row total"><span>Total Penawaran</span><strong id="pw_total">Rp 0</strong></div>
+          </div>
+        </div>
+
+        <div class="panel narrow">
+          <h3>Syarat &amp; Ketentuan</h3>
+          <textarea id="pw_syarat" rows="5" class="text-input" style="width:100%; font-family:inherit; resize:vertical;"></textarea>
+        </div>
+
+        <div class="panel narrow">
+          <h3>Kalimat Penutup</h3>
+          <textarea id="pw_penutup" rows="3" class="text-input" style="width:100%; font-family:inherit; resize:vertical;"></textarea>
+        </div>
+
+        <div class="panel narrow">
+          <h3>Penandatangan</h3>
+          <div class="form-grid">
+            <div class="field">
+              <label>Nama</label>
+              <input type="text" id="pw_ttdNama">
+            </div>
+            <div class="field">
+              <label>Jabatan</label>
+              <input type="text" id="pw_ttdJabatan">
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PENGATURAN -->
+    <section class="page" id="page-pengaturan">
+      <header class="page-header">
+        <div>
+          <h1>Pengaturan</h1>
+          <p class="page-sub">Kelola nama perusahaan dan data laporan.</p>
+        </div>
+      </header>
+
+      <div class="panel narrow">
+        <h3>Identitas</h3>
+        <label class="field-label">Nama Perusahaan</label>
+        <input type="text" id="settingsCompanyName" class="text-input">
+        <label class="field-label">Alamat</label>
+        <input type="text" id="settingsAlamat" class="text-input" style="width:100%">
+        <label class="field-label">Telepon</label>
+        <input type="text" id="settingsTelepon" class="text-input" style="width:100%">
+        <label class="field-label">Nama Penandatangan (Owner)</label>
+        <input type="text" id="settingsOwnerNama" class="text-input" style="width:100%">
+        <label class="field-label">Jabatan Penandatangan</label>
+        <input type="text" id="settingsOwnerJabatan" class="text-input" style="width:100%">
+      </div>
+
+      <div class="panel narrow">
+        <h3>Data</h3>
+        <p class="muted">Semua data tersimpan otomatis di browser ini (localStorage). Gunakan Export untuk backup, atau Import untuk memulihkan.</p>
+        <div class="settings-actions">
+          <button class="btn-ghost" id="exportJsonBtn">⬇ Export Backup (JSON)</button>
+          <label class="btn-ghost file-btn">⬆ Import Backup (JSON)
+            <input type="file" id="importJsonInput" accept="application/json" hidden>
+          </label>
+          <button class="btn-danger" id="resetDataBtn">🗑 Reset Semua Data</button>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- Modal: transaction -->
+<div class="modal-backdrop" id="txnModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="txnModalTitle">Tambah Transaksi</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <form id="txnForm">
+      <input type="hidden" id="txn_id">
+      <input type="hidden" id="txn_book">
+      <div class="form-grid">
+        <div class="field">
+          <label>Tipe</label>
+          <select id="txn_tipe" required>
+            <option value="Masuk">Masuk</option>
+            <option value="Keluar">Keluar</option>
+          </select>
+        </div>
+        <div class="field" id="txn_statusField">
+          <label>Status</label>
+          <select id="txn_status">
+            <option value="lunas">Lunas / Diterima</option>
+            <option value="pending">Piutang / Pending (belum cair)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Tanggal</label>
+          <input type="date" id="txn_tanggal" required>
+        </div>
+        <div class="field">
+          <label>Jumlah (Rp)</label>
+          <input type="text" inputmode="numeric" id="txn_jumlah" required placeholder="0">
+        </div>
+        <div class="field full">
+          <label>Keterangan</label>
+          <input type="text" id="txn_keterangan" required placeholder="mis. SPK Pemasangan CCTV">
+        </div>
+        <div class="field">
+          <label>Kategori</label>
+          <input type="text" id="txn_kategori" list="kategoriList" placeholder="mis. Pendapatan Jasa">
+          <datalist id="kategoriList"></datalist>
+        </div>
+        <div class="field">
+          <label id="txn_extraLabel">Klien / Proyek Terkait</label>
+          <input type="text" id="txn_extra" list="extraList" placeholder="mis. Gadai Sakti">
+          <datalist id="extraList"></datalist>
+        </div>
+        <div class="field full">
+          <label>Catatan</label>
+          <input type="text" id="txn_catatan" placeholder="opsional">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: proyek -->
+<div class="modal-backdrop" id="proyekModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="proyekModalTitle">Tambah Proyek</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <form id="proyekForm">
+      <input type="hidden" id="pj_id">
+      <div class="form-grid">
+        <div class="field full">
+          <label>Nama Proyek / Klien</label>
+          <input type="text" id="pj_nama" required placeholder="mis. Klien A - Signage Toko">
+        </div>
+        <div class="field">
+          <label>Nilai Kontrak (Rp)</label>
+          <input type="text" inputmode="numeric" id="pj_nilai" required placeholder="0">
+        </div>
+        <div class="field">
+          <label>Biaya Bahan (Rp)</label>
+          <input type="text" inputmode="numeric" id="pj_bahan" placeholder="0">
+        </div>
+        <div class="field">
+          <label>Biaya Upah/Tenaga (Rp)</label>
+          <input type="text" inputmode="numeric" id="pj_upah" placeholder="0">
+        </div>
+        <div class="field">
+          <label>Biaya Lain-lain (Rp)</label>
+          <input type="text" inputmode="numeric" id="pj_lain" placeholder="0">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: AHSP item -->
+<div class="modal-backdrop" id="ahspModal">
+  <div class="modal wide">
+    <div class="modal-head">
+      <h3 id="ahspModalTitle">Tambah Item AHSP</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <form id="ahspForm">
+      <input type="hidden" id="ah_id">
+      <div class="form-grid">
+        <div class="field">
+          <label>Kategori</label>
+          <select id="ah_kategori" required></select>
+        </div>
+        <div class="field">
+          <label>Kode (opsional)</label>
+          <input type="text" id="ah_kode" placeholder="mis. SIP-01">
+        </div>
+        <div class="field full">
+          <label>Uraian Pekerjaan</label>
+          <input type="text" id="ah_uraian" required placeholder="mis. Pemasangan Neon Box Acrylic">
+        </div>
+        <div class="field">
+          <label>Satuan</label>
+          <input type="text" id="ah_satuan" list="satuanList" required placeholder="mis. m2">
+          <datalist id="satuanList"></datalist>
+        </div>
+        <div class="field">
+          <label>Cara Hitung Harga</label>
+          <select id="ah_mode">
+            <option value="manual">Manual (isi langsung)</option>
+            <option value="detail">Rincian Komponen (otomatis)</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="ah_manualGroup" class="field" style="margin-top:8px;">
+        <label>Harga Satuan (Rp)</label>
+        <input type="text" inputmode="numeric" id="ah_hargaManual" placeholder="0">
+      </div>
+
+      <div id="ah_detailGroup" style="display:none; margin-top:10px;">
+        <div class="table-wrap">
+          <table class="tbl" id="ah_komponenTable">
+            <thead><tr>
+              <th>Jenis</th><th>Uraian</th><th>Satuan</th><th class="num">Koefisien</th><th class="num">Harga Satuan</th><th class="num">Jumlah</th><th></th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <button type="button" class="btn-ghost" id="ah_addKomponenBtn" style="margin-top:8px;">+ Tambah Komponen</button>
+        <div class="summary-rows" style="margin-top:12px;">
+          <div class="summary-row"><span>Subtotal Komponen</span><strong id="ah_komponenSubtotal">Rp 0</strong></div>
+          <div class="summary-row">
+            <span>Biaya Umum &amp; Profit (%)</span>
+            <input type="number" id="ah_overhead" min="0" max="200" step="0.5" style="width:80px">
+          </div>
+          <div class="summary-row total"><span>Harga Satuan Pekerjaan</span><strong id="ah_totalHsp">Rp 0</strong></div>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: item (shared by RAB & Penawaran) -->
+<div class="modal-backdrop" id="itemModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="itemModalTitle">Tambah Item</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <form id="itemForm">
+      <input type="hidden" id="it_id">
+      <div class="form-grid">
+        <div class="field full">
+          <label>Ambil dari AHSP (opsional)</label>
+          <select id="it_ahspPick">
+            <option value="">— Isi manual —</option>
+          </select>
+        </div>
+        <div class="field full">
+          <label>Uraian Pekerjaan</label>
+          <input type="text" id="it_uraian" required placeholder="mis. Pemasangan Plafon Gypsum">
+        </div>
+        <div class="field">
+          <label>Satuan</label>
+          <input type="text" id="it_satuan" list="satuanList2" required placeholder="mis. m2">
+          <datalist id="satuanList2"></datalist>
+        </div>
+        <div class="field">
+          <label>Volume</label>
+          <input type="text" inputmode="decimal" id="it_volume" required placeholder="0">
+        </div>
+        <div class="field">
+          <label>Harga Satuan (Rp)</label>
+          <input type="text" inputmode="numeric" id="it_harga" required placeholder="0">
+        </div>
+        <div class="field">
+          <label>Jumlah (otomatis)</label>
+          <input type="text" id="it_jumlah" disabled>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan Item</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: import preview (from BOQ .xlsx or OCR gambar) -->
+<div class="modal-backdrop" id="importPreviewModal">
+  <div class="modal wide">
+    <div class="modal-head">
+      <h3>Pratinjau Item Impor</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <div style="padding:14px 20px 0;">
+      <p class="muted" style="margin:0 0 10px;">
+        <span id="imp_count">0</span> baris item terdeteksi. Periksa &amp; koreksi uraian, satuan, volume, dan harga di bawah ini sebelum diimpor ke daftar item — centang untuk memilih baris yang ingin dimasukkan.
+      </p>
+      <div class="table-wrap">
+        <table class="tbl" id="imp_table">
+          <thead><tr>
+            <th style="width:34px"></th><th>Uraian Pekerjaan</th><th>Satuan</th><th class="num">Volume</th><th class="num">Harga Satuan</th><th class="num">Jumlah</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="imp_rawTextWrap" style="display:none; margin-top:14px;">
+        <label class="field-label">Teks mentah hasil OCR (untuk dicek manual bila ada item yang tidak terdeteksi otomatis)</label>
+        <pre id="imp_rawText" class="ocr-raw-text"></pre>
+      </div>
+    </div>
+    <div class="modal-actions" style="padding:16px 20px;">
+      <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+      <button type="button" class="btn-primary" id="imp_importBtn">Import Item Terpilih</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: barang stok (master data) -->
+<div class="modal-backdrop" id="stokModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="stokModalTitle">Tambah Barang</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <form id="stokForm">
+      <input type="hidden" id="sb_id">
+      <div class="form-grid">
+        <div class="field full">
+          <label>Nama Barang</label>
+          <input type="text" id="sb_nama" required placeholder="mis. Semen PC 40kg / Bor Listrik">
+        </div>
+        <div class="field">
+          <label>Kategori</label>
+          <select id="sb_kategori">
+            <option value="Material">Material</option>
+            <option value="Alat">Alat</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Satuan</label>
+          <input type="text" id="sb_satuan" list="satuanStokList" required placeholder="mis. sak">
+          <datalist id="satuanStokList"></datalist>
+        </div>
+        <div class="field">
+          <label>Stok Awal</label>
+          <input type="text" inputmode="numeric" id="sb_stokAwal" placeholder="0">
+        </div>
+        <div class="field">
+          <label>Stok Minimum (ambang hampir habis)</label>
+          <input type="text" inputmode="numeric" id="sb_stokMinimum" placeholder="0">
+        </div>
+        <div class="field full">
+          <label>Harga Satuan (Rp)</label>
+          <input type="text" inputmode="numeric" id="sb_hargaSatuan" placeholder="0">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: transaksi stok (masuk/keluar) -->
+<div class="modal-backdrop" id="stokTxnModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="stokTxnModalTitle">Catat Transaksi Stok</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <form id="stokTxnForm">
+      <input type="hidden" id="st_id">
+      <div class="form-grid">
+        <div class="field">
+          <label>Tipe</label>
+          <select id="st_tipe" required>
+            <option value="Masuk">Masuk (pembelian/restock)</option>
+            <option value="Keluar">Keluar (pemakaian)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Tanggal</label>
+          <input type="date" id="st_tanggal" required>
+        </div>
+        <div class="field">
+          <label>Qty</label>
+          <input type="text" inputmode="decimal" id="st_qty" required placeholder="0">
+        </div>
+        <div class="field full">
+          <label>Keterangan</label>
+          <input type="text" id="st_keterangan" placeholder="mis. Beli dari Toko Bangunan Makmur / Dipakai proyek Gudang Sukadami">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: karyawan (employee master) -->
+<div class="modal-backdrop" id="karyawanModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="karyawanModalTitle">Tambah Karyawan</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <form id="karyawanForm">
+      <input type="hidden" id="kym_id">
+      <div class="form-grid">
+        <div class="field full">
+          <label>Nama Karyawan</label>
+          <input type="text" id="kym_nama" required>
+        </div>
+        <div class="field">
+          <label>Jabatan</label>
+          <input type="text" id="kym_jabatan" placeholder="mis. Tukang, Marketing, Admin">
+        </div>
+        <div class="field">
+          <label>Tipe Gaji</label>
+          <select id="kym_tipeGaji">
+            <option value="Harian">Harian (upah harian + lembur)</option>
+            <option value="Bulanan">Bulanan (gaji tetap + bonus target)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Status</label>
+          <select id="kym_aktif">
+            <option value="1">Aktif</option>
+            <option value="0">Nonaktif</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-grid" id="kym_harianFields" style="margin-top:6px;">
+        <div class="field">
+          <label>Upah Harian (Rp)</label>
+          <input type="text" inputmode="numeric" id="kym_upahHarian" placeholder="0">
+        </div>
+        <div class="field">
+          <label>Tarif Lembur per Jam (Rp)</label>
+          <input type="text" inputmode="numeric" id="kym_tarifLembur" placeholder="0">
+        </div>
+        <div class="field">
+          <label>Uang Makan per Hari (Rp)</label>
+          <input type="text" inputmode="numeric" id="kym_uangMakanHarian" placeholder="0">
+        </div>
+      </div>
+
+      <div class="form-grid" id="kym_bulananFields" style="display:none; margin-top:6px;">
+        <div class="field">
+          <label>Gaji Bulanan (Rp)</label>
+          <input type="text" inputmode="numeric" id="kym_gajiBulanan" placeholder="0">
+        </div>
+        <div class="field">
+          <label>Target Bulanan (Rp)</label>
+          <input type="text" inputmode="numeric" id="kym_targetBulanan" placeholder="0">
+        </div>
+        <div class="field">
+          <label>% Bonus dari Kelebihan Target</label>
+          <input type="number" id="kym_persenBonus" min="0" max="100" step="0.1" placeholder="0">
+        </div>
+      </div>
+
+      <div class="form-grid" style="margin-top:6px;">
+        <div class="field full">
+          <label>Pinjaman Awal (Rp)</label>
+          <input type="text" inputmode="numeric" id="kym_pinjamanAwal" placeholder="0">
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Hidden print area for Penawaran Harga (letterhead document) -->
+<div id="printArea"></div>
+
+<!-- Libraries for BOQ (.xlsx) import & OCR image import — loaded from CDN, only touched when those features are used -->
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
