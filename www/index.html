@@ -2,8 +2,15 @@
 <html lang="id">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#f9f9f7">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <title>CV Mitra Creative — Laporan Keuangan</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.webp">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -1282,5 +1289,7 @@
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <script src="data.js"></script>
 <script src="app.js"></script>
+<!-- Native-shell glue (status bar, splash screen, Android back button) — no-op outside the mobile app -->
+<script src="mobile-init.bundle.js"></script>
 </body>
 </html>

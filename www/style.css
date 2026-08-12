@@ -270,14 +270,20 @@ body {
   .sidebar {
     position: fixed; z-index: 50; left: 0; top: 0; transform: translateX(-100%);
     transition: transform .2s ease; box-shadow: 0 0 30px rgba(0,0,0,.3);
+    padding-top: calc(20px + env(safe-area-inset-top));
+    padding-bottom: calc(20px + env(safe-area-inset-bottom));
   }
   .sidebar.open { transform: translateX(0); }
   .sidebar-backdrop.open { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 45; }
-  .main { padding: 70px 16px 60px; }
+  .main { padding: calc(70px + env(safe-area-inset-top)) 16px calc(60px + env(safe-area-inset-bottom)); }
   .stat-grid, .stat-grid-5 { grid-template-columns: 1fr 1fr; }
   .form-grid { grid-template-columns: 1fr; }
   .bar-row { grid-template-columns: 90px 1fr 70px; }
 }
+
+/* ---------- Safe-area insets (native app: notch / home indicator / status bar) ---------- */
+.mobile-toggle { top: calc(12px + env(safe-area-inset-top)); left: calc(12px + env(safe-area-inset-left)); }
+.modal-backdrop { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
 
 /* ---------- Sidebar separator ---------- */
 .nav-sep { height: 1px; background: var(--border); margin: 8px 6px; }

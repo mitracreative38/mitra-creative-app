@@ -1,1 +1,26 @@
 .claude/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Android (Gradle/Android Studio build output — the android/ project itself is committed)
+android/.gradle/
+android/build/
+android/app/build/
+android/capacitor-cordova-android-plugins/build/
+android/local.properties
+android/*.iml
+android/.idea/
+android/app/release/
+android/app/debug/
+
+# iOS (Xcode build output / CocoaPods — the ios/ project itself is committed)
+ios/App/build/
+ios/App/Pods/
+ios/App/App.xcworkspace/xcuserdata/
+ios/App/App.xcodeproj/xcuserdata/
+ios/App/App.xcodeproj/project.xcworkspace/xcuserdata/
+ios/DerivedData/
+ios/.idea/
+*.xcuserstate
