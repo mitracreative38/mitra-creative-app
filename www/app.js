@@ -424,11 +424,15 @@ function renderProyekDetail() {
     .map(id => state.karyawan.find(k => k.id === id))
     .filter(Boolean).map(k => k.nama);
 
+  const sumberRab = p.sumberRabId ? state.proyekRab.find(r => r.id === p.sumberRabId) : null;
+  const sumberPw = p.sumberPenawaranId ? state.penawaran.find(pw => pw.id === p.sumberPenawaranId) : null;
   document.getElementById("pd_infoRows").innerHTML = `
     <div class="summary-row"><span>Status</span><strong>${proyekStatusLabel(p.status)}</strong></div>
     <div class="summary-row"><span>Tanggal Mulai</span><strong>${p.tanggalMulai ? formatTanggal(p.tanggalMulai) : "-"}</strong></div>
     <div class="summary-row"><span>Rencana Selesai</span><strong class="${overdue ? "bad" : ""}">${p.tanggalSelesai ? formatTanggal(p.tanggalSelesai) : "-"}${overdue ? " ⚠️ Lewat deadline" : ""}</strong></div>
     <div class="summary-row"><span>Pekerja Inti</span><strong>${karyawanNama.length ? escapeHtml(karyawanNama.join(", ")) : "-"}</strong></div>
+    ${sumberRab ? `<div class="summary-row"><span>Sumber</span><strong><a href="#" data-open-sumber-rab="${sumberRab.id}">RAB: ${escapeHtml(sumberRab.nama || "(Tanpa nama)")}</a></strong></div>` : ""}
+    ${sumberPw ? `<div class="summary-row"><span>Sumber</span><strong><a href="#" data-open-sumber-pw="${sumberPw.id}">Penawaran: ${escapeHtml(sumberPw.nomor)}</a></strong></div>` : ""}
   `;
 
   const rows = [
@@ -1992,8 +1996,10 @@ function itemsSubtotal(items) {
 function rabTotals(rab) {
   const subtotal = itemsSubtotal(rab.items);
   const ppnValue = subtotal * (rab.ppn || 0) / 100;
+  // PPh Final sudah termasuk dalam harga satuan (sesuai Syarat & Ketentuan), jadi TIDAK
+  // ditambahkan lagi ke Total — hanya ditampilkan sebagai info berapa yang perlu disetor pajak.
   const pphValue = subtotal * (rab.pph || 0) / 100;
-  const total = subtotal + ppnValue + pphValue + (rab.biayaLain || 0);
+  const total = subtotal + ppnValue + (rab.biayaLain || 0);
   return { subtotal, ppnValue, pphValue, total };
 }
 function penawaranTotals(pw) {
@@ -2001,8 +2007,10 @@ function penawaranTotals(pw) {
   const diskonValue = subtotal * (pw.diskon || 0) / 100;
   const dpp = subtotal - diskonValue;
   const ppnValue = dpp * (pw.ppn || 0) / 100;
+  // PPh Final sudah termasuk dalam harga satuan (sesuai Syarat & Ketentuan), jadi TIDAK
+  // ditambahkan lagi ke Total — hanya ditampilkan sebagai info berapa yang perlu disetor pajak.
   const pphValue = dpp * (pw.pph || 0) / 100;
-  const total = dpp + ppnValue + pphValue;
+  const total = dpp + ppnValue;
   return { subtotal, diskonValue, dpp, ppnValue, pphValue, total };
 }
 const ROMAWI_BULAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
@@ -2616,6 +2624,7 @@ function openItemModal(ctx, existing) {
   document.getElementById("it_satuan").value = existing ? existing.satuan : "";
   document.getElementById("it_volume").value = existing ? String(existing.volume) : "";
   document.getElementById("it_harga").value = existing ? formatNumberInput(existing.hargaSatuan) : "";
+  itemModalCtx.ahspId = existing ? (existing.ahspId || "") : "";
   updateItemJumlahPreview();
   itemModal.classList.add("open");
 }
@@ -2625,7 +2634,10 @@ document.getElementById("it_ahspPick").addEventListener("change", () => {
     document.getElementById("it_uraian").value = a.uraian;
     document.getElementById("it_satuan").value = a.satuan;
     document.getElementById("it_harga").value = formatNumberInput(ahspHarga(a));
+    itemModalCtx.ahspId = a.id;
     updateItemJumlahPreview();
+  } else {
+    itemModalCtx.ahspId = "";
   }
 });
 ["it_volume", "it_harga"].forEach(id => document.getElementById(id).addEventListener("input", updateItemJumlahPreview));
@@ -2644,7 +2656,8 @@ document.getElementById("itemForm").addEventListener("submit", e => {
     uraian: document.getElementById("it_uraian").value.trim(),
     satuan: document.getElementById("it_satuan").value.trim(),
     volume: parseFloat((document.getElementById("it_volume").value || "").replace(",", ".")) || 0,
-    hargaSatuan: parseNumberInput(document.getElementById("it_harga").value)
+    hargaSatuan: parseNumberInput(document.getElementById("it_harga").value),
+    ahspId: itemModalCtx.ahspId || ""
   };
   const idx = doc.items.findIndex(x => x.id === item.id);
   if (idx >= 0) doc.items[idx] = item; else doc.items.push(item);
@@ -2801,7 +2814,7 @@ async function handleBoqFile(file, ctx) {
     }
     const rows = rawRows.map(r => {
       const match = findBestAhspMatch(r.matchText || r.uraian);
-      return { uraian: r.uraian, satuan: r.satuan, volume: r.volume, hargaSatuan: match ? ahspHarga(match) : 0 };
+      return { uraian: r.uraian, satuan: r.satuan, volume: r.volume, hargaSatuan: match ? ahspHarga(match) : 0, ahspId: match ? match.id : "" };
     });
     openImportPreview(ctx, rows, null);
   } catch (err) {
@@ -2822,7 +2835,7 @@ function extractMeasurementsFromText(text) {
       const before = line.slice(0, m.index).trim();
       const uraian = before || line.trim() || "Item dari gambar";
       const match = findBestAhspMatch(uraian);
-      results.push({ uraian, satuan, volume, hargaSatuan: match ? ahspHarga(match) : 0 });
+      results.push({ uraian, satuan, volume, hargaSatuan: match ? ahspHarga(match) : 0, ahspId: match ? match.id : "" });
     }
   });
   return results;
@@ -2859,7 +2872,7 @@ let importPreviewRows = [];
 let importPreviewCtx = null;
 function openImportPreview(ctx, rows, rawText) {
   importPreviewCtx = ctx;
-  importPreviewRows = rows.map(r => ({ checked: true, uraian: r.uraian, satuan: r.satuan, volume: r.volume, hargaSatuan: r.hargaSatuan || 0 }));
+  importPreviewRows = rows.map(r => ({ checked: true, uraian: r.uraian, satuan: r.satuan, volume: r.volume, hargaSatuan: r.hargaSatuan || 0, ahspId: r.ahspId || "" }));
   document.getElementById("imp_rawTextWrap").style.display = rawText ? "block" : "none";
   document.getElementById("imp_rawText").textContent = rawText || "";
   document.getElementById("imp_count").textContent = importPreviewRows.length;
@@ -2911,7 +2924,7 @@ document.getElementById("imp_importBtn").addEventListener("click", () => {
   if (!doc) { closeModals(); return; }
   const toImport = importPreviewRows.filter(r => r.checked);
   toImport.forEach(r => {
-    doc.items.push({ id: uid(), uraian: (r.uraian || "").trim() || "Item", satuan: (r.satuan || "").trim() || "-", volume: r.volume || 0, hargaSatuan: r.hargaSatuan || 0 });
+    doc.items.push({ id: uid(), uraian: (r.uraian || "").trim() || "Item", satuan: (r.satuan || "").trim() || "-", volume: r.volume || 0, hargaSatuan: r.hargaSatuan || 0, ahspId: r.ahspId || "" });
   });
   saveState();
   if (importPreviewCtx.kind === "rab") renderRabEditor(); else renderPwEditor();
@@ -3028,6 +3041,63 @@ function refreshRabTotals() {
   document.getElementById("rab_pphValue").textContent = rupiah(pphValue);
   document.getElementById("rab_total").textContent = rupiah(total);
 }
+function buildRabPrintHtml(rab) {
+  const { subtotal, ppnValue, pphValue, total } = rabTotals(rab);
+  const itemsRows = rab.items.map((it, i) => `
+    <tr>
+      <td class="c">${i + 1}</td>
+      <td>${escapeHtml(it.uraian)}</td>
+      <td class="c">${escapeHtml(it.satuan)}</td>
+      <td class="r">${it.volume}</td>
+      <td class="r">${rupiah(it.hargaSatuan)}</td>
+      <td class="r">${rupiah((it.volume || 0) * (it.hargaSatuan || 0))}</td>
+    </tr>
+  `).join("") || `<tr><td colspan="6" class="c">Belum ada item</td></tr>`;
+
+  return `
+    <div class="letterhead">
+      <div class="letterhead-logo">${LOGO_SVG}</div>
+      <div class="letterhead-text">
+        <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+      </div>
+    </div>
+    <div class="letterhead-rule"></div>
+    <h3 style="text-align:center; margin:6px 0 4px; letter-spacing:.5px;">RENCANA ANGGARAN BIAYA (RAB)</h3>
+    <p class="doc-p" style="text-align:center; margin:0 0 16px;">Dokumen internal — bukan dokumen resmi untuk klien</p>
+
+    <table class="meta-table">
+      <tr><td>Nama Proyek</td><td>:</td><td>${escapeHtml(rab.nama || "-")}</td></tr>
+      <tr><td>Klien</td><td>:</td><td>${escapeHtml(rab.klien || "-")}</td></tr>
+      <tr><td>Lokasi</td><td>:</td><td>${escapeHtml(rab.lokasi || "-")}</td></tr>
+      <tr><td>Kategori</td><td>:</td><td>${escapeHtml(rab.kategori || "-")}</td></tr>
+      <tr><td>Tanggal</td><td>:</td><td>${formatTanggal(rab.tanggal)}</td></tr>
+    </table>
+
+    <table class="doc-items" style="margin-top:16px;">
+      <thead><tr><th>No</th><th>Uraian Pekerjaan</th><th class="c">Satuan</th><th class="r">Volume</th><th class="r">Harga Satuan</th><th class="r">Jumlah</th></tr></thead>
+      <tbody>${itemsRows}</tbody>
+    </table>
+
+    <table class="doc-summary-table">
+      <tr><td>Subtotal</td><td class="r">${rupiah(subtotal)}</td></tr>
+      ${rab.ppn ? `<tr><td>PPN (${rab.ppn}%)</td><td class="r">${rupiah(ppnValue)}</td></tr>` : ""}
+      ${rab.biayaLain ? `<tr><td>Biaya Lain-lain</td><td class="r">${rupiah(rab.biayaLain)}</td></tr>` : ""}
+      <tr class="total-row"><td>Total RAB</td><td class="r">${rupiah(total)}</td></tr>
+    </table>
+    ${rab.pph ? `<p class="doc-p" style="font-size:11px; color:#777;">*Sudah termasuk PPh Final (${rab.pph}%) sebesar ${rupiah(pphValue)}.</p>` : ""}
+
+    <p style="font-size:11px; color:#777; margin-top:10px;">Dicetak ${formatTanggal(new Date().toISOString().slice(0, 10))}.</p>
+  `;
+}
+document.getElementById("rab_printBtn").addEventListener("click", () => {
+  const rab = state.proyekRab.find(r => r.id === currentRabId);
+  if (!rab) return;
+  document.getElementById("printArea").innerHTML = buildRabPrintHtml(rab);
+  document.body.classList.add("printing-quote");
+  window.print();
+});
 document.getElementById("rab_addBtn").addEventListener("click", () => {
   const rab = { id: uid(), nama: "", klien: "", lokasi: "", kategori: KATEGORI_PEKERJAAN[0], tanggal: new Date().toISOString().slice(0, 10), ppn: 0, pph: 0.5, biayaLain: 0, items: [] };
   state.proyekRab.push(rab);
@@ -3098,7 +3168,7 @@ function createPenawaranFromRab(rab) {
     id: uid(), nomor: nextPenawaranNomor(), tanggal: new Date().toISOString().slice(0, 10),
     kepada: rab.klien || "", alamatKlien: "", perihal: rab.nama || "", kategori: rab.kategori || KATEGORI_PEKERJAAN[0],
     status: "draft", diskon: 0, ppn: rab.ppn || 0, pph: typeof rab.pph === "number" ? rab.pph : 0.5,
-    items: rab.items.map(it => ({ id: uid(), uraian: it.uraian, satuan: it.satuan, volume: it.volume, hargaSatuan: it.hargaSatuan })),
+    items: rab.items.map(it => ({ id: uid(), uraian: it.uraian, satuan: it.satuan, volume: it.volume, hargaSatuan: it.hargaSatuan, ahspId: it.ahspId || "" })),
     syarat: defaultSyarat(), penutup: defaultPenutup(), ttdNama: state.ownerNama, ttdJabatan: state.ownerJabatan
   };
 }
@@ -3111,6 +3181,81 @@ document.getElementById("rab_toPenawaranBtn").addEventListener("click", () => {
   showPage("penawaran");
   showPwEditor(pw.id);
 });
+document.getElementById("rab_toProyekBtn").addEventListener("click", () => {
+  const rab = state.proyekRab.find(r => r.id === currentRabId);
+  if (rab) offerCreateProyekFromDoc("rab", rab);
+});
+
+// ===== RAB/Penawaran -> Proyek (anggaran otomatis dari komponen AHSP) =====
+function anggaranFromItems(items) {
+  let bahan = 0, upah = 0, lain = 0, allocated = 0, unallocated = 0;
+  (items || []).forEach(it => {
+    const jumlah = (it.volume || 0) * (it.hargaSatuan || 0);
+    const ahsp = it.ahspId ? state.ahsp.find(a => a.id === it.ahspId) : null;
+    const komponen = ahsp && ahsp.mode === "detail" ? (ahsp.komponen || []) : [];
+    const subtotal = komponen.reduce((s, k) => s + (k.koefisien || 0) * (k.harga || 0), 0);
+    if (subtotal > 0) {
+      const bahanSub = komponen.filter(k => k.jenis === "Bahan").reduce((s, k) => s + (k.koefisien || 0) * (k.harga || 0), 0);
+      const upahSub = komponen.filter(k => k.jenis === "Upah").reduce((s, k) => s + (k.koefisien || 0) * (k.harga || 0), 0);
+      const alatSub = subtotal - bahanSub - upahSub;
+      bahan += jumlah * (bahanSub / subtotal);
+      upah += jumlah * (upahSub / subtotal);
+      lain += jumlah * (alatSub / subtotal);
+      allocated++;
+    } else {
+      lain += jumlah;
+      unallocated++;
+    }
+  });
+  return { anggaranBahan: Math.round(bahan), anggaranUpah: Math.round(upah), anggaranLain: Math.round(lain), allocated, unallocated };
+}
+function createProyekFromDoc(kind, doc) {
+  const totals = kind === "rab" ? rabTotals(doc) : penawaranTotals(doc);
+  const alokasi = anggaranFromItems(doc.items);
+  const proj = {
+    id: uid(),
+    nama: kind === "rab" ? (doc.nama || "(Tanpa nama)") : (doc.perihal || doc.nomor || "(Tanpa nama)"),
+    klien: kind === "rab" ? (doc.klien || "") : (doc.kepada || ""),
+    klienId: kind === "pw" ? (doc.klienId || "") : "",
+    lokasi: kind === "rab" ? (doc.lokasi || "") : "",
+    nilaiKontrak: totals.total,
+    status: "berjalan",
+    tanggalMulai: new Date().toISOString().slice(0, 10),
+    tanggalSelesai: "",
+    biayaBahan: alokasi.anggaranBahan,
+    biayaUpah: alokasi.anggaranUpah,
+    biayaLain: alokasi.anggaranLain,
+    karyawanIds: [],
+    subkontraktor: [],
+    belanjaMaterial: [],
+    sumberRabId: kind === "rab" ? doc.id : "",
+    sumberPenawaranId: kind === "pw" ? doc.id : ""
+  };
+  state.proyek.push(proj);
+  doc.proyekId = proj.id;
+  saveState();
+  return { proj, alokasi };
+}
+function goToDoc(kind, id) {
+  if (kind === "rab") { showPage("rab"); showRabEditor(id); }
+  else { showPage("penawaran"); showPwEditor(id); }
+}
+function offerCreateProyekFromDoc(kind, doc) {
+  if (doc.proyekId && state.proyek.some(p => p.id === doc.proyekId)) {
+    showPage("proyek");
+    showProyekDetail(doc.proyekId);
+    return;
+  }
+  if (!doc.items.length) { alert("Belum ada item pekerjaan — tambah item dulu sebelum membuat Proyek."); return; }
+  const { proj, alokasi } = createProyekFromDoc(kind, doc);
+  renderAll();
+  showPage("proyek");
+  showProyekDetail(proj.id);
+  const pesan = alokasi.unallocated
+    ? `Proyek "${proj.nama}" berhasil dibuat. ${alokasi.allocated} item berhasil dipilah otomatis ke Bahan/Upah dari AHSP, ${alokasi.unallocated} item belum bisa dipilah (masuk ke Lain-lain) — silakan koreksi anggarannya di sini.`
+    : `Proyek "${proj.nama}" berhasil dibuat, dengan anggaran Bahan/Upah/Lain terisi otomatis dari rincian AHSP. Silakan cek & koreksi kalau perlu.`;
+  alert(pesan);
+}
 
 // ===== Rendering: Penawaran Harga =====
 let currentPwId = null;
@@ -3125,16 +3270,19 @@ function renderPwList() {
     tbody.innerHTML = '<tr class="empty-row"><td colspan="7">Belum ada penawaran</td></tr>';
     return;
   }
+  const today = new Date().toISOString().slice(0, 10);
   rows.forEach(p => {
     const { total } = penawaranTotals(p);
+    const kadaluarsa = ["draft", "terkirim"].includes(p.status) && p.tanggal && addDaysIso(p.tanggal, 14) < today;
     const tr = document.createElement("tr");
+    if (kadaluarsa) tr.classList.add("pw-row-kadaluarsa");
     tr.innerHTML = `
-      <td>${escapeHtml(p.nomor)}</td>
+      <td>${escapeHtml(p.nomor)}${p.revisiDariId ? ` <span class="muted" style="font-size:11px;">(Revisi ${p.revisiKe || 1})</span>` : ""}</td>
       <td>${escapeHtml(p.kepada || "-")}</td>
       <td>${escapeHtml(p.perihal || "-")}</td>
       <td>${formatTanggal(p.tanggal)}</td>
       <td class="num">${rupiah(total)}</td>
-      <td><span class="badge status-${p.status}">${pwStatusLabel(p.status)}</span></td>
+      <td><span class="badge status-${p.status}">${pwStatusLabel(p.status)}</span>${kadaluarsa ? ' <span class="bad" style="font-size:11px;">⚠️ Kadaluarsa</span>' : ""}</td>
       <td>
         <div class="row-actions">
           <button class="icon-btn" data-open-pw="${p.id}" title="Buka">📂</button>
@@ -3162,6 +3310,16 @@ function renderPwEditor() {
   if (!pw) { showPwList(); return; }
   const kategoriSel = document.getElementById("pw_kategori");
   if (kategoriSel.options.length === 0) kategoriSel.innerHTML = KATEGORI_PEKERJAAN.map(k => `<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`).join("");
+
+  const revisiNote = document.getElementById("pw_revisiNote");
+  const asal = pw.revisiDariId ? state.penawaran.find(p => p.id === pw.revisiDariId) : null;
+  if (asal) {
+    revisiNote.style.display = "block";
+    revisiNote.innerHTML = `🔁 Revisi ke-${pw.revisiKe || 1} dari <a href="#" data-open-pw-asal="${asal.id}">${escapeHtml(asal.nomor)}</a>`;
+  } else {
+    revisiNote.style.display = "none";
+    revisiNote.innerHTML = "";
+  }
 
   const focusedId = document.activeElement.id;
   if (focusedId !== "pw_nomor") document.getElementById("pw_nomor").value = pw.nomor || "";
@@ -3215,8 +3373,9 @@ function renderPwEditor() {
 function refreshPwTotals() {
   const pw = state.penawaran.find(p => p.id === currentPwId);
   if (!pw) return;
-  const { subtotal, total } = penawaranTotals(pw);
+  const { subtotal, pphValue, total } = penawaranTotals(pw);
   document.getElementById("pw_subtotal").textContent = rupiah(subtotal);
+  document.getElementById("pw_pphValue").textContent = rupiah(pphValue);
   document.getElementById("pw_total").textContent = rupiah(total);
 }
 document.getElementById("pw_addBtn").addEventListener("click", () => {
@@ -3265,7 +3424,38 @@ document.getElementById("pw_kategori").addEventListener("change", () => {
 });
 document.getElementById("pw_status").addEventListener("change", () => {
   const pw = state.penawaran.find(p => p.id === currentPwId);
-  if (pw) { pw.status = document.getElementById("pw_status").value; saveState(); }
+  if (!pw) return;
+  const newStatus = document.getElementById("pw_status").value;
+  const prevStatus = pw.status;
+  pw.status = newStatus;
+  if (newStatus === "disetujui" && prevStatus !== "disetujui") {
+    const klien = pw.klienId ? state.klien.find(k => k.id === pw.klienId) : null;
+    const needKlienUpdate = !!(klien && !["Deal/SPK", "Selesai"].includes(klien.tahap));
+    const needProyek = !(pw.proyekId && state.proyek.some(p => p.id === pw.proyekId)) && pw.items.length > 0;
+    if (needKlienUpdate || needProyek) {
+      const parts = [];
+      if (needKlienUpdate) parts.push(`ubah tahap Klien "${klien.nama}" jadi "Deal/SPK"`);
+      if (needProyek) parts.push("buat Proyek baru dari penawaran ini");
+      if (confirm(`Penawaran ini disetujui klien. Sekalian ${parts.join(" dan ")}?`)) {
+        if (needKlienUpdate) {
+          klien.tahap = "Deal/SPK";
+          if (!klien.riwayatKontak) klien.riwayatKontak = [];
+          klien.riwayatKontak.push({ id: uid(), tanggal: new Date().toISOString().slice(0, 10), catatan: `Penawaran ${pw.nomor} disetujui — tahap otomatis diubah ke Deal/SPK` });
+        }
+        if (needProyek) {
+          const { proj } = createProyekFromDoc("pw", pw);
+          saveState();
+          renderAll();
+          showPage("proyek");
+          showProyekDetail(proj.id);
+          alert(`Proyek "${proj.nama}" berhasil dibuat dari penawaran ini. Silakan cek & koreksi anggarannya.`);
+          return;
+        }
+      }
+    }
+  }
+  saveState();
+  renderAll();
 });
 document.getElementById("pw_diskon").addEventListener("input", () => {
   const pw = state.penawaran.find(p => p.id === currentPwId);
@@ -3285,7 +3475,7 @@ document.getElementById("pw_importRab").addEventListener("change", () => {
   const pw = state.penawaran.find(p => p.id === currentPwId);
   if (!rab || !pw) { sel.value = ""; return; }
   if (!confirm(`Impor ${rab.items.length} item dari RAB "${rab.nama || "(Tanpa nama)"}"? Item akan ditambahkan ke daftar item penawaran ini.`)) { sel.value = ""; return; }
-  rab.items.forEach(it => pw.items.push({ id: uid(), uraian: it.uraian, satuan: it.satuan, volume: it.volume, hargaSatuan: it.hargaSatuan }));
+  rab.items.forEach(it => pw.items.push({ id: uid(), uraian: it.uraian, satuan: it.satuan, volume: it.volume, hargaSatuan: it.hargaSatuan, ahspId: it.ahspId || "" }));
   if (!pw.perihal) pw.perihal = rab.nama;
   if (!pw.kepada) pw.kepada = rab.klien;
   saveState();
@@ -3362,9 +3552,9 @@ function buildPenawaranPrintHtml(pw) {
       <tr><td>Subtotal</td><td class="r">${rupiah(subtotal)}</td></tr>
       ${pw.diskon ? `<tr><td>Diskon (${pw.diskon}%)</td><td class="r">- ${rupiah(diskonValue)}</td></tr>` : ""}
       ${pw.ppn ? `<tr><td>PPN (${pw.ppn}%)</td><td class="r">${rupiah(ppnValue)}</td></tr>` : ""}
-      ${pw.pph ? `<tr><td>PPh (${pw.pph}%)</td><td class="r">${rupiah(pphValue)}</td></tr>` : ""}
       <tr class="total-row"><td>Total Penawaran</td><td class="r">${rupiah(total)}</td></tr>
     </table>
+    ${pw.pph ? `<p class="doc-p" style="font-size:11px; color:#777;">*Sudah termasuk PPh Final (${pw.pph}%) sebesar ${rupiah(pphValue)} sesuai Syarat &amp; Ketentuan di bawah.</p>` : ""}
 
     <div class="doc-syarat">
       <strong>Syarat &amp; Ketentuan:</strong>
@@ -3387,6 +3577,33 @@ document.getElementById("pw_printBtn").addEventListener("click", () => {
   document.getElementById("printArea").innerHTML = buildPenawaranPrintHtml(pw);
   document.body.classList.add("printing-quote");
   window.print();
+});
+document.getElementById("pw_toProyekBtn").addEventListener("click", () => {
+  const pw = state.penawaran.find(p => p.id === currentPwId);
+  if (pw) offerCreateProyekFromDoc("pw", pw);
+});
+document.getElementById("pw_duplicateBtn").addEventListener("click", () => {
+  const pw = state.penawaran.find(p => p.id === currentPwId);
+  if (!pw) return;
+  if (!confirm(`Buat revisi baru dari penawaran "${pw.nomor}"? Item, syarat, dan data lain akan disalin — penawaran asli tidak berubah.`)) return;
+  const revisi = {
+    ...pw,
+    id: uid(),
+    nomor: nextPenawaranNomor(),
+    tanggal: new Date().toISOString().slice(0, 10),
+    status: "draft",
+    proyekId: "",
+    revisiDariId: pw.id,
+    revisiKe: (pw.revisiKe || 0) + 1,
+    items: pw.items.map(it => ({ ...it, id: uid() }))
+  };
+  state.penawaran.push(revisi);
+  saveState();
+  showPwEditor(revisi.id);
+});
+document.getElementById("pw_revisiNote").addEventListener("click", e => {
+  const link = e.target.closest("[data-open-pw-asal]");
+  if (link) { e.preventDefault(); showPwEditor(link.dataset.openPwAsal); }
 });
 window.addEventListener("afterprint", () => {
   document.body.classList.remove("printing-quote");
@@ -3655,6 +3872,12 @@ document.getElementById("pd_editBtn").addEventListener("click", () => {
   if (p) openProyekModal(p);
 });
 document.getElementById("pd_backBtn").addEventListener("click", showProyekList);
+document.getElementById("pd_infoRows").addEventListener("click", e => {
+  const rabLink = e.target.closest("[data-open-sumber-rab]");
+  const pwLink = e.target.closest("[data-open-sumber-pw]");
+  if (rabLink) { e.preventDefault(); goToDoc("rab", rabLink.dataset.openSumberRab); }
+  else if (pwLink) { e.preventDefault(); goToDoc("pw", pwLink.dataset.openSumberPw); }
+});
 
 // ----- Termin Pembayaran (derived from + written back to Kas Perusahaan) -----
 attachNumberFormatting(document.getElementById("tm_jumlah"));

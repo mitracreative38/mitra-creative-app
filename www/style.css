@@ -320,6 +320,7 @@ body {
 .badge-stok.habis { background: color-mix(in srgb, var(--critical) 16%, transparent); color: var(--critical); }
 .stok-row-hampir { background: color-mix(in srgb, var(--warning) 7%, transparent); }
 .stok-row-habis { background: color-mix(in srgb, var(--critical) 7%, transparent); }
+.pw-row-kadaluarsa { background: color-mix(in srgb, var(--warning) 7%, transparent); }
 
 /* ---------- Status badges (Penawaran) ---------- */
 .badge.status-draft { background: color-mix(in srgb, var(--text-muted) 20%, transparent); color: var(--text-secondary); }
