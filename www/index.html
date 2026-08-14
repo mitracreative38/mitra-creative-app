@@ -1492,14 +1492,14 @@
         <input type="text" id="settingsOwnerJabatan" class="text-input" style="width:100%">
       </div>
 
-      <div class="panel narrow">
+      <div class="panel narrow" id="settingsApprovalPanel">
         <h3>Approval Pengeluaran</h3>
         <p class="muted">Transaksi Keluar di Kas Perusahaan dengan jumlah di atas batas ini otomatis berstatus "Menunggu Persetujuan" dan tidak mengurangi saldo sampai disetujui. Isi 0 untuk mematikan fitur ini.</p>
         <label class="field-label">Batas Nominal Perlu Persetujuan (Rp)</label>
         <input type="text" inputmode="numeric" id="settingsApprovalThreshold" class="text-input" style="width:100%">
       </div>
 
-      <div class="panel narrow">
+      <div class="panel narrow" id="settingsDataPanel">
         <h3>Data</h3>
         <p class="muted">Semua data tersimpan otomatis di browser ini (localStorage). Gunakan Export untuk backup, atau Import untuk memulihkan.</p>
         <div class="settings-actions">
@@ -1534,11 +1534,33 @@
       </div>
       <div class="panel narrow" id="sync_loggedInPanel" style="display:none;">
         <h3>☁️ Akun &amp; Sinkronisasi Cloud</h3>
-        <p class="muted">Masuk sebagai <strong id="sync_userEmail">-</strong>. Data otomatis tersinkron ke cloud setiap ada perubahan.</p>
+        <p class="muted">Masuk sebagai <strong id="sync_userEmail">-</strong> (peran: <strong id="sync_userRole">Pemilik</strong>). Data otomatis tersinkron ke cloud setiap ada perubahan.</p>
         <p class="muted" id="sync_status" style="font-size:12px;">-</p>
         <div class="settings-actions">
           <button class="btn-ghost" id="sync_nowBtn">🔄 Sinkron Sekarang</button>
           <button class="btn-danger" id="sync_logoutBtn">Keluar</button>
+        </div>
+      </div>
+
+      <div class="panel narrow" id="sync_teamPanel" style="display:none;">
+        <h3>👥 Anggota Tim</h3>
+        <p class="muted">Undang admin/marketing supaya mereka bekerja di data perusahaan yang sama dengan Anda, dengan akses terbatas sesuai peran. Mereka login dengan cara yang sama (kode OTP lewat email) di halaman Pengaturan &gt; Akun &amp; Sinkronisasi Cloud pada perangkat masing-masing.</p>
+        <p class="muted" id="team_msg" style="display:none;"></p>
+        <div class="table-wrap">
+          <table class="tbl" id="team_table">
+            <thead><tr><th>Email</th><th>Peran</th><th>Status</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <label class="field-label">Email Anggota Baru</label>
+        <input type="email" id="team_newEmail" class="text-input" style="width:100%">
+        <label class="field-label">Peran</label>
+        <select id="team_newRole" style="width:100%">
+          <option value="admin">Admin — operasional penuh, tanpa lihat saldo/laporan keuangan/gaji</option>
+          <option value="marketing">Marketing — hanya Klien, AHSP, RAB &amp; Penawaran</option>
+        </select>
+        <div class="settings-actions">
+          <button class="btn-primary" id="team_inviteBtn">+ Undang Anggota</button>
         </div>
       </div>
     </section>
