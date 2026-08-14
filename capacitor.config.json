@@ -1,0 +1,23 @@
+{
+  "appId": "com.mitracreative.keuangan",
+  "appName": "CV Mitra Creative",
+  "webDir": "www",
+  "backgroundColor": "#f9f9f7",
+  "android": {
+    "backgroundColor": "#f9f9f7"
+  },
+  "ios": {
+    "backgroundColor": "#f9f9f7"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 800,
+      "backgroundColor": "#f9f9f7",
+      "showSpinner": false
+    },
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#f9f9f7"
+    }
+  }
+}

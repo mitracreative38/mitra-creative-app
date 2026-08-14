@@ -1,0 +1,38 @@
+{
+  "name": "mitra-creative-app",
+  "version": "1.0.0",
+  "description": "CV Mitra Creative — Laporan Keuangan. A static web app shipped both as a website (GitHub Pages) and as native Android/iOS apps via Capacitor.",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build:mobile-init": "esbuild src/mobile-init.js --bundle --outfile=www/mobile-init.bundle.js --format=iife --minify",
+    "sync": "npm run build:mobile-init && cap sync",
+    "assets": "node resources/generate-source-images.js && capacitor-assets generate",
+    "android:open": "npm run sync && cap open android",
+    "ios:open": "npm run sync && cap open ios",
+    "serve": "npx serve www"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mitracreative38/mitra-creative-app.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/mitracreative38/mitra-creative-app/issues"
+  },
+  "homepage": "https://github.com/mitracreative38/mitra-creative-app#readme",
+  "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/ios": "^8.5.0",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.3"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.5.0",
+    "esbuild": "^0.28.2"
+  }
+}

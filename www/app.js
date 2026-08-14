@@ -770,10 +770,12 @@ function renderPenggajianPanel() {
     .map(k => `<option value="${k.id}">${escapeHtml(k.nama)}</option>`).join("");
   if (prevValue && state.karyawan.some(k => k.id === prevValue)) sel.value = prevValue;
   if (!document.getElementById("pg_mulai").value) {
+    // Gajian mingguan jatuh tiap Sabtu, jadi periode berjalan Minggu s.d. Sabtu —
+    // bukan Senin s.d. Minggu, supaya hari Minggu (hari pertama periode) ikut terhitung.
     const today = new Date();
-    const monday = new Date(today);
-    monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
-    document.getElementById("pg_mulai").value = monday.toISOString().slice(0, 10);
+    const sunday = new Date(today);
+    sunday.setDate(today.getDate() - today.getDay());
+    document.getElementById("pg_mulai").value = sunday.toISOString().slice(0, 10);
     document.getElementById("pg_selesai").value = today.toISOString().slice(0, 10);
   }
   computePayrollFromAbsensi(true);
@@ -812,7 +814,10 @@ function computePayrollFromAbsensi(resetManualInputs) {
     const selesai = document.getElementById("pg_selesai").value;
     const inRange = !mulai || !selesai ? [] : (k.absensi || []).filter(a => a.tanggal >= mulai && a.tanggal <= selesai);
     const hariHadir = inRange.filter(a => a.hadir).length;
-    const jamLembur = inRange.filter(a => a.hadir).reduce((s, a) => s + (a.jamLembur || 0), 0);
+    // Lembur dihitung untuk semua hari dalam periode, bukan cuma hari yang ditandai
+    // "Hadir" — karyawan bisa lembur di hari libur (mis. Minggu) tanpa masuk sebagai
+    // hari kerja reguler, dan jam itu tetap harus terhitung.
+    const jamLembur = inRange.reduce((s, a) => s + (a.jamLembur || 0), 0);
     const totalUpahHarian = hariHadir * (k.upahHarian || 0);
     const totalLembur = jamLembur * (k.tarifLembur || 0);
     pgComputed = { hariHadir, jamLembur, totalUpahHarian, totalLembur, upahKotor: totalUpahHarian + totalLembur, bonus: 0 };
