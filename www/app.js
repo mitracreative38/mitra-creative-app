@@ -76,6 +76,12 @@ let currentSyncUser = null;
 let cloudSyncTimer = null;
 let realtimeChannel = null;
 let suppressRealtimeUntil = 0;
+// Peran & pemilik data perusahaan yang sedang aktif. Owner selalu bekerja di
+// datanya sendiri (targetCompanyId === currentSyncUser.id). Anggota tim yang
+// diundang (admin/marketing) bekerja di data milik Owner yang mengundangnya
+// (targetCompanyId === owner_id dari baris team_members mereka).
+let currentTeamRole = "owner";
+let targetCompanyId = null;
 
 function scheduleCloudPush() {
   if (!sb || !currentSyncUser) return;
@@ -83,9 +89,9 @@ function scheduleCloudPush() {
   cloudSyncTimer = setTimeout(pushStateToCloud, 1500);
 }
 async function pushStateToCloud() {
-  if (!sb || !currentSyncUser) return;
+  if (!sb || !currentSyncUser || !targetCompanyId) return;
   try {
-    const { error } = await sb.from("app_state").upsert({ user_id: currentSyncUser.id, data: state, updated_at: new Date().toISOString() });
+    const { error } = await sb.from("app_state").upsert({ user_id: targetCompanyId, data: state, updated_at: new Date().toISOString() });
     if (error) throw error;
     suppressRealtimeUntil = Date.now() + 3000;
     setSyncStatus(`Tersinkron ${new Date().toLocaleTimeString("id-ID")}`);
@@ -93,12 +99,37 @@ async function pushStateToCloud() {
     setSyncStatus("Gagal sinkron ke cloud: " + err.message);
   }
 }
-function subscribeRealtime(userId) {
+async function resolveTeamMembership(user) {
+  try {
+    const { data, error } = await sb.from("team_members").select("*").or(`member_id.eq.${user.id},member_email.eq.${user.email}`);
+    if (error) throw error;
+    const rows = data || [];
+    let membership = rows.find(r => r.member_id === user.id && r.status === "active");
+    if (!membership) {
+      const pending = rows.find(r => r.status === "pending" && r.member_email && r.member_email.toLowerCase() === (user.email || "").toLowerCase());
+      if (pending) {
+        const { data: claimed, error: claimErr } = await sb.from("team_members").update({ member_id: user.id, status: "active" }).eq("id", pending.id).select().maybeSingle();
+        if (!claimErr && claimed) membership = claimed;
+      }
+    }
+    if (membership) {
+      currentTeamRole = membership.role;
+      targetCompanyId = membership.owner_id;
+    } else {
+      currentTeamRole = "owner";
+      targetCompanyId = user.id;
+    }
+  } catch (e) {
+    currentTeamRole = "owner";
+    targetCompanyId = user.id;
+  }
+}
+function subscribeRealtime(companyId) {
   if (!sb || realtimeChannel || typeof sb.channel !== "function") return;
   try {
     realtimeChannel = sb
-      .channel("app_state_" + userId)
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "app_state", filter: `user_id=eq.${userId}` }, (payload) => {
+      .channel("app_state_" + companyId)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "app_state", filter: `user_id=eq.${companyId}` }, (payload) => {
         if (Date.now() < suppressRealtimeUntil) return;
         if (cloudSyncTimer) return;
         if (document.querySelector(".modal-backdrop.open")) return;
@@ -119,10 +150,12 @@ function unsubscribeRealtime() {
 }
 async function handlePostLoginSync(user) {
   currentSyncUser = user;
+  await resolveTeamMembership(user);
   updateSyncUI();
-  subscribeRealtime(user.id);
+  applyRoleAccess();
+  subscribeRealtime(targetCompanyId);
   try {
-    const { data, error } = await sb.from("app_state").select("data, updated_at").eq("user_id", user.id).maybeSingle();
+    const { data, error } = await sb.from("app_state").select("data, updated_at").eq("user_id", targetCompanyId).maybeSingle();
     if (error) throw error;
     if (!data) {
       await pushStateToCloud();
@@ -148,6 +181,7 @@ function setSyncStatus(text) {
   const el = document.getElementById("sync_status");
   if (el) el.textContent = text;
 }
+const ROLE_LABELS = { owner: "Pemilik", admin: "Admin", marketing: "Marketing" };
 function updateSyncUI() {
   const loggedOut = document.getElementById("sync_loggedOutPanel");
   const loggedIn = document.getElementById("sync_loggedInPanel");
@@ -156,6 +190,11 @@ function updateSyncUI() {
     loggedOut.style.display = "none";
     loggedIn.style.display = "block";
     document.getElementById("sync_userEmail").textContent = currentSyncUser.email || "-";
+    const roleEl = document.getElementById("sync_userRole");
+    if (roleEl) roleEl.textContent = ROLE_LABELS[currentTeamRole] || currentTeamRole;
+    const teamPanel = document.getElementById("sync_teamPanel");
+    if (teamPanel) teamPanel.style.display = currentTeamRole === "owner" ? "block" : "none";
+    if (currentTeamRole === "owner") renderTeamMembers();
   } else {
     loggedOut.style.display = "block";
     loggedIn.style.display = "none";
@@ -4101,8 +4140,46 @@ function renderAll() {
   document.title = `${state.company || "Laporan Keuangan"} — Laporan Keuangan`;
 }
 
+// ===== Peran & akses tim (Owner / Admin / Marketing) =====
+// null = akses penuh ke semua halaman. Kalau login sebagai anggota tim,
+// hanya halaman yang terdaftar di sini yang boleh diakses.
+const ROLE_PAGE_ACCESS = {
+  owner: null,
+  admin: ["klien", "kasUsaha", "proyek", "karyawan", "stok", "pemasok", "ahsp", "rab", "penawaran", "pengaturan"],
+  marketing: ["klien", "ahsp", "rab", "penawaran", "pengaturan"]
+};
+function canAccessPage(name) {
+  const allowed = ROLE_PAGE_ACCESS[currentTeamRole];
+  return !allowed || allowed.includes(name);
+}
+function applyRoleAccess() {
+  document.querySelectorAll(".nav-item[data-page]").forEach(btn => {
+    btn.style.display = canAccessPage(btn.dataset.page) ? "" : "none";
+  });
+  const hideAngkaSensitif = currentTeamRole !== "owner";
+  document.querySelectorAll("#ku_saldoAwal, #ku_saldoAkhir").forEach(el => {
+    const card = el.closest(".stat-card");
+    if (card) card.style.display = hideAngkaSensitif ? "none" : "";
+  });
+  const penggajianTab = document.querySelector('[data-subtab="penggajian"][data-subtab-page="ky"]');
+  if (penggajianTab) {
+    penggajianTab.style.display = currentTeamRole === "owner" ? "" : "none";
+    if (currentTeamRole !== "owner" && penggajianTab.classList.contains("active")) showSubtab("ky", "daftar");
+  }
+  ["settingsApprovalPanel", "settingsDataPanel"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = currentTeamRole === "owner" ? "" : "none";
+  });
+  const activePage = document.querySelector(".page.active");
+  const activeName = activePage ? activePage.id.replace("page-", "") : null;
+  if (activeName && !canAccessPage(activeName)) {
+    showPage(canAccessPage("klien") ? "klien" : "dashboard");
+  }
+}
+
 // ===== Navigation =====
 function showPage(name) {
+  if (!canAccessPage(name)) return;
   document.querySelectorAll(".page").forEach(el => el.classList.remove("active"));
   document.getElementById(`page-${name}`).classList.add("active");
   document.querySelectorAll(".nav-item").forEach(el => el.classList.toggle("active", el.dataset.page === name));
@@ -4830,8 +4907,11 @@ if (sb) {
       if (!currentSyncUser || currentSyncUser.id !== session.user.id) handlePostLoginSync(session.user);
     } else {
       currentSyncUser = null;
+      currentTeamRole = "owner";
+      targetCompanyId = null;
       unsubscribeRealtime();
       updateSyncUI();
+      applyRoleAccess();
     }
   });
   sb.auth.getSession().then(({ data }) => {
@@ -4876,6 +4956,53 @@ document.getElementById("sync_logoutBtn").addEventListener("click", async () => 
   await sb.auth.signOut();
 });
 document.getElementById("sync_nowBtn").addEventListener("click", () => pushStateToCloud());
+
+// ===== Anggota Tim (Owner mengundang Admin/Marketing) =====
+function showTeamMsg(text) {
+  const el = document.getElementById("team_msg");
+  if (!el) return;
+  el.textContent = text;
+  el.style.display = text ? "block" : "none";
+}
+async function renderTeamMembers() {
+  const tbody = document.querySelector("#team_table tbody");
+  if (!tbody || !sb || !currentSyncUser) return;
+  try {
+    const { data, error } = await sb.from("team_members").select("*").eq("owner_id", currentSyncUser.id).order("created_at", { ascending: true });
+    if (error) throw error;
+    const rows = data || [];
+    tbody.innerHTML = rows.length ? rows.map(r => `
+      <tr>
+        <td>${escapeHtml(r.member_email)}</td>
+        <td>${escapeHtml(ROLE_LABELS[r.role] || r.role)}</td>
+        <td>${r.status === "active" ? "Aktif" : "Menunggu login pertama"}</td>
+        <td><button class="btn-ghost" data-remove-team="${r.id}">Hapus</button></td>
+      </tr>
+    `).join("") : `<tr><td colspan="4" class="muted">Belum ada anggota tim yang diundang.</td></tr>`;
+    tbody.querySelectorAll("[data-remove-team]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        if (!confirm("Hapus anggota tim ini? Mereka tidak akan bisa lagi mengakses data perusahaan setelah ini.")) return;
+        const { error: delErr } = await sb.from("team_members").delete().eq("id", btn.dataset.removeTeam);
+        if (delErr) { showTeamMsg("Gagal menghapus: " + delErr.message); return; }
+        renderTeamMembers();
+      });
+    });
+  } catch (err) {
+    showTeamMsg("Gagal memuat daftar anggota tim: " + err.message);
+  }
+}
+document.getElementById("team_inviteBtn").addEventListener("click", async () => {
+  if (!sb || !currentSyncUser) return;
+  const email = document.getElementById("team_newEmail").value.trim().toLowerCase();
+  const role = document.getElementById("team_newRole").value;
+  if (!email) { showTeamMsg("Isi email anggota yang mau diundang."); return; }
+  showTeamMsg("Mengundang...");
+  const { error } = await sb.from("team_members").insert({ owner_id: currentSyncUser.id, member_email: email, role, status: "pending" });
+  if (error) { showTeamMsg("Gagal mengundang: " + error.message); return; }
+  document.getElementById("team_newEmail").value = "";
+  showTeamMsg(`Berhasil diundang. Minta ${email} login lewat halaman Pengaturan > Akun & Sinkronisasi Cloud di perangkat mereka dengan email yang sama.`);
+  renderTeamMembers();
+});
 
 // ===== Print =====
 document.getElementById("printBtn").addEventListener("click", () => window.print());
