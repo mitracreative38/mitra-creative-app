@@ -161,7 +161,7 @@
           <button class="btn-primary" id="kl_addBtn">+ Tambah Klien</button>
         </header>
 
-        <div class="stat-grid">
+        <div class="stat-grid stat-grid-5">
           <div class="stat-card">
             <div class="stat-label">Total Klien</div>
             <div class="stat-value" id="kl_totalKlien">0</div>
@@ -175,9 +175,18 @@
             <div class="stat-value warn" id="kl_totalFollowUp">0</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Total Nilai Kontrak (semua proyek)</div>
+            <div class="stat-label">Total Nilai Kontrak (sudah deal)</div>
             <div class="stat-value" id="kl_totalNilai">Rp 0</div>
           </div>
+          <div class="stat-card">
+            <div class="stat-label">Nilai Pipeline (belum deal)</div>
+            <div class="stat-value warn" id="kl_totalPipeline">Rp 0</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="muted" style="margin-bottom:10px;">Sumber Leads</div>
+          <div class="bar-chart" id="kl_sumberChart"></div>
         </div>
 
         <div class="panel">
@@ -186,6 +195,7 @@
             <select id="kl_filterTahap">
               <option value="">Semua Tahap</option>
             </select>
+            <button class="btn-ghost" id="kl_printBtn">🖨️ Cetak Daftar Klien</button>
           </div>
           <div class="table-wrap">
             <table class="tbl" id="kl_table">
@@ -208,13 +218,16 @@
           <div style="display:flex; gap:10px; flex-wrap:wrap;">
             <button class="btn-ghost" id="kld_backBtn">← Kembali ke Daftar</button>
             <button class="btn-ghost" id="kld_editBtn">✏️ Edit Klien</button>
+            <button class="btn-ghost" id="kld_toRabBtn">📐 Buat RAB dari Klien Ini</button>
+            <button class="btn-primary" id="kld_toPwBtn">📝 Buat Penawaran dari Klien Ini</button>
           </div>
         </header>
 
-        <div class="stat-grid">
+        <div class="stat-grid stat-grid-5">
           <div class="stat-card">
             <div class="stat-label">Tahap</div>
             <div class="stat-value" id="kld_tahap">-</div>
+            <div class="stat-meta" id="kld_tahapSejak">-</div>
           </div>
           <div class="stat-card">
             <div class="stat-label">Total Proyek</div>
@@ -228,11 +241,53 @@
             <div class="stat-label">Total Margin</div>
             <div class="stat-value good" id="kld_totalMargin">Rp 0</div>
           </div>
+          <div class="stat-card">
+            <div class="stat-label">Nilai Pipeline (belum deal)</div>
+            <div class="stat-value warn" id="kld_totalPipeline">Rp 0</div>
+          </div>
         </div>
 
         <div class="panel">
           <h3>Info Klien</h3>
           <div class="summary-rows" id="kld_infoRows"></div>
+        </div>
+
+        <div class="panel">
+          <div class="muted" style="margin-bottom:10px;">Kontak / PIC per Area — untuk klien dengan cabang banyak, target &amp; proses pencairan pusat vs area biasanya beda</div>
+          <div class="form-grid" style="margin-bottom:12px;">
+            <div class="field">
+              <label>Tipe</label>
+              <select id="pic_tipe">
+                <option value="Pusat">Pusat</option>
+                <option value="Area">Area</option>
+              </select>
+            </div>
+            <div class="field" id="pic_areaField">
+              <label>Nama Area/Cabang</label>
+              <input type="text" id="pic_area" placeholder="mis. Cabang Karangmulya">
+            </div>
+            <div class="field">
+              <label>Nama PIC</label>
+              <input type="text" id="pic_nama" placeholder="mis. Bpk. Ahmad">
+            </div>
+            <div class="field">
+              <label>Jabatan</label>
+              <input type="text" id="pic_jabatan" placeholder="mis. Kepala Cabang">
+            </div>
+            <div class="field">
+              <label>No. WA</label>
+              <input type="text" id="pic_wa" placeholder="08xx...">
+            </div>
+            <div class="field" style="justify-content:flex-end;">
+              <button type="button" class="btn-primary" id="pic_addBtn">+ Tambah Kontak</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="kld_picTable">
+              <thead><tr><th>Tipe</th><th>Area</th><th>Nama</th><th>Jabatan</th><th>No. WA</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
 
         <div class="panel">
@@ -247,6 +302,16 @@
           <div class="table-wrap">
             <table class="tbl" id="kld_kontakTable">
               <thead><tr><th>Tanggal</th><th>Catatan</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="muted" style="margin-bottom:10px;">RAB Terkait</div>
+          <div class="table-wrap">
+            <table class="tbl" id="kld_rabTable">
+              <thead><tr><th>No. RAB</th><th>Nama</th><th>Tanggal</th><th class="num">Total</th><th></th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -1112,6 +1177,12 @@
             <div class="field">
               <label>Klien</label>
               <input type="text" id="rab_klien" placeholder="Nama klien">
+            </div>
+            <div class="field">
+              <label>Kaitkan ke Klien (opsional)</label>
+              <select id="rab_klienId">
+                <option value="">Tidak dikaitkan</option>
+              </select>
             </div>
             <div class="field">
               <label>Lokasi</label>
