@@ -41,6 +41,7 @@ function withDefaults(s) {
   if (!s.proyekRab) s.proyekRab = [];
   if (!s.penawaran) s.penawaran = [];
   if (typeof s.penawaranCounter !== "number") s.penawaranCounter = 0;
+  if (typeof s.rabCounter !== "number") s.rabCounter = 0;
   if (!s.alamat) s.alamat = COMPANY_ADDRESS;
   if (!s.telepon) s.telepon = COMPANY_PHONE;
   if (!s.ownerNama) s.ownerNama = OWNER_INFO.nama;
@@ -2020,6 +2021,12 @@ function nextPenawaranNomor() {
   const d = new Date();
   return `${n}/MC-PH/${ROMAWI_BULAN[d.getMonth()]}/${d.getFullYear()}`;
 }
+function nextRabNomor() {
+  state.rabCounter = (state.rabCounter || 0) + 1;
+  const n = String(state.rabCounter).padStart(3, "0");
+  const d = new Date();
+  return `${n}/MC-RAB/${ROMAWI_BULAN[d.getMonth()]}/${d.getFullYear()}`;
+}
 function defaultSyarat() {
   return "1. Harga sudah termasuk PPh Final 0,5% dan PPN (jika berlaku) sesuai ketentuan yang berlaku.\n2. Pembayaran: DP 50% saat SPK diterbitkan, sisa 50% saat pekerjaan selesai (BAST).\n3. Penawaran ini berlaku 14 (empat belas) hari kalender sejak tanggal surat.\n4. Waktu pengerjaan disepakati bersama setelah SPK/kontrak ditandatangani.";
 }
@@ -2953,17 +2960,30 @@ wireImportButtons("pw", "pw");
 // ===== Rendering: RAB =====
 let currentRabId = null;
 function renderRabList() {
+  const filterSel = document.getElementById("rab_filterKategori");
+  if (filterSel.options.length <= 1) {
+    KATEGORI_PEKERJAAN.forEach(k => filterSel.insertAdjacentHTML("beforeend", `<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`));
+  }
+  document.getElementById("rab_totalCount").textContent = state.proyekRab.length;
+  document.getElementById("rab_totalNilai").textContent = rupiah(state.proyekRab.reduce((s, r) => s + rabTotals(r).total, 0));
+  document.getElementById("rab_totalJadiProyek").textContent = state.proyekRab.filter(r => r.proyekId && state.proyek.some(p => p.id === r.proyekId)).length;
+
+  const search = (document.getElementById("rab_search").value || "").toLowerCase();
+  const filterKategori = filterSel.value;
   const tbody = document.querySelector("#rab_table tbody");
   tbody.innerHTML = "";
-  const rows = state.proyekRab.slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
+  let rows = state.proyekRab.slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
+  if (search) rows = rows.filter(r => (r.nama || "").toLowerCase().includes(search) || (r.klien || "").toLowerCase().includes(search) || (r.nomor || "").toLowerCase().includes(search));
+  if (filterKategori) rows = rows.filter(r => r.kategori === filterKategori);
   if (!rows.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">Belum ada RAB</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Belum ada RAB</td></tr>';
     return;
   }
   rows.forEach(r => {
     const { total } = rabTotals(r);
     const tr = document.createElement("tr");
     tr.innerHTML = `
+      <td>${escapeHtml(r.nomor || "-")}</td>
       <td>${escapeHtml(r.nama || "(Tanpa nama)")}${r.klien ? " — " + escapeHtml(r.klien) : ""}</td>
       <td>${escapeHtml(r.kategori || "-")}</td>
       <td>${formatTanggal(r.tanggal)}</td>
@@ -2996,6 +3016,7 @@ function renderRabEditor() {
   const kategoriSel = document.getElementById("rab_kategori");
   if (kategoriSel.options.length === 0) kategoriSel.innerHTML = KATEGORI_PEKERJAAN.map(k => `<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`).join("");
 
+  if (document.activeElement.id !== "rab_nomor") document.getElementById("rab_nomor").value = rab.nomor || "";
   if (document.activeElement.id !== "rab_nama") document.getElementById("rab_nama").value = rab.nama || "";
   if (document.activeElement.id !== "rab_klien") document.getElementById("rab_klien").value = rab.klien || "";
   if (document.activeElement.id !== "rab_lokasi") document.getElementById("rab_lokasi").value = rab.lokasi || "";
@@ -3068,6 +3089,7 @@ function buildRabPrintHtml(rab) {
     <p class="doc-p" style="text-align:center; margin:0 0 16px;">Dokumen internal — bukan dokumen resmi untuk klien</p>
 
     <table class="meta-table">
+      <tr><td>No. RAB</td><td>:</td><td>${escapeHtml(rab.nomor || "-")}</td></tr>
       <tr><td>Nama Proyek</td><td>:</td><td>${escapeHtml(rab.nama || "-")}</td></tr>
       <tr><td>Klien</td><td>:</td><td>${escapeHtml(rab.klien || "-")}</td></tr>
       <tr><td>Lokasi</td><td>:</td><td>${escapeHtml(rab.lokasi || "-")}</td></tr>
@@ -3099,25 +3121,32 @@ document.getElementById("rab_printBtn").addEventListener("click", () => {
   window.print();
 });
 document.getElementById("rab_addBtn").addEventListener("click", () => {
-  const rab = { id: uid(), nama: "", klien: "", lokasi: "", kategori: KATEGORI_PEKERJAAN[0], tanggal: new Date().toISOString().slice(0, 10), ppn: 0, pph: 0.5, biayaLain: 0, items: [] };
+  const rab = { id: uid(), nomor: nextRabNomor(), nama: "", klien: "", lokasi: "", kategori: KATEGORI_PEKERJAAN[0], tanggal: new Date().toISOString().slice(0, 10), ppn: 0, pph: 0.5, biayaLain: 0, items: [] };
   state.proyekRab.push(rab);
   saveState();
   showRabEditor(rab.id);
 });
 document.getElementById("rab_backBtn").addEventListener("click", showRabList);
+document.getElementById("rab_search").addEventListener("input", renderRabList);
+document.getElementById("rab_filterKategori").addEventListener("change", renderRabList);
 document.getElementById("rab_table").addEventListener("click", e => {
   const openBtn = e.target.closest("[data-open-rab]");
   const delBtn = e.target.closest("[data-delete-rab]");
   if (openBtn) showRabEditor(openBtn.dataset.openRab);
   else if (delBtn) {
-    if (confirm("Hapus RAB ini?")) {
+    const rab = state.proyekRab.find(r => r.id === delBtn.dataset.deleteRab);
+    const linkedProyek = rab && rab.proyekId ? state.proyek.find(p => p.id === rab.proyekId) : null;
+    const msg = linkedProyek
+      ? `RAB ini sudah punya Proyek terkait ("${linkedProyek.nama}"). Proyek itu TIDAK akan ikut terhapus, tapi tautannya akan terputus. Yakin hapus RAB ini?`
+      : "Hapus RAB ini?";
+    if (confirm(msg)) {
       state.proyekRab = state.proyekRab.filter(r => r.id !== delBtn.dataset.deleteRab);
       saveState();
       renderRabList();
     }
   }
 });
-["rab_nama", "rab_klien", "rab_lokasi"].forEach(id => {
+["rab_nomor", "rab_nama", "rab_klien", "rab_lokasi"].forEach(id => {
   document.getElementById(id).addEventListener("input", () => {
     const rab = state.proyekRab.find(r => r.id === currentRabId);
     if (!rab) return;
@@ -3262,18 +3291,30 @@ let currentPwId = null;
 function pwStatusLabel(s) {
   return { draft: "Draft", terkirim: "Terkirim", disetujui: "Disetujui", ditolak: "Ditolak" }[s] || s;
 }
+function pwIsKadaluarsa(p, today) {
+  return ["draft", "terkirim"].includes(p.status) && p.tanggal && addDaysIso(p.tanggal, 14) < today;
+}
 function renderPwList() {
+  const today = new Date().toISOString().slice(0, 10);
+  document.getElementById("pw_totalCount").textContent = state.penawaran.length;
+  document.getElementById("pw_totalMenunggu").textContent = state.penawaran.filter(p => ["draft", "terkirim"].includes(p.status)).length;
+  document.getElementById("pw_totalDisetujui").textContent = state.penawaran.filter(p => p.status === "disetujui").length;
+  document.getElementById("pw_totalKadaluarsa").textContent = state.penawaran.filter(p => pwIsKadaluarsa(p, today)).length;
+
+  const search = (document.getElementById("pw_search").value || "").toLowerCase();
+  const filterStatus = document.getElementById("pw_filterStatus").value;
   const tbody = document.querySelector("#pw_table tbody");
   tbody.innerHTML = "";
-  const rows = state.penawaran.slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
+  let rows = state.penawaran.slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
+  if (search) rows = rows.filter(p => (p.nomor || "").toLowerCase().includes(search) || (p.kepada || "").toLowerCase().includes(search) || (p.perihal || "").toLowerCase().includes(search));
+  if (filterStatus) rows = rows.filter(p => p.status === filterStatus);
   if (!rows.length) {
     tbody.innerHTML = '<tr class="empty-row"><td colspan="7">Belum ada penawaran</td></tr>';
     return;
   }
-  const today = new Date().toISOString().slice(0, 10);
   rows.forEach(p => {
     const { total } = penawaranTotals(p);
-    const kadaluarsa = ["draft", "terkirim"].includes(p.status) && p.tanggal && addDaysIso(p.tanggal, 14) < today;
+    const kadaluarsa = pwIsKadaluarsa(p, today);
     const tr = document.createElement("tr");
     if (kadaluarsa) tr.classList.add("pw-row-kadaluarsa");
     tr.innerHTML = `
@@ -3390,12 +3431,19 @@ document.getElementById("pw_addBtn").addEventListener("click", () => {
   showPwEditor(pw.id);
 });
 document.getElementById("pw_backBtn").addEventListener("click", showPwList);
+document.getElementById("pw_search").addEventListener("input", renderPwList);
+document.getElementById("pw_filterStatus").addEventListener("change", renderPwList);
 document.getElementById("pw_table").addEventListener("click", e => {
   const openBtn = e.target.closest("[data-open-pw]");
   const delBtn = e.target.closest("[data-delete-pw]");
   if (openBtn) showPwEditor(openBtn.dataset.openPw);
   else if (delBtn) {
-    if (confirm("Hapus penawaran ini?")) {
+    const pw = state.penawaran.find(p => p.id === delBtn.dataset.deletePw);
+    const linkedProyek = pw && pw.proyekId ? state.proyek.find(p => p.id === pw.proyekId) : null;
+    const msg = linkedProyek
+      ? `Penawaran ini sudah punya Proyek terkait ("${linkedProyek.nama}"). Proyek itu TIDAK akan ikut terhapus, tapi tautannya akan terputus. Yakin hapus penawaran ini?`
+      : "Hapus penawaran ini?";
+    if (confirm(msg)) {
       state.penawaran = state.penawaran.filter(p => p.id !== delBtn.dataset.deletePw);
       saveState();
       renderPwList();

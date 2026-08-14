@@ -1056,11 +1056,33 @@
           </div>
           <button class="btn-primary" id="rab_addBtn">+ Tambah RAB</button>
         </header>
+
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-label">Total RAB</div>
+            <div class="stat-value" id="rab_totalCount">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Total Nilai</div>
+            <div class="stat-value" id="rab_totalNilai">Rp 0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Sudah Jadi Proyek</div>
+            <div class="stat-value good" id="rab_totalJadiProyek">0</div>
+          </div>
+        </div>
+
         <div class="panel">
+          <div class="toolbar">
+            <input type="search" placeholder="Cari nama proyek / klien / no. RAB..." class="search-input" id="rab_search">
+            <select id="rab_filterKategori">
+              <option value="">Semua Kategori</option>
+            </select>
+          </div>
           <div class="table-wrap">
             <table class="tbl" id="rab_table">
               <thead><tr>
-                <th>Nama Proyek / Klien</th><th>Kategori</th><th>Tanggal</th><th class="num">Total RAB</th><th></th>
+                <th>No. RAB</th><th>Nama Proyek / Klien</th><th>Kategori</th><th>Tanggal</th><th class="num">Total RAB</th><th></th>
               </tr></thead>
               <tbody></tbody>
             </table>
@@ -1079,6 +1101,10 @@
 
         <div class="panel">
           <div class="form-grid">
+            <div class="field">
+              <label>No. RAB</label>
+              <input type="text" id="rab_nomor">
+            </div>
             <div class="field full">
               <label>Nama Proyek</label>
               <input type="text" id="rab_nama" placeholder="mis. Renovasi Interior Kantor Klien A">
@@ -1161,7 +1187,37 @@
           </div>
           <button class="btn-primary" id="pw_addBtn">+ Tambah Penawaran</button>
         </header>
+
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-label">Total Penawaran</div>
+            <div class="stat-value" id="pw_totalCount">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Menunggu Respon</div>
+            <div class="stat-value" id="pw_totalMenunggu">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Disetujui</div>
+            <div class="stat-value good" id="pw_totalDisetujui">0</div>
+          </div>
+          <div class="stat-card accent">
+            <div class="stat-label">Kadaluarsa</div>
+            <div class="stat-value warn" id="pw_totalKadaluarsa">0</div>
+          </div>
+        </div>
+
         <div class="panel">
+          <div class="toolbar">
+            <input type="search" placeholder="Cari no. surat / kepada / perihal..." class="search-input" id="pw_search">
+            <select id="pw_filterStatus">
+              <option value="">Semua Status</option>
+              <option value="draft">Draft</option>
+              <option value="terkirim">Terkirim</option>
+              <option value="disetujui">Disetujui</option>
+              <option value="ditolak">Ditolak</option>
+            </select>
+          </div>
           <div class="table-wrap">
             <table class="tbl" id="pw_table">
               <thead><tr>
