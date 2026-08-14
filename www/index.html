@@ -853,6 +853,19 @@
           </div>
         </header>
 
+        <div class="panel panel-alert" id="stok_pendingPanel" style="display:none;">
+          <div class="toolbar">
+            <div style="flex:1; font-weight:600;">⏳ Belanja Material Menunggu Persetujuan (<span id="stok_pendingCount">0</span>)</div>
+          </div>
+          <p class="muted" style="font-size:12px; margin:-4px 0 10px;">Barangnya sudah masuk ke stok, tapi pembayarannya di Kas Perusahaan masih menunggu persetujuan (di atas batas nominal approval). Setujui langsung dari sini tanpa perlu buka menu Kas Perusahaan.</p>
+          <div class="table-wrap">
+            <table class="tbl" id="stok_pendingTable">
+              <thead><tr><th>Tanggal</th><th>Barang</th><th>Proyek</th><th class="num">Jumlah</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
         <div class="stat-grid">
           <div class="stat-card">
             <div class="stat-label">Total Jenis Barang</div>
