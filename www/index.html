@@ -254,48 +254,156 @@
 
     <!-- MARGIN PROYEK -->
     <section class="page" id="page-proyek">
-      <header class="page-header">
-        <div>
-          <h1>Margin per Proyek</h1>
-          <p class="page-sub">Isi data proyek + biaya. Margin & status otomatis terhitung.</p>
-        </div>
-        <button class="btn-primary" data-open-modal="proyek">+ Tambah Proyek</button>
-      </header>
+      <div id="pr_listView">
+        <header class="page-header">
+          <div>
+            <h1>Margin per Proyek</h1>
+            <p class="page-sub">Isi data proyek + anggaran. Margin, realisasi biaya, dan status otomatis terhitung dari Kas Perusahaan.</p>
+          </div>
+          <button class="btn-primary" data-open-modal="proyek">+ Tambah Proyek</button>
+        </header>
 
-      <div class="stat-grid">
-        <div class="stat-card">
-          <div class="stat-label">Total Nilai Kontrak</div>
-          <div class="stat-value" id="pr_totalKontrak">Rp 0</div>
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-label">Total Nilai Kontrak</div>
+            <div class="stat-value" id="pr_totalKontrak">Rp 0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Total Realisasi Biaya</div>
+            <div class="stat-value bad" id="pr_totalBiaya">Rp 0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Total Margin/Laba</div>
+            <div class="stat-value good" id="pr_totalMargin">Rp 0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Rata-rata Margin</div>
+            <div class="stat-value" id="pr_avgMargin">0%</div>
+          </div>
         </div>
-        <div class="stat-card">
-          <div class="stat-label">Total Biaya</div>
-          <div class="stat-value bad" id="pr_totalBiaya">Rp 0</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Total Margin/Laba</div>
-          <div class="stat-value good" id="pr_totalMargin">Rp 0</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Rata-rata Margin</div>
-          <div class="stat-value" id="pr_avgMargin">0%</div>
+
+        <div class="panel">
+          <div class="legend-note">
+            <span class="dot critical"></span> &lt;15% margin tipis/berisiko
+            <span class="dot warning"></span> 15–30% cukup sehat
+            <span class="dot good"></span> &gt;30% margin bagus
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="pr_table">
+              <thead><tr>
+                <th>Nama Proyek / Klien</th><th>Status</th><th>Deadline</th><th class="num">Nilai Kontrak</th>
+                <th class="num">Realisasi Biaya</th><th class="num">Margin</th><th class="num">Margin %</th><th></th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
       </div>
 
-      <div class="panel">
-        <div class="legend-note">
-          <span class="dot critical"></span> &lt;15% margin tipis/berisiko
-          <span class="dot warning"></span> 15–30% cukup sehat
-          <span class="dot good"></span> &gt;30% margin bagus
+      <div id="pr_detailView" style="display:none;">
+        <header class="page-header">
+          <div>
+            <h1 id="pd_nama">Detail Proyek</h1>
+            <p class="page-sub" id="pd_sub">-</p>
+          </div>
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button class="btn-ghost" id="pd_backBtn">← Kembali ke Daftar</button>
+            <button class="btn-ghost" id="pd_editBtn">✏️ Edit Info Proyek</button>
+            <button class="btn-primary" id="pd_printBtn">🖨️ Cetak Laporan Proyek</button>
+          </div>
+        </header>
+
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-label">Nilai Kontrak</div>
+            <div class="stat-value" id="pd_nilaiKontrak">Rp 0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Termin Diterima <span class="muted" style="font-weight:400;">(Piutang)</span></div>
+            <div class="stat-value good" id="pd_termin">Rp 0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Realisasi Biaya</div>
+            <div class="stat-value bad" id="pd_realisasi">Rp 0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Margin</div>
+            <div class="stat-value" id="pd_margin">Rp 0</div>
+          </div>
         </div>
-        <div class="table-wrap">
-          <table class="tbl" id="pr_table">
-            <thead><tr>
-              <th>Nama Proyek / Klien</th><th class="num">Nilai Kontrak</th><th class="num">Biaya Bahan</th>
-              <th class="num">Biaya Upah</th><th class="num">Biaya Lain</th><th class="num">Total Biaya</th>
-              <th class="num">Margin</th><th class="num">Margin %</th><th></th>
-            </tr></thead>
-            <tbody></tbody>
-          </table>
+
+        <div class="panel">
+          <h3>Info Proyek</h3>
+          <div class="summary-rows" id="pd_infoRows"></div>
+        </div>
+
+        <div class="panel">
+          <h3>Anggaran vs Realisasi (Quality Control)</h3>
+          <div class="table-wrap">
+            <table class="tbl" id="pd_anggaranTable">
+              <thead><tr>
+                <th>Komponen</th><th class="num">Anggaran</th><th class="num">Realisasi</th><th class="num">Selisih</th><th></th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="muted" style="margin-bottom:10px;">Termin Pembayaran — tersinkron otomatis dua arah dengan Kas Perusahaan (kategori Pendapatan Jasa/Lain-lain yang dikaitkan ke proyek ini)</div>
+          <div class="form-grid" style="margin-bottom:12px;">
+            <div class="field"><label>Tanggal</label><input type="date" id="tm_tanggal"></div>
+            <div class="field full"><label>Keterangan</label><input type="text" id="tm_keterangan" placeholder="mis. Termin 2 / Pelunasan"></div>
+            <div class="field"><label>Jumlah (Rp)</label><input type="text" inputmode="numeric" id="tm_jumlah" placeholder="0"></div>
+            <div class="field">
+              <label>Status</label>
+              <select id="tm_status">
+                <option value="lunas">Lunas / Diterima</option>
+                <option value="pending">Piutang / Pending</option>
+              </select>
+            </div>
+            <div class="field" style="justify-content:flex-end;">
+              <button type="button" class="btn-primary" id="tm_addBtn">+ Tambah Termin</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="pd_terminTable">
+              <thead><tr><th>Tanggal</th><th>Keterangan</th><th>Status</th><th class="num">Jumlah</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="toolbar">
+            <div class="muted" style="flex:1">Daftar Belanja Material — status "Dibeli" otomatis masuk Kas Perusahaan &amp; Stok Material</div>
+            <button class="btn-primary" id="bm_addBtn">+ Tambah Belanja</button>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="pd_belanjaTable">
+              <thead><tr>
+                <th>Material</th><th class="num">Qty</th><th>Satuan</th><th class="num">Harga Satuan</th>
+                <th class="num">Total</th><th>Tanggal</th><th>Status</th><th></th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="toolbar">
+            <div class="muted" style="flex:1">Subkontraktor / Jasa yang di-subkontrakkan</div>
+            <button class="btn-primary" id="sk_addBtn">+ Tambah Subkontraktor</button>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="pd_subkonTable">
+              <thead><tr>
+                <th>Nama</th><th>Pekerjaan</th><th class="num">Nilai Kontrak</th>
+                <th class="num">Dibayar</th><th class="num">Sisa</th><th></th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
       </div>
     </section>
@@ -919,6 +1027,12 @@
           <input type="text" id="txn_extra" list="extraList" placeholder="mis. Gadai Sakti">
           <datalist id="extraList"></datalist>
         </div>
+        <div class="field" id="txn_proyekField">
+          <label>Kaitkan ke Proyek (opsional)</label>
+          <select id="txn_proyekId">
+            <option value="">Tidak dikaitkan</option>
+          </select>
+        </div>
         <div class="field full">
           <label>Catatan</label>
           <input type="text" id="txn_catatan" placeholder="opsional">
@@ -943,26 +1057,174 @@
       <input type="hidden" id="pj_id">
       <div class="form-grid">
         <div class="field full">
-          <label>Nama Proyek / Klien</label>
+          <label>Nama Proyek</label>
           <input type="text" id="pj_nama" required placeholder="mis. Klien A - Signage Toko">
+        </div>
+        <div class="field">
+          <label>Klien</label>
+          <input type="text" id="pj_klien" placeholder="Nama klien">
+        </div>
+        <div class="field">
+          <label>Lokasi</label>
+          <input type="text" id="pj_lokasi" placeholder="Lokasi proyek">
         </div>
         <div class="field">
           <label>Nilai Kontrak (Rp)</label>
           <input type="text" inputmode="numeric" id="pj_nilai" required placeholder="0">
         </div>
         <div class="field">
-          <label>Biaya Bahan (Rp)</label>
+          <label>Status</label>
+          <select id="pj_status">
+            <option value="berjalan">Berjalan</option>
+            <option value="selesai">Selesai</option>
+            <option value="batal">Batal</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Tanggal Mulai</label>
+          <input type="date" id="pj_tanggalMulai">
+        </div>
+        <div class="field">
+          <label>Rencana Selesai (Deadline)</label>
+          <input type="date" id="pj_tanggalSelesai">
+        </div>
+        <div class="field">
+          <label>Anggaran Bahan (Rp)</label>
           <input type="text" inputmode="numeric" id="pj_bahan" placeholder="0">
         </div>
         <div class="field">
-          <label>Biaya Upah/Tenaga (Rp)</label>
+          <label>Anggaran Upah/Tenaga (Rp)</label>
           <input type="text" inputmode="numeric" id="pj_upah" placeholder="0">
         </div>
         <div class="field">
-          <label>Biaya Lain-lain (Rp)</label>
+          <label>Anggaran Lain-lain (Rp)</label>
           <input type="text" inputmode="numeric" id="pj_lain" placeholder="0">
         </div>
+        <div class="field full">
+          <label>Pekerja Inti (dari Karyawan Aktif)</label>
+          <div class="checklist" id="pj_karyawanChecklist"></div>
+        </div>
       </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: belanja material (proyek) -->
+<div class="modal-backdrop" id="belanjaModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="belanjaModalTitle">Tambah Belanja Material</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <form id="belanjaForm">
+      <input type="hidden" id="bm_id">
+      <div class="form-grid">
+        <div class="field full">
+          <label>Nama Material</label>
+          <input type="text" id="bm_nama" required placeholder="mis. Besi Hollow 4x4">
+        </div>
+        <div class="field">
+          <label>Qty</label>
+          <input type="text" inputmode="decimal" id="bm_qty" required placeholder="0">
+        </div>
+        <div class="field">
+          <label>Satuan</label>
+          <input type="text" id="bm_satuan" list="satuanList" placeholder="mis. batang">
+        </div>
+        <div class="field">
+          <label>Harga Satuan (Rp)</label>
+          <input type="text" inputmode="numeric" id="bm_harga" placeholder="0">
+        </div>
+        <div class="field">
+          <label>Tanggal</label>
+          <input type="date" id="bm_tanggal">
+        </div>
+        <div class="field">
+          <label>Status</label>
+          <select id="bm_status">
+            <option value="Rencana">Rencana (belum dibeli)</option>
+            <option value="Dibeli">Sudah Dibeli</option>
+          </select>
+        </div>
+        <div class="field full">
+          <label>Kaitkan ke Stok Material (opsional)</label>
+          <select id="bm_stokId">
+            <option value="">Tidak dikaitkan</option>
+          </select>
+        </div>
+      </div>
+      <p class="muted" style="font-size:12px;margin-top:4px;">Kalau status "Sudah Dibeli", otomatis tercatat sebagai pengeluaran "Biaya Bahan" di Kas Perusahaan (dan menambah stok kalau dikaitkan ke Stok Material).</p>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: subkontraktor (proyek) -->
+<div class="modal-backdrop" id="subkonModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="subkonModalTitle">Tambah Subkontraktor</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <form id="subkonForm">
+      <input type="hidden" id="sk_id">
+      <div class="form-grid">
+        <div class="field full">
+          <label>Nama Subkontraktor</label>
+          <input type="text" id="sk_nama" required placeholder="mis. CV Jaya Konstruksi">
+        </div>
+        <div class="field full">
+          <label>Pekerjaan yang Disubkontrakkan</label>
+          <input type="text" id="sk_pekerjaan" placeholder="mis. Pengelasan rangka baja">
+        </div>
+        <div class="field">
+          <label>Nilai Kontrak (Rp)</label>
+          <input type="text" inputmode="numeric" id="sk_nilai" placeholder="0">
+        </div>
+        <div class="field full">
+          <label>Catatan</label>
+          <input type="text" id="sk_catatan" placeholder="opsional">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: pembayaran subkontraktor -->
+<div class="modal-backdrop" id="subkonBayarModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Catat Pembayaran Subkontraktor</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <form id="subkonBayarForm">
+      <input type="hidden" id="skb_subkonId">
+      <div class="form-grid">
+        <div class="field">
+          <label>Tanggal</label>
+          <input type="date" id="skb_tanggal">
+        </div>
+        <div class="field">
+          <label>Jumlah (Rp)</label>
+          <input type="text" inputmode="numeric" id="skb_jumlah" required placeholder="0">
+        </div>
+        <div class="field full">
+          <label>Catatan</label>
+          <input type="text" id="skb_catatan" placeholder="opsional">
+        </div>
+      </div>
+      <p class="muted" style="font-size:12px;margin-top:4px;">Otomatis tercatat sebagai pengeluaran "Biaya Subkontraktor" di Kas Perusahaan.</p>
       <div class="modal-actions">
         <button type="button" class="btn-ghost" data-close-modal>Batal</button>
         <button type="submit" class="btn-primary">Simpan</button>

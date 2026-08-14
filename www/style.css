@@ -145,6 +145,7 @@ body {
 .stat-value { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .stat-value.good, .stat-meta.good { color: var(--success-text); }
 .stat-value.bad { color: var(--critical); }
+.bad { color: var(--critical); }
 .stat-value.warn { color: var(--warning); }
 .stat-meta { font-size: 11.5px; color: var(--text-muted); margin-top: 4px; }
 .saldo-awal-input {
@@ -293,6 +294,11 @@ body {
 .summary-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; gap: 10px; }
 .summary-row input { text-align: right; }
 .summary-row.total { font-size: 16px; font-weight: 800; padding-top: 10px; margin-top: 4px; border-top: 1px solid var(--gridline); }
+
+/* ---------- Checklist (Karyawan Inti proyek) ---------- */
+.checklist { display: flex; flex-wrap: wrap; gap: 8px 16px; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; max-height: 160px; overflow-y: auto; }
+.checklist label { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 400; color: var(--text-primary); }
+.checklist-empty { font-size: 12px; color: var(--text-muted); }
 
 /* ---------- Subtabs (Karyawan & Gaji) ---------- */
 .subtabs { display: flex; gap: 4px; border-bottom: 1px solid var(--gridline); margin-bottom: 20px; flex-wrap: wrap; }

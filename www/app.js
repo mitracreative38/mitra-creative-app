@@ -112,14 +112,51 @@ function kasSummary(book) {
   const saldoAkhir = (b.saldoAwal || 0) + masukLunas - keluarLunas;
   return { masukLunas, keluarLunas, pending, saldoAkhir, saldoAwal: b.saldoAwal || 0 };
 }
+function proyekKasTxns(p) {
+  return state.kasUsaha.transactions.filter(t => t.proyekId === p.id);
+}
+function sumTxns(txns, tipe, kategoris, status) {
+  return txns
+    .filter(t => t.tipe === tipe && kategoris.includes(t.kategori) && (!status || (t.status || "lunas") === status))
+    .reduce((s, t) => s + (t.jumlah || 0), 0);
+}
+function subkonDibayar(p, subkonId) {
+  return proyekKasTxns(p)
+    .filter(t => t.tipe === "Keluar" && t.kategori === "Biaya Subkontraktor" && t.subkonId === subkonId)
+    .reduce((s, t) => s + (t.jumlah || 0), 0);
+}
 function projectCalc(p) {
-  const totalBiaya = (p.biayaBahan || 0) + (p.biayaUpah || 0) + (p.biayaLain || 0);
+  const txns = proyekKasTxns(p);
+  const realisasiBahan = sumTxns(txns, "Keluar", ["Biaya Bahan"]);
+  const realisasiUpah = sumTxns(txns, "Keluar", ["Biaya Upah/Tenaga"]);
+  const realisasiSubkon = sumTxns(txns, "Keluar", ["Biaya Subkontraktor"]);
+  const realisasiLain = sumTxns(txns, "Keluar", ["Biaya Operasional", "Biaya Transport", "Biaya Alat", "Biaya Lain-lain"]);
+  const totalBiaya = realisasiBahan + realisasiUpah + realisasiSubkon + realisasiLain;
+
+  const terminDiterima = sumTxns(txns, "Masuk", ["Pendapatan Jasa", "Pendapatan Lain-lain"], "lunas");
+  const terminPiutang = sumTxns(txns, "Masuk", ["Pendapatan Jasa", "Pendapatan Lain-lain"], "pending");
+
+  const anggaranBahan = p.biayaBahan || 0;
+  const anggaranUpah = p.biayaUpah || 0;
+  const anggaranLain = p.biayaLain || 0;
+  const anggaranSubkon = (p.subkontraktor || []).reduce((s, sk) => s + (sk.nilaiKontrak || 0), 0);
+
   const margin = (p.nilaiKontrak || 0) - totalBiaya;
   const marginPct = p.nilaiKontrak ? margin / p.nilaiKontrak : 0;
-  let status = "critical";
-  if (marginPct > 0.30) status = "good";
-  else if (marginPct >= 0.15) status = "warning";
-  return { totalBiaya, margin, marginPct, status };
+  let marginStatus = "critical";
+  if (marginPct > 0.30) marginStatus = "good";
+  else if (marginPct >= 0.15) marginStatus = "warning";
+
+  return {
+    totalBiaya, margin, marginPct, marginStatus,
+    realisasiBahan, realisasiUpah, realisasiSubkon, realisasiLain,
+    anggaranBahan, anggaranUpah, anggaranLain, anggaranSubkon,
+    varianceBahan: anggaranBahan - realisasiBahan,
+    varianceUpah: anggaranUpah - realisasiUpah,
+    varianceLain: anggaranLain - realisasiLain,
+    varianceSubkon: anggaranSubkon - realisasiSubkon,
+    terminDiterima, terminPiutang
+  };
 }
 function marginStatusLabel(status) {
   return status === "good" ? "Bagus" : status === "warning" ? "Sehat" : "Tipis";
@@ -177,7 +214,7 @@ function renderDashboard() {
     .slice().sort((a, b) => b.marginPct - a.marginPct)
     .map(p => ({
       label: p.nama, value: Math.max(0, p.marginPct * 100),
-      color: p.status === "good" ? "var(--good)" : p.status === "warning" ? "var(--warning)" : "var(--critical)",
+      color: p.marginStatus === "good" ? "var(--good)" : p.marginStatus === "warning" ? "var(--warning)" : "var(--critical)",
       formattedValue: (p.marginPct * 100).toFixed(1) + "%"
     }));
   renderBarChart(document.getElementById("chartMargin"), marginRows);
@@ -290,7 +327,23 @@ function renderKasBook(book) {
 }
 
 // ===== Rendering: Proyek =====
-function renderProyek() {
+let currentProyekId = null;
+function proyekStatusLabel(status) {
+  return status === "selesai" ? "Selesai" : status === "batal" ? "Batal" : "Berjalan";
+}
+function showProyekList() {
+  currentProyekId = null;
+  document.getElementById("pr_listView").style.display = "block";
+  document.getElementById("pr_detailView").style.display = "none";
+  renderProyekList();
+}
+function showProyekDetail(id) {
+  currentProyekId = id;
+  document.getElementById("pr_listView").style.display = "none";
+  document.getElementById("pr_detailView").style.display = "block";
+  renderProyekDetail();
+}
+function renderProyekList() {
   const projects = state.proyek.map(p => ({ ...p, ...projectCalc(p) }));
   const totalKontrak = projects.reduce((s, p) => s + (p.nilaiKontrak || 0), 0);
   const totalBiaya = projects.reduce((s, p) => s + p.totalBiaya, 0);
@@ -305,22 +358,24 @@ function renderProyek() {
   const tbody = document.querySelector("#pr_table tbody");
   tbody.innerHTML = "";
   if (!projects.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="9">Belum ada proyek</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="8">Belum ada proyek</td></tr>';
     return;
   }
+  const today = new Date().toISOString().slice(0, 10);
   projects.forEach(p => {
     const tr = document.createElement("tr");
+    const overdue = p.status === "berjalan" && p.tanggalSelesai && p.tanggalSelesai < today;
     tr.innerHTML = `
-      <td>${escapeHtml(p.nama)}</td>
+      <td>${escapeHtml(p.nama)}${p.klien ? `<div class="muted" style="font-size:12px;">${escapeHtml(p.klien)}</div>` : ""}</td>
+      <td>${proyekStatusLabel(p.status)}</td>
+      <td class="${overdue ? "bad" : ""}">${p.tanggalSelesai ? formatTanggal(p.tanggalSelesai) : "-"}${overdue ? " ⚠️" : ""}</td>
       <td class="num">${rupiah(p.nilaiKontrak)}</td>
-      <td class="num">${rupiah(p.biayaBahan)}</td>
-      <td class="num">${rupiah(p.biayaUpah)}</td>
-      <td class="num">${rupiah(p.biayaLain)}</td>
       <td class="num">${rupiah(p.totalBiaya)}</td>
       <td class="num">${rupiah(p.margin)}</td>
-      <td class="num"><span class="badge-margin ${p.status}">${(p.marginPct * 100).toFixed(1)}% · ${marginStatusLabel(p.status)}</span></td>
+      <td class="num"><span class="badge-margin ${p.marginStatus}">${(p.marginPct * 100).toFixed(1)}% · ${marginStatusLabel(p.marginStatus)}</span></td>
       <td>
         <div class="row-actions">
+          <button class="icon-btn" data-open-proyek="${p.id}" title="Buka Detail">📂</button>
           <button class="icon-btn" data-edit-proyek="${p.id}" title="Edit">✏️</button>
           <button class="icon-btn" data-delete-proyek="${p.id}" title="Hapus">🗑️</button>
         </div>
@@ -328,6 +383,110 @@ function renderProyek() {
     `;
     tbody.appendChild(tr);
   });
+}
+function renderProyekDetail() {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) { showProyekList(); return; }
+  if (!p.belanjaMaterial) p.belanjaMaterial = [];
+  if (!p.subkontraktor) p.subkontraktor = [];
+  const calc = projectCalc(p);
+  const today = new Date().toISOString().slice(0, 10);
+  const overdue = p.status === "berjalan" && p.tanggalSelesai && p.tanggalSelesai < today;
+
+  document.getElementById("pd_nama").textContent = p.nama || "(Tanpa nama)";
+  document.getElementById("pd_sub").textContent = [p.klien, p.lokasi].filter(Boolean).join(" · ") || "-";
+  document.getElementById("pd_nilaiKontrak").textContent = rupiah(p.nilaiKontrak);
+  document.getElementById("pd_termin").textContent = rupiah(calc.terminDiterima) + (calc.terminPiutang ? ` (Piutang ${rupiah(calc.terminPiutang)})` : "");
+  document.getElementById("pd_realisasi").textContent = rupiah(calc.totalBiaya);
+  document.getElementById("pd_margin").textContent = rupiah(calc.margin);
+
+  const karyawanNama = (p.karyawanIds || [])
+    .map(id => state.karyawan.find(k => k.id === id))
+    .filter(Boolean).map(k => k.nama);
+
+  document.getElementById("pd_infoRows").innerHTML = `
+    <div class="summary-row"><span>Status</span><strong>${proyekStatusLabel(p.status)}</strong></div>
+    <div class="summary-row"><span>Tanggal Mulai</span><strong>${p.tanggalMulai ? formatTanggal(p.tanggalMulai) : "-"}</strong></div>
+    <div class="summary-row"><span>Rencana Selesai</span><strong class="${overdue ? "bad" : ""}">${p.tanggalSelesai ? formatTanggal(p.tanggalSelesai) : "-"}${overdue ? " ⚠️ Lewat deadline" : ""}</strong></div>
+    <div class="summary-row"><span>Pekerja Inti</span><strong>${karyawanNama.length ? escapeHtml(karyawanNama.join(", ")) : "-"}</strong></div>
+  `;
+
+  const rows = [
+    ["Bahan", calc.anggaranBahan, calc.realisasiBahan, calc.varianceBahan],
+    ["Upah/Tenaga", calc.anggaranUpah, calc.realisasiUpah, calc.varianceUpah],
+    ["Subkontraktor", calc.anggaranSubkon, calc.realisasiSubkon, calc.varianceSubkon],
+    ["Lain-lain", calc.anggaranLain, calc.realisasiLain, calc.varianceLain]
+  ];
+  document.querySelector("#pd_anggaranTable tbody").innerHTML = rows.map(([label, anggaran, realisasi, variance]) => `
+    <tr>
+      <td>${label}</td>
+      <td class="num">${rupiah(anggaran)}</td>
+      <td class="num">${rupiah(realisasi)}</td>
+      <td class="num">${rupiah(variance)}</td>
+      <td>${anggaran ? `<span class="badge-margin ${variance >= 0 ? "good" : "critical"}">${variance >= 0 ? "Sesuai Anggaran" : "Lebih Anggaran"}</span>` : ""}</td>
+    </tr>
+  `).join("") + `
+    <tr style="font-weight:700;">
+      <td>Total</td>
+      <td class="num">${rupiah(calc.anggaranBahan + calc.anggaranUpah + calc.anggaranSubkon + calc.anggaranLain)}</td>
+      <td class="num">${rupiah(calc.totalBiaya)}</td>
+      <td class="num">${rupiah((calc.anggaranBahan + calc.anggaranUpah + calc.anggaranSubkon + calc.anggaranLain) - calc.totalBiaya)}</td>
+      <td></td>
+    </tr>
+  `;
+
+  const terminRows = proyekKasTxns(p)
+    .filter(t => t.tipe === "Masuk" && ["Pendapatan Jasa", "Pendapatan Lain-lain"].includes(t.kategori))
+    .sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
+  const terminTbody = document.querySelector("#pd_terminTable tbody");
+  terminTbody.innerHTML = terminRows.length ? terminRows.map(t => `
+    <tr>
+      <td>${formatTanggal(t.tanggal)}</td>
+      <td>${escapeHtml(t.keterangan)}</td>
+      <td><span class="badge ${(t.status || "lunas") === "lunas" ? "badge-lunas" : "badge-pending"}">${(t.status || "lunas") === "lunas" ? "Lunas" : "Piutang"}</span></td>
+      <td class="num">${rupiah(t.jumlah)}</td>
+      <td><div class="row-actions"><button class="icon-btn" data-delete-termin="${t.id}" title="Hapus">🗑️</button></div></td>
+    </tr>
+  `).join("") : '<tr class="empty-row"><td colspan="5">Belum ada termin pembayaran</td></tr>';
+
+  const belanjaTbody = document.querySelector("#pd_belanjaTable tbody");
+  belanjaTbody.innerHTML = p.belanjaMaterial.length ? p.belanjaMaterial.slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || "")).map(b => `
+    <tr>
+      <td>${escapeHtml(b.nama)}</td>
+      <td class="num">${b.qty}</td>
+      <td>${escapeHtml(b.satuan || "-")}</td>
+      <td class="num">${rupiah(b.hargaSatuan)}</td>
+      <td class="num">${rupiah((b.qty || 0) * (b.hargaSatuan || 0))}</td>
+      <td>${b.tanggal ? formatTanggal(b.tanggal) : "-"}</td>
+      <td><span class="badge ${b.status === "Dibeli" ? "badge-lunas" : "badge-pending"}">${b.status}</span></td>
+      <td>
+        <div class="row-actions">
+          <button class="icon-btn" data-edit-belanja="${b.id}" title="Edit">✏️</button>
+          <button class="icon-btn" data-delete-belanja="${b.id}" title="Hapus">🗑️</button>
+        </div>
+      </td>
+    </tr>
+  `).join("") : '<tr class="empty-row"><td colspan="8">Belum ada belanja material</td></tr>';
+
+  const subkonTbody = document.querySelector("#pd_subkonTable tbody");
+  subkonTbody.innerHTML = p.subkontraktor.length ? p.subkontraktor.map(sk => {
+    const dibayar = subkonDibayar(p, sk.id);
+    return `
+    <tr>
+      <td>${escapeHtml(sk.nama)}</td>
+      <td>${escapeHtml(sk.pekerjaan || "-")}</td>
+      <td class="num">${rupiah(sk.nilaiKontrak)}</td>
+      <td class="num">${rupiah(dibayar)}</td>
+      <td class="num">${rupiah((sk.nilaiKontrak || 0) - dibayar)}</td>
+      <td>
+        <div class="row-actions">
+          <button class="icon-btn" data-bayar-subkon="${sk.id}" title="Catat Pembayaran">💰</button>
+          <button class="icon-btn" data-edit-subkon="${sk.id}" title="Edit">✏️</button>
+          <button class="icon-btn" data-delete-subkon="${sk.id}" title="Hapus">🗑️</button>
+        </div>
+      </td>
+    </tr>
+  `; }).join("") : '<tr class="empty-row"><td colspan="6">Belum ada subkontraktor</td></tr>';
 }
 
 // ===== Stok Material & Alat =====
@@ -1019,6 +1178,104 @@ function printSlipGaji(k, sl) {
   document.body.classList.add("printing-quote");
   window.print();
 }
+
+function buildProyekPrintHtml(p) {
+  const calc = projectCalc(p);
+  const karyawanNama = (p.karyawanIds || []).map(id => state.karyawan.find(k => k.id === id)).filter(Boolean).map(k => k.nama);
+  const belanja = p.belanjaMaterial || [];
+  const subkon = p.subkontraktor || [];
+  const termin = proyekKasTxns(p).filter(t => t.tipe === "Masuk" && ["Pendapatan Jasa", "Pendapatan Lain-lain"].includes(t.kategori))
+    .sort((a, b) => (a.tanggal || "").localeCompare(b.tanggal || ""));
+
+  const anggaranRows = [
+    ["Bahan", calc.anggaranBahan, calc.realisasiBahan],
+    ["Upah/Tenaga", calc.anggaranUpah, calc.realisasiUpah],
+    ["Subkontraktor", calc.anggaranSubkon, calc.realisasiSubkon],
+    ["Lain-lain", calc.anggaranLain, calc.realisasiLain]
+  ].map(([label, anggaran, realisasi]) => `
+    <tr><td>${label}</td><td class="r">${rupiah(anggaran)}</td><td class="r">${rupiah(realisasi)}</td><td class="r">${rupiah(anggaran - realisasi)}</td></tr>
+  `).join("");
+
+  const belanjaRows = belanja.length ? belanja.map(b => `
+    <tr><td>${escapeHtml(b.nama)}</td><td class="r">${b.qty} ${escapeHtml(b.satuan || "")}</td><td class="r">${rupiah(b.hargaSatuan)}</td><td class="r">${rupiah((b.qty || 0) * (b.hargaSatuan || 0))}</td><td>${b.status}</td></tr>
+  `).join("") : `<tr><td colspan="5" class="c">Belum ada belanja material</td></tr>`;
+
+  const terminRows = termin.length ? termin.map(t => `
+    <tr><td>${formatTanggal(t.tanggal)}</td><td>${escapeHtml(t.keterangan)}</td><td>${(t.status || "lunas") === "lunas" ? "Lunas" : "Piutang"}</td><td class="r">${rupiah(t.jumlah)}</td></tr>
+  `).join("") : `<tr><td colspan="4" class="c">Belum ada termin pembayaran</td></tr>`;
+
+  const subkonRows = subkon.length ? subkon.map(sk => {
+    const dibayar = subkonDibayar(p, sk.id);
+    return `<tr><td>${escapeHtml(sk.nama)}</td><td>${escapeHtml(sk.pekerjaan || "-")}</td><td class="r">${rupiah(sk.nilaiKontrak)}</td><td class="r">${rupiah(dibayar)}</td><td class="r">${rupiah((sk.nilaiKontrak || 0) - dibayar)}</td></tr>`;
+  }).join("") : `<tr><td colspan="5" class="c">Belum ada subkontraktor</td></tr>`;
+
+  return `
+    <div class="letterhead">
+      <div class="letterhead-logo">${LOGO_SVG}</div>
+      <div class="letterhead-text">
+        <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+      </div>
+    </div>
+    <div class="letterhead-rule"></div>
+    <h3 style="text-align:center; margin:6px 0 16px; letter-spacing:.5px;">LAPORAN PROYEK</h3>
+    <table class="meta-table" style="margin-bottom:14px;">
+      <tr><td>Nama Proyek</td><td>:</td><td><strong>${escapeHtml(p.nama)}</strong></td></tr>
+      <tr><td>Klien</td><td>:</td><td>${escapeHtml(p.klien || "-")}</td></tr>
+      <tr><td>Lokasi</td><td>:</td><td>${escapeHtml(p.lokasi || "-")}</td></tr>
+      <tr><td>Status</td><td>:</td><td>${proyekStatusLabel(p.status)}</td></tr>
+      <tr><td>Periode</td><td>:</td><td>${p.tanggalMulai ? formatTanggal(p.tanggalMulai) : "-"} — ${p.tanggalSelesai ? formatTanggal(p.tanggalSelesai) : "-"}</td></tr>
+      <tr><td>Pekerja Inti</td><td>:</td><td>${karyawanNama.length ? escapeHtml(karyawanNama.join(", ")) : "-"}</td></tr>
+    </table>
+
+    <p class="doc-p" style="font-weight:700; margin-bottom:6px;">Anggaran vs Realisasi</p>
+    <table class="doc-items" style="margin-bottom:14px;">
+      <thead><tr><th>Komponen</th><th class="r">Anggaran</th><th class="r">Realisasi</th><th class="r">Selisih</th></tr></thead>
+      <tbody>${anggaranRows}</tbody>
+    </table>
+
+    <p class="doc-p" style="font-weight:700; margin-bottom:6px;">Daftar Belanja Material</p>
+    <table class="doc-items" style="margin-bottom:14px;">
+      <thead><tr><th>Material</th><th class="r">Qty</th><th class="r">Harga Satuan</th><th class="r">Total</th><th>Status</th></tr></thead>
+      <tbody>${belanjaRows}</tbody>
+    </table>
+
+    <p class="doc-p" style="font-weight:700; margin-bottom:6px;">Termin Pembayaran</p>
+    <table class="doc-items" style="margin-bottom:14px;">
+      <thead><tr><th>Tanggal</th><th>Keterangan</th><th>Status</th><th class="r">Jumlah</th></tr></thead>
+      <tbody>${terminRows}</tbody>
+    </table>
+
+    <p class="doc-p" style="font-weight:700; margin-bottom:6px;">Subkontraktor</p>
+    <table class="doc-items" style="margin-bottom:14px;">
+      <thead><tr><th>Nama</th><th>Pekerjaan</th><th class="r">Nilai Kontrak</th><th class="r">Dibayar</th><th class="r">Sisa</th></tr></thead>
+      <tbody>${subkonRows}</tbody>
+    </table>
+
+    <table class="doc-summary-table">
+      <tr class="total-row"><td>Nilai Kontrak</td><td class="r">${rupiah(p.nilaiKontrak)}</td></tr>
+      <tr><td>Total Realisasi Biaya</td><td class="r">- ${rupiah(calc.totalBiaya)}</td></tr>
+      <tr class="total-row"><td>Margin</td><td class="r">${rupiah(calc.margin)} (${(calc.marginPct * 100).toFixed(1)}%)</td></tr>
+    </table>
+    <div style="display:flex; justify-content:flex-end; margin-top:30px; font-size:12.5px;">
+      <div style="text-align:right;">
+        Dibuat oleh,<br>${escapeHtml(state.company || "CV. Mitra Creative")}
+        <div class="sign-space"></div>
+        <strong>${escapeHtml(state.ownerNama)}</strong><br>${escapeHtml(state.ownerJabatan)}
+      </div>
+    </div>
+  `;
+}
+function printProyekLaporan(p) {
+  document.getElementById("printArea").innerHTML = buildProyekPrintHtml(p);
+  document.body.classList.add("printing-quote");
+  window.print();
+}
+document.getElementById("pd_printBtn").addEventListener("click", () => {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (p) printProyekLaporan(p);
+});
 
 // ===== AHSP / RAB / Penawaran calculations =====
 function ahspHarga(item) {
@@ -2028,7 +2285,9 @@ function renderAll() {
   renderDashboard();
   renderKasBook("kasUsaha");
   renderKasBook("kasPribadi");
-  renderProyek();
+  document.getElementById("pr_listView").style.display = currentProyekId ? "none" : "block";
+  document.getElementById("pr_detailView").style.display = currentProyekId ? "block" : "none";
+  if (currentProyekId) renderProyekDetail(); else renderProyekList();
   renderKaryawanList();
   { const activeSubtab = document.querySelector(".subtab-item.active");
     if (activeSubtab && activeSubtab.dataset.subtab === "absensi") renderAbsensiPanel();
@@ -2097,6 +2356,15 @@ function openTxnModal(book, existing) {
 
   document.getElementById("txn_statusField").style.display = cfg.hasStatus ? "flex" : "none";
 
+  const proyekField = document.getElementById("txn_proyekField");
+  proyekField.style.display = book === "kasUsaha" ? "flex" : "none";
+  if (book === "kasUsaha") {
+    const proyekSelect = document.getElementById("txn_proyekId");
+    proyekSelect.innerHTML = '<option value="">Tidak dikaitkan</option>' +
+      state.proyek.map(p => `<option value="${p.id}">${escapeHtml(p.nama)}</option>`).join("");
+    proyekSelect.value = existing ? (existing.proyekId || "") : "";
+  }
+
   txnModal.classList.add("open");
 }
 function closeModals() {
@@ -2117,7 +2385,10 @@ document.getElementById("txnForm").addEventListener("submit", e => {
   e.preventDefault();
   const book = document.getElementById("txn_book").value;
   const id = document.getElementById("txn_id").value;
+  const arr = state[book].transactions;
+  const existing = id ? arr.find(t => t.id === id) : null;
   const txn = {
+    ...existing,
     id: id || uid(),
     tipe: document.getElementById("txn_tipe").value,
     status: document.getElementById("txn_status").value,
@@ -2128,7 +2399,7 @@ document.getElementById("txnForm").addEventListener("submit", e => {
     extra: document.getElementById("txn_extra").value.trim(),
     catatan: document.getElementById("txn_catatan").value.trim()
   };
-  const arr = state[book].transactions;
+  if (book === "kasUsaha") txn.proyekId = document.getElementById("txn_proyekId").value || "";
   const idx = arr.findIndex(t => t.id === id);
   if (idx >= 0) arr[idx] = txn; else arr.push(txn);
   saveState();
@@ -2162,10 +2433,25 @@ function openProyekModal(existing) {
   document.getElementById("pj_id").value = existing ? existing.id : "";
   document.getElementById("proyekModalTitle").textContent = existing ? "Edit Proyek" : "Tambah Proyek";
   document.getElementById("pj_nama").value = existing ? existing.nama : "";
+  document.getElementById("pj_klien").value = existing ? (existing.klien || "") : "";
+  document.getElementById("pj_lokasi").value = existing ? (existing.lokasi || "") : "";
   document.getElementById("pj_nilai").value = existing ? formatNumberInput(existing.nilaiKontrak) : "";
+  document.getElementById("pj_status").value = existing ? (existing.status || "berjalan") : "berjalan";
+  document.getElementById("pj_tanggalMulai").value = existing ? (existing.tanggalMulai || "") : "";
+  document.getElementById("pj_tanggalSelesai").value = existing ? (existing.tanggalSelesai || "") : "";
   document.getElementById("pj_bahan").value = existing ? formatNumberInput(existing.biayaBahan) : "";
   document.getElementById("pj_upah").value = existing ? formatNumberInput(existing.biayaUpah) : "";
   document.getElementById("pj_lain").value = existing ? formatNumberInput(existing.biayaLain) : "";
+
+  const karyawanIds = new Set(existing ? (existing.karyawanIds || []) : []);
+  const aktif = state.karyawan.filter(k => k.aktif !== false).slice().sort((a, b) => a.nama.localeCompare(b.nama));
+  const checklist = document.getElementById("pj_karyawanChecklist");
+  checklist.innerHTML = aktif.length
+    ? aktif.map(k => `
+      <label><input type="checkbox" value="${k.id}" ${karyawanIds.has(k.id) ? "checked" : ""}> ${escapeHtml(k.nama)}</label>
+    `).join("")
+    : '<span class="checklist-empty">Belum ada karyawan aktif</span>';
+
   proyekModal.classList.add("open");
 }
 ["pj_nilai", "pj_bahan", "pj_upah", "pj_lain"].forEach(id => attachNumberFormatting(document.getElementById(id)));
@@ -2176,29 +2462,259 @@ document.querySelectorAll("[data-open-modal='proyek']").forEach(btn => {
 document.getElementById("proyekForm").addEventListener("submit", e => {
   e.preventDefault();
   const id = document.getElementById("pj_id").value;
+  const idx = state.proyek.findIndex(p => p.id === id);
+  const existing = idx >= 0 ? state.proyek[idx] : null;
+  const karyawanIds = Array.from(document.querySelectorAll("#pj_karyawanChecklist input:checked")).map(el => el.value);
   const proj = {
+    ...existing,
     id: id || uid(),
     nama: document.getElementById("pj_nama").value.trim(),
+    klien: document.getElementById("pj_klien").value.trim(),
+    lokasi: document.getElementById("pj_lokasi").value.trim(),
     nilaiKontrak: parseNumberInput(document.getElementById("pj_nilai").value),
+    status: document.getElementById("pj_status").value,
+    tanggalMulai: document.getElementById("pj_tanggalMulai").value,
+    tanggalSelesai: document.getElementById("pj_tanggalSelesai").value,
     biayaBahan: parseNumberInput(document.getElementById("pj_bahan").value),
     biayaUpah: parseNumberInput(document.getElementById("pj_upah").value),
-    biayaLain: parseNumberInput(document.getElementById("pj_lain").value)
+    biayaLain: parseNumberInput(document.getElementById("pj_lain").value),
+    karyawanIds,
+    subkontraktor: existing ? (existing.subkontraktor || []) : [],
+    belanjaMaterial: existing ? (existing.belanjaMaterial || []) : []
   };
-  const idx = state.proyek.findIndex(p => p.id === id);
   if (idx >= 0) state.proyek[idx] = proj; else state.proyek.push(proj);
   saveState();
   renderAll();
   closeModals();
 });
 document.getElementById("pr_table").addEventListener("click", e => {
+  const openBtn = e.target.closest("[data-open-proyek]");
   const editBtn = e.target.closest("[data-edit-proyek]");
   const delBtn = e.target.closest("[data-delete-proyek]");
-  if (editBtn) {
+  if (openBtn) {
+    showProyekDetail(openBtn.dataset.openProyek);
+  } else if (editBtn) {
     const p = state.proyek.find(x => x.id === editBtn.dataset.editProyek);
     if (p) openProyekModal(p);
   } else if (delBtn) {
-    if (confirm("Hapus proyek ini?")) {
+    if (confirm("Hapus proyek ini? Transaksi Kas Perusahaan yang sudah terkait proyek ini tidak akan ikut terhapus.")) {
       state.proyek = state.proyek.filter(x => x.id !== delBtn.dataset.deleteProyek);
+      if (currentProyekId === delBtn.dataset.deleteProyek) currentProyekId = null;
+      saveState();
+      renderAll();
+    }
+  }
+});
+document.getElementById("pd_editBtn").addEventListener("click", () => {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (p) openProyekModal(p);
+});
+document.getElementById("pd_backBtn").addEventListener("click", showProyekList);
+
+// ----- Termin Pembayaran (derived from + written back to Kas Perusahaan) -----
+attachNumberFormatting(document.getElementById("tm_jumlah"));
+document.getElementById("tm_addBtn").addEventListener("click", () => {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) return;
+  const tanggal = document.getElementById("tm_tanggal").value;
+  const keterangan = document.getElementById("tm_keterangan").value.trim();
+  const jumlah = parseNumberInput(document.getElementById("tm_jumlah").value);
+  if (!tanggal || !keterangan || !jumlah) { alert("Isi tanggal, keterangan, dan jumlah terlebih dahulu."); return; }
+  state.kasUsaha.transactions.push({
+    id: uid(),
+    proyekId: p.id,
+    tipe: "Masuk",
+    status: document.getElementById("tm_status").value,
+    tanggal, jumlah, keterangan,
+    kategori: "Pendapatan Jasa",
+    extra: p.nama,
+    catatan: "Termin dicatat dari Margin Proyek"
+  });
+  saveState();
+  document.getElementById("tm_tanggal").value = "";
+  document.getElementById("tm_keterangan").value = "";
+  document.getElementById("tm_jumlah").value = "";
+  renderAll();
+});
+document.getElementById("pd_terminTable").addEventListener("click", e => {
+  const delBtn = e.target.closest("[data-delete-termin]");
+  if (delBtn && confirm("Hapus termin pembayaran ini? Transaksi ini juga akan terhapus dari Kas Perusahaan.")) {
+    state.kasUsaha.transactions = state.kasUsaha.transactions.filter(t => t.id !== delBtn.dataset.deleteTermin);
+    saveState();
+    renderAll();
+  }
+});
+
+// ----- Daftar Belanja Material (auto-post ke Kas Perusahaan + Stok) -----
+function syncBelanjaMaterial(p, item) {
+  state.kasUsaha.transactions = state.kasUsaha.transactions.filter(t => t.sumberBelanjaId !== item.id);
+  state.stok.forEach(s => { s.transactions = (s.transactions || []).filter(t => t.sumberBelanjaId !== item.id); });
+  if (item.status !== "Dibeli") return;
+  const tanggal = item.tanggal || new Date().toISOString().slice(0, 10);
+  state.kasUsaha.transactions.push({
+    id: uid(),
+    sumberBelanjaId: item.id,
+    proyekId: p.id,
+    tipe: "Keluar",
+    status: "lunas",
+    tanggal,
+    jumlah: (item.qty || 0) * (item.hargaSatuan || 0),
+    keterangan: `Belanja material: ${item.nama} (${p.nama})`,
+    kategori: "Biaya Bahan",
+    extra: p.nama,
+    catatan: "Otomatis dari Daftar Belanja Material"
+  });
+  if (item.stokId) {
+    const stokItem = state.stok.find(s => s.id === item.stokId);
+    if (stokItem) {
+      if (!stokItem.transactions) stokItem.transactions = [];
+      stokItem.transactions.push({
+        id: uid(),
+        sumberBelanjaId: item.id,
+        tipe: "Masuk",
+        tanggal,
+        qty: item.qty || 0,
+        keterangan: `Belanja proyek ${p.nama}`
+      });
+    }
+  }
+}
+const belanjaModal = document.getElementById("belanjaModal");
+function openBelanjaModal(existing) {
+  document.getElementById("bm_id").value = existing ? existing.id : "";
+  document.getElementById("belanjaModalTitle").textContent = existing ? "Edit Belanja Material" : "Tambah Belanja Material";
+  document.getElementById("bm_nama").value = existing ? existing.nama : "";
+  document.getElementById("bm_qty").value = existing ? existing.qty : "";
+  document.getElementById("bm_satuan").value = existing ? (existing.satuan || "") : "";
+  document.getElementById("bm_harga").value = existing ? formatNumberInput(existing.hargaSatuan) : "";
+  document.getElementById("bm_tanggal").value = existing ? (existing.tanggal || "") : new Date().toISOString().slice(0, 10);
+  document.getElementById("bm_status").value = existing ? existing.status : "Rencana";
+  const stokSelect = document.getElementById("bm_stokId");
+  stokSelect.innerHTML = '<option value="">Tidak dikaitkan</option>' + state.stok.map(s => `<option value="${s.id}">${escapeHtml(s.nama)}</option>`).join("");
+  stokSelect.value = existing ? (existing.stokId || "") : "";
+  belanjaModal.classList.add("open");
+}
+attachNumberFormatting(document.getElementById("bm_harga"));
+document.getElementById("bm_addBtn").addEventListener("click", () => openBelanjaModal(null));
+document.getElementById("belanjaForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) { closeModals(); return; }
+  if (!p.belanjaMaterial) p.belanjaMaterial = [];
+  const id = document.getElementById("bm_id").value;
+  const item = {
+    id: id || uid(),
+    nama: document.getElementById("bm_nama").value.trim(),
+    qty: parseFloat((document.getElementById("bm_qty").value || "").replace(",", ".")) || 0,
+    satuan: document.getElementById("bm_satuan").value.trim(),
+    hargaSatuan: parseNumberInput(document.getElementById("bm_harga").value),
+    tanggal: document.getElementById("bm_tanggal").value,
+    status: document.getElementById("bm_status").value,
+    stokId: document.getElementById("bm_stokId").value || ""
+  };
+  const idx = p.belanjaMaterial.findIndex(b => b.id === id);
+  if (idx >= 0) p.belanjaMaterial[idx] = item; else p.belanjaMaterial.push(item);
+  syncBelanjaMaterial(p, item);
+  saveState();
+  renderAll();
+  closeModals();
+});
+document.getElementById("pd_belanjaTable").addEventListener("click", e => {
+  const editBtn = e.target.closest("[data-edit-belanja]");
+  const delBtn = e.target.closest("[data-delete-belanja]");
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) return;
+  if (editBtn) {
+    const item = (p.belanjaMaterial || []).find(b => b.id === editBtn.dataset.editBelanja);
+    if (item) openBelanjaModal(item);
+  } else if (delBtn) {
+    if (confirm("Hapus item belanja ini? Transaksi Kas Perusahaan/Stok yang otomatis tercatat dari item ini akan ikut terhapus.")) {
+      const bid = delBtn.dataset.deleteBelanja;
+      p.belanjaMaterial = (p.belanjaMaterial || []).filter(b => b.id !== bid);
+      state.kasUsaha.transactions = state.kasUsaha.transactions.filter(t => t.sumberBelanjaId !== bid);
+      state.stok.forEach(s => { s.transactions = (s.transactions || []).filter(t => t.sumberBelanjaId !== bid); });
+      saveState();
+      renderAll();
+    }
+  }
+});
+
+// ----- Subkontraktor -----
+const subkonModal = document.getElementById("subkonModal");
+function openSubkonModal(existing) {
+  document.getElementById("sk_id").value = existing ? existing.id : "";
+  document.getElementById("subkonModalTitle").textContent = existing ? "Edit Subkontraktor" : "Tambah Subkontraktor";
+  document.getElementById("sk_nama").value = existing ? existing.nama : "";
+  document.getElementById("sk_pekerjaan").value = existing ? (existing.pekerjaan || "") : "";
+  document.getElementById("sk_nilai").value = existing ? formatNumberInput(existing.nilaiKontrak) : "";
+  document.getElementById("sk_catatan").value = existing ? (existing.catatan || "") : "";
+  subkonModal.classList.add("open");
+}
+attachNumberFormatting(document.getElementById("sk_nilai"));
+document.getElementById("sk_addBtn").addEventListener("click", () => openSubkonModal(null));
+document.getElementById("subkonForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) { closeModals(); return; }
+  if (!p.subkontraktor) p.subkontraktor = [];
+  const id = document.getElementById("sk_id").value;
+  const sk = {
+    id: id || uid(),
+    nama: document.getElementById("sk_nama").value.trim(),
+    pekerjaan: document.getElementById("sk_pekerjaan").value.trim(),
+    nilaiKontrak: parseNumberInput(document.getElementById("sk_nilai").value),
+    catatan: document.getElementById("sk_catatan").value.trim()
+  };
+  const idx = p.subkontraktor.findIndex(s => s.id === id);
+  if (idx >= 0) p.subkontraktor[idx] = sk; else p.subkontraktor.push(sk);
+  saveState();
+  renderAll();
+  closeModals();
+});
+const subkonBayarModal = document.getElementById("subkonBayarModal");
+attachNumberFormatting(document.getElementById("skb_jumlah"));
+document.getElementById("subkonBayarForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) { closeModals(); return; }
+  const subkonId = document.getElementById("skb_subkonId").value;
+  const sk = (p.subkontraktor || []).find(s => s.id === subkonId);
+  if (!sk) { closeModals(); return; }
+  state.kasUsaha.transactions.push({
+    id: uid(),
+    proyekId: p.id,
+    subkonId: sk.id,
+    tipe: "Keluar",
+    status: "lunas",
+    tanggal: document.getElementById("skb_tanggal").value,
+    jumlah: parseNumberInput(document.getElementById("skb_jumlah").value),
+    keterangan: `Pembayaran subkontraktor: ${sk.nama} (${p.nama})`,
+    kategori: "Biaya Subkontraktor",
+    extra: p.nama,
+    catatan: document.getElementById("skb_catatan").value.trim() || "Otomatis dari pembayaran subkontraktor"
+  });
+  saveState();
+  renderAll();
+  closeModals();
+});
+document.getElementById("pd_subkonTable").addEventListener("click", e => {
+  const bayarBtn = e.target.closest("[data-bayar-subkon]");
+  const editBtn = e.target.closest("[data-edit-subkon]");
+  const delBtn = e.target.closest("[data-delete-subkon]");
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) return;
+  if (bayarBtn) {
+    document.getElementById("skb_subkonId").value = bayarBtn.dataset.bayarSubkon;
+    document.getElementById("skb_tanggal").value = new Date().toISOString().slice(0, 10);
+    document.getElementById("skb_jumlah").value = "";
+    document.getElementById("skb_catatan").value = "";
+    subkonBayarModal.classList.add("open");
+  } else if (editBtn) {
+    const sk = (p.subkontraktor || []).find(s => s.id === editBtn.dataset.editSubkon);
+    if (sk) openSubkonModal(sk);
+  } else if (delBtn) {
+    if (confirm("Hapus subkontraktor ini? Riwayat pembayaran yang sudah tercatat di Kas Perusahaan tidak ikut terhapus.")) {
+      p.subkontraktor = (p.subkontraktor || []).filter(s => s.id !== delBtn.dataset.deleteSubkon);
       saveState();
       renderAll();
     }
