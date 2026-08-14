@@ -161,6 +161,7 @@ body {
   padding: 18px 20px; margin-bottom: 20px;
 }
 .panel.narrow { max-width: 560px; }
+.panel-alert { border-color: var(--warning); background: color-mix(in srgb, var(--warning) 8%, transparent); }
 .panel h3 { margin: 0 0 14px; font-size: 14.5px; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 

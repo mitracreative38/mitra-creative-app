@@ -962,7 +962,45 @@ function stokStatusLabel(status) {
 }
 
 let currentStokId = null;
+function renderStokPendingApproval() {
+  const panel = document.getElementById("stok_pendingPanel");
+  const pending = state.kasUsaha.transactions
+    .filter(t => t.sumberBelanjaId && (t.status || "lunas") === "menunggu_persetujuan")
+    .sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
+  if (!pending.length) { panel.style.display = "none"; return; }
+  panel.style.display = "block";
+  document.getElementById("stok_pendingCount").textContent = pending.length;
+  document.querySelector("#stok_pendingTable tbody").innerHTML = pending.map(t => {
+    const proyek = state.proyek.find(p => p.id === t.proyekId);
+    return `
+      <tr>
+        <td>${formatTanggal(t.tanggal)}</td>
+        <td>${escapeHtml(t.keterangan)}</td>
+        <td>${proyek ? `<a href="#" data-open-proyek-pending="${proyek.id}">${escapeHtml(proyek.nama)}</a>` : escapeHtml(t.extra || "-")}</td>
+        <td class="num">${rupiah(t.jumlah)}</td>
+        <td><button type="button" class="icon-btn" data-approve-pending="${t.id}" title="Setujui">✅ Setujui</button></td>
+      </tr>
+    `;
+  }).join("");
+}
+document.getElementById("stok_pendingTable").addEventListener("click", e => {
+  const openBtn = e.target.closest("[data-open-proyek-pending]");
+  const approveBtn = e.target.closest("[data-approve-pending]");
+  if (openBtn) {
+    e.preventDefault();
+    showPage("proyek");
+    showProyekDetail(openBtn.dataset.openProyekPending);
+  } else if (approveBtn) {
+    const t = state.kasUsaha.transactions.find(x => x.id === approveBtn.dataset.approvePending);
+    if (t && confirm(`Setujui pengeluaran ${rupiah(t.jumlah)} ini? Saldo Kas Perusahaan akan langsung berkurang.`)) {
+      t.status = "lunas";
+      saveState();
+      renderAll();
+    }
+  }
+});
 function renderStokList() {
+  renderStokPendingApproval();
   const items = state.stok.map(s => ({ ...s, qty: stokQty(s), nilai: stokValue(s), status: stokStatus(s) }));
   document.getElementById("stok_totalJenis").textContent = items.length;
   document.getElementById("stok_totalNilai").textContent = rupiah(items.reduce((sum, s) => sum + s.nilai, 0));
