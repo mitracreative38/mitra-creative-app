@@ -1006,7 +1006,12 @@
           <h1>AHSP</h1>
           <p class="page-sub">Analisa Harga Satuan Pekerjaan — database harga satuan per kategori usaha. Bisa dipakai otomatis saat membuat RAB &amp; Penawaran.</p>
         </div>
-        <button class="btn-primary" data-open-modal="ahsp">+ Tambah Item AHSP</button>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn-ghost" id="ah_printBtn">🖨️ Cetak Daftar AHSP</button>
+          <button class="btn-ghost" id="ah_importBtn">📁 Import AHSP (.xlsx)</button>
+          <input type="file" id="ah_importInput" accept=".xlsx" hidden>
+          <button class="btn-primary" data-open-modal="ahsp">+ Tambah Item AHSP</button>
+        </div>
       </header>
 
       <div class="panel">
@@ -1769,6 +1774,10 @@
             <option value="detail">Rincian Komponen (otomatis)</option>
           </select>
         </div>
+        <div class="field full">
+          <label>Referensi Standar (opsional)</label>
+          <input type="text" id="ah_referensi" placeholder="mis. Permen PUPR No. 1/2022, atau SNI 2837:2008">
+        </div>
       </div>
 
       <div id="ah_manualGroup" class="field" style="margin-top:8px;">
@@ -1780,12 +1789,15 @@
         <div class="table-wrap">
           <table class="tbl" id="ah_komponenTable">
             <thead><tr>
-              <th>Jenis</th><th>Uraian</th><th>Satuan</th><th class="num">Koefisien</th><th class="num">Harga Satuan</th><th class="num">Jumlah</th><th></th>
+              <th>Jenis</th><th>Sumber Harga</th><th>Uraian</th><th>Satuan</th><th class="num">Koefisien</th><th class="num">Harga Satuan</th><th class="num">Jumlah</th><th></th>
             </tr></thead>
             <tbody></tbody>
           </table>
         </div>
-        <button type="button" class="btn-ghost" id="ah_addKomponenBtn" style="margin-top:8px;">+ Tambah Komponen</button>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:8px;">
+          <button type="button" class="btn-ghost" id="ah_addKomponenBtn">+ Tambah Komponen</button>
+          <button type="button" class="btn-ghost" id="ah_refreshHargaBtn">🔄 Refresh Harga dari Sumber</button>
+        </div>
         <div class="summary-rows" style="margin-top:12px;">
           <div class="summary-row"><span>Subtotal Komponen</span><strong id="ah_komponenSubtotal">Rp 0</strong></div>
           <div class="summary-row">
@@ -1801,6 +1813,46 @@
         <button type="submit" class="btn-primary">Simpan</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- Modal: riwayat harga AHSP -->
+<div class="modal-backdrop" id="ahspRiwayatModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="ahspRiwayatTitle">Riwayat Harga</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <div class="table-wrap">
+      <table class="tbl" id="ahspRiwayatTable">
+        <thead><tr><th>Tanggal</th><th class="num">Harga Lama</th><th class="num">Harga Baru</th><th class="num">Selisih</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn-primary" data-close-modal>Tutup</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: import AHSP (.xlsx) pratinjau -->
+<div class="modal-backdrop" id="ahspImportModal">
+  <div class="modal wide">
+    <div class="modal-head">
+      <h3>Pratinjau Import AHSP</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <p class="muted">Terdeteksi <strong id="ahi_count">0</strong> baris. Centang baris yang mau diimpor, atau edit langsung sebelum disimpan. Semua item diimpor sebagai mode Manual (harga langsung).</p>
+    <div class="table-wrap">
+      <table class="tbl" id="ahi_table">
+        <thead><tr><th></th><th>Kategori</th><th>Kode</th><th>Uraian</th><th>Satuan</th><th class="num">Harga Satuan</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+      <button type="button" class="btn-primary" id="ahi_confirmBtn">Import Item Terpilih</button>
+    </div>
   </div>
 </div>
 
