@@ -118,6 +118,87 @@ const SEED_AHSP = [
   { kategori: "Gudang Gadai Sakti", kode: "GS-04", uraian: "Plafond Wiremesh + Hollow Blacksteel", satuan: "m2", mode: "manual", hargaManual: 0 }
 ];
 
+// Template AHSP standar per kategori — estimasi awal dari riset harga pasar (bukan angka resmi
+// Perwali/PUPR yang belum bisa diakses otomatis), untuk diimpor & dikoreksi pengguna lewat menu
+// AHSP > Template Standar. Komponen "Upah" sengaja tanpa field harga: diisi otomatis saat impor
+// dari upah harian tertinggi karyawan aktif + 20% (lihat sumberHargaLookup("maxupah") di app.js).
+const AHSP_TEMPLATES = [
+  { kode: "TPL-CCTV-01", kategori: "CCTV", uraian: "Pemasangan Instalasi CCTV per Titik Kamera (Outdoor)", satuan: "titik", overhead: 10,
+    referensi: "Estimasi riset harga pasar (gsi-indo.com, baguscctv.com, sistempemantau.com) — sesuaikan dgn merk kamera & kondisi lokasi",
+    komponen: [
+      { jenis: "Bahan", uraian: "Kamera CCTV Outdoor", satuan: "unit", koefisien: 1, harga: 800000 },
+      { jenis: "Bahan", uraian: "Kabel Coaxial RG59", satuan: "m1", koefisien: 15, harga: 6000 },
+      { jenis: "Bahan", uraian: "Adaptor/Power Supply 12V", satuan: "unit", koefisien: 1, harga: 60000 },
+      { jenis: "Bahan", uraian: "Konektor BNC & Aksesoris", satuan: "set", koefisien: 1, harga: 30000 },
+      { jenis: "Upah", uraian: "Teknisi Pasang CCTV", satuan: "OH", koefisien: 1 }
+    ] },
+  { kode: "TPL-AC-01", kategori: "AC", uraian: "Jasa Pasang AC Split Baru (1/2 PK - 1.5 PK)", satuan: "unit", overhead: 10,
+    referensi: "Estimasi riset harga pasar jasa AC (hargaac.co.id, selka.id, trasfello.com, ahliac.com) — pipa tambahan di luar 3m dihitung terpisah",
+    komponen: [
+      { jenis: "Bahan", uraian: "Pipa AC (paket standar 3m)", satuan: "set", koefisien: 1, harga: 150000 },
+      { jenis: "Bahan", uraian: "Bracket Outdoor", satuan: "unit", koefisien: 1, harga: 75000 },
+      { jenis: "Bahan", uraian: "Kabel Power + Selang Pembuangan", satuan: "set", koefisien: 1, harga: 50000 },
+      { jenis: "Upah", uraian: "Teknisi AC", satuan: "OH", koefisien: 1 }
+    ] },
+  { kode: "TPL-LIS-01", kategori: "Instalasi Listrik", uraian: "Instalasi Titik Lampu (Kabel NYM + Conduit + Fitting)", satuan: "titik", overhead: 10,
+    referensi: "Estimasi riset harga pasar (mbizmarket.co.id, brighton.co.id, medcom.id)",
+    komponen: [
+      { jenis: "Bahan", uraian: "Kabel NYM 3x2.5mm", satuan: "m1", koefisien: 5, harga: 12000 },
+      { jenis: "Bahan", uraian: "Pipa Conduit PVC 20mm", satuan: "m1", koefisien: 3, harga: 5000 },
+      { jenis: "Bahan", uraian: "Fitting Lampu + Isolasi", satuan: "set", koefisien: 1, harga: 20000 },
+      { jenis: "Upah", uraian: "Tukang Listrik", satuan: "OH", koefisien: 0.5 }
+    ] },
+  { kode: "TPL-ADV-04", kategori: "Advertising", uraian: "Pembuatan & Pasang Neon Box Acrylic Frontlight (rincian)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar advertising (neonboxhuruftimbulmurah.com, customkreatif.com, signagejakartaselatan.wordpress.com)",
+    komponen: [
+      { jenis: "Bahan", uraian: "Rangka Besi Hollow 4x4", satuan: "batang", koefisien: 0.8, harga: 120000 },
+      { jenis: "Bahan", uraian: "Acrylic Frontlight 3mm", satuan: "m2", koefisien: 1, harga: 300000 },
+      { jenis: "Bahan", uraian: "Lampu LED Strip", satuan: "m1", koefisien: 3, harga: 25000 },
+      { jenis: "Bahan", uraian: "Trafo/Adaptor LED", satuan: "unit", koefisien: 0.15, harga: 150000 },
+      { jenis: "Bahan", uraian: "Sealant/Lem", satuan: "tube", koefisien: 0.2, harga: 28000 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.6 },
+      { jenis: "Upah", uraian: "Tukang", satuan: "OH", koefisien: 0.8 }
+    ] },
+  { kode: "TPL-ADV-05", kategori: "Advertising", uraian: "Pemasangan Huruf Timbul Acrylic LED (per cm tinggi huruf)", satuan: "cm", overhead: 10,
+    referensi: "Estimasi riset harga pasar (neonboxhuruftimbulmurah.com, specialishuruftimbul.com) — harga dasar potong+bentuk per cm tinggi huruf, LED & pemasangan final disesuaikan di lapangan",
+    komponen: [
+      { jenis: "Bahan", uraian: "Acrylic Huruf Timbul 3mm", satuan: "cm", koefisien: 1, harga: 14500 },
+      { jenis: "Bahan", uraian: "LED Module per Huruf (estimasi)", satuan: "titik", koefisien: 0.3, harga: 8000 },
+      { jenis: "Upah", uraian: "Tukang Finishing", satuan: "OH", koefisien: 0.05 }
+    ] },
+  { kode: "TPL-BJ-03", kategori: "Konstruksi Baja", uraian: "Pemasangan Dinding ACP + Rangka Hollow", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar (alcoseven.co.id, pasangaluminiumkaca.com, 99.co)",
+    komponen: [
+      { jenis: "Bahan", uraian: "Aluminium Composite Panel (ACP)", satuan: "m2", koefisien: 1.1, harga: 500000 },
+      { jenis: "Bahan", uraian: "Besi Hollow 4x4 Galvanis", satuan: "batang", koefisien: 0.8, harga: 120000 },
+      { jenis: "Bahan", uraian: "Bracket Siku/Spigot/Stiffener", satuan: "batang", koefisien: 0.267, harga: 65000 },
+      { jenis: "Bahan", uraian: "Paku Sekrup Beton", satuan: "kg", koefisien: 0.19, harga: 24000 },
+      { jenis: "Bahan", uraian: "Sealant", satuan: "tube", koefisien: 0.25, harga: 28000 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.39 },
+      { jenis: "Upah", uraian: "Tukang Las/Besi", satuan: "OH", koefisien: 0.70 },
+      { jenis: "Upah", uraian: "Kepala Tukang Besi", satuan: "OH", koefisien: 0.07 },
+      { jenis: "Upah", uraian: "Mandor", satuan: "OH", koefisien: 0.007 }
+    ] },
+  { kode: "TPL-EKS-03", kategori: "Renovasi Eksterior", uraian: "Pemasangan Kanopi Baja Ringan + Atap Spandek (rincian)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar borongan kanopi (jasabajaringan.com, hargakanopi.com, petra-truss.com)",
+    komponen: [
+      { jenis: "Bahan", uraian: "Rangka Baja Ringan Kanal CNP 0.75mm", satuan: "m2", koefisien: 1, harga: 150000 },
+      { jenis: "Bahan", uraian: "Atap Spandek 0.35mm", satuan: "m2", koefisien: 1, harga: 90000 },
+      { jenis: "Bahan", uraian: "Baut & Aksesoris", satuan: "set", koefisien: 1, harga: 15000 },
+      { jenis: "Upah", uraian: "Tukang Pasang", satuan: "OH", koefisien: 0.5 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.3 }
+    ] },
+  { kode: "TPL-SIP-04", kategori: "Sipil/Konstruksi", uraian: "Pengecatan Dinding Interior (Plamir + Dasar + 2 Lapis Cat)", satuan: "m2", overhead: 10,
+    referensi: "AHSP A.47111:2016 (koefisien tenaga metode Permen PUPR) — harga bahan riset pasar, cek ulang",
+    komponen: [
+      { jenis: "Bahan", uraian: "Cat Dasar", satuan: "kg", koefisien: 0.12, harga: 35000 },
+      { jenis: "Bahan", uraian: "Cat Penutup", satuan: "kg", koefisien: 0.18, harga: 40000 },
+      { jenis: "Bahan", uraian: "Plamir Tembok", satuan: "kg", koefisien: 0.1, harga: 15000 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.028 },
+      { jenis: "Upah", uraian: "Tukang Cat", satuan: "OH", koefisien: 0.042 }
+    ] }
+];
+
 // Extend seed data with RAB/AHSP/Penawaran defaults
 SEED_DATA.ahsp = SEED_AHSP;
 SEED_DATA.proyekRab = [];

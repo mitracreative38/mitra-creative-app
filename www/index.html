@@ -1010,6 +1010,7 @@
           <button class="btn-ghost" id="ah_printBtn">🖨️ Cetak Daftar AHSP</button>
           <button class="btn-ghost" id="ah_importBtn">📁 Import AHSP (.xlsx)</button>
           <input type="file" id="ah_importInput" accept=".xlsx" hidden>
+          <button class="btn-ghost" id="ah_templateBtn">📋 Template Standar</button>
           <button class="btn-primary" data-open-modal="ahsp">+ Tambah Item AHSP</button>
         </div>
       </header>
@@ -1852,6 +1853,22 @@
     <div class="modal-actions">
       <button type="button" class="btn-ghost" data-close-modal>Batal</button>
       <button type="button" class="btn-primary" id="ahi_confirmBtn">Import Item Terpilih</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: template AHSP standar -->
+<div class="modal-backdrop" id="ahspTemplateModal">
+  <div class="modal wide">
+    <div class="modal-head">
+      <h3>Template AHSP Standar</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <p class="muted" style="font-size:12px;">Estimasi awal dari riset harga pasar (advertising, konstruksi, sipil, interior, eksterior, CCTV, AC, dst) — <strong>bukan angka resmi Perwali/PUPR</strong>, silakan cek &amp; koreksi setelah diimpor. Komponen Upah otomatis dihitung dari upah harian tertinggi karyawan aktif Anda + 20%, dan komponen Bahan otomatis tersambung ke Stok Material kalau namanya cocok.</p>
+    <div id="ahtpl_list"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+      <button type="button" class="btn-primary" id="ahtpl_confirmBtn">Tambahkan yang Dipilih</button>
     </div>
   </div>
 </div>
