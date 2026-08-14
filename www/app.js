@@ -814,7 +814,10 @@ function computePayrollFromAbsensi(resetManualInputs) {
     const selesai = document.getElementById("pg_selesai").value;
     const inRange = !mulai || !selesai ? [] : (k.absensi || []).filter(a => a.tanggal >= mulai && a.tanggal <= selesai);
     const hariHadir = inRange.filter(a => a.hadir).length;
-    const jamLembur = inRange.filter(a => a.hadir).reduce((s, a) => s + (a.jamLembur || 0), 0);
+    // Lembur dihitung untuk semua hari dalam periode, bukan cuma hari yang ditandai
+    // "Hadir" — karyawan bisa lembur di hari libur (mis. Minggu) tanpa masuk sebagai
+    // hari kerja reguler, dan jam itu tetap harus terhitung.
+    const jamLembur = inRange.reduce((s, a) => s + (a.jamLembur || 0), 0);
     const totalUpahHarian = hariHadir * (k.upahHarian || 0);
     const totalLembur = jamLembur * (k.tarifLembur || 0);
     pgComputed = { hariHadir, jamLembur, totalUpahHarian, totalLembur, upahKotor: totalUpahHarian + totalLembur, bonus: 0 };
