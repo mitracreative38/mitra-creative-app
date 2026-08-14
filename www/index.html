@@ -1510,6 +1510,29 @@
           <button class="btn-danger" id="resetDataBtn">🗑 Reset Semua Data</button>
         </div>
       </div>
+
+      <div class="panel narrow" id="sync_loggedOutPanel">
+        <h3>☁️ Akun &amp; Sinkronisasi Cloud</h3>
+        <p class="muted">Masuk untuk menyinkronkan data ini otomatis ke semua perangkat (HP &amp; laptop tetap sama). Kalau tidak masuk, aplikasi tetap berfungsi normal seperti biasa — data hanya tersimpan di perangkat ini.</p>
+        <p class="muted" id="sync_authMsg" style="display:none;"></p>
+        <label class="field-label">Email</label>
+        <input type="email" id="sync_email" class="text-input" style="width:100%" autocomplete="email">
+        <label class="field-label">Password</label>
+        <input type="password" id="sync_password" class="text-input" style="width:100%" autocomplete="current-password">
+        <div class="settings-actions">
+          <button class="btn-primary" id="sync_loginBtn">Masuk</button>
+          <button class="btn-ghost" id="sync_signupBtn">Daftar Akun Baru</button>
+        </div>
+      </div>
+      <div class="panel narrow" id="sync_loggedInPanel" style="display:none;">
+        <h3>☁️ Akun &amp; Sinkronisasi Cloud</h3>
+        <p class="muted">Masuk sebagai <strong id="sync_userEmail">-</strong>. Data otomatis tersinkron ke cloud setiap ada perubahan.</p>
+        <p class="muted" id="sync_status" style="font-size:12px;">-</p>
+        <div class="settings-actions">
+          <button class="btn-ghost" id="sync_nowBtn">🔄 Sinkron Sekarang</button>
+          <button class="btn-danger" id="sync_logoutBtn">Keluar</button>
+        </div>
+      </div>
     </section>
 
   </main>
@@ -2345,6 +2368,8 @@
 <!-- Libraries for BOQ (.xlsx) import & OCR image import — loaded from CDN, only touched when those features are used -->
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<!-- Supabase client for optional cloud sync — app works fully offline/local if this fails to load -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="data.js"></script>
 <script src="app.js"></script>
 <!-- Native-shell glue (status bar, splash screen, Android back button) — no-op outside the mobile app -->
