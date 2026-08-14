@@ -74,6 +74,8 @@ try {
 } catch (e) { sb = null; }
 let currentSyncUser = null;
 let cloudSyncTimer = null;
+let realtimeChannel = null;
+let suppressRealtimeUntil = 0;
 
 function scheduleCloudPush() {
   if (!sb || !currentSyncUser) return;
@@ -85,14 +87,40 @@ async function pushStateToCloud() {
   try {
     const { error } = await sb.from("app_state").upsert({ user_id: currentSyncUser.id, data: state, updated_at: new Date().toISOString() });
     if (error) throw error;
+    suppressRealtimeUntil = Date.now() + 3000;
     setSyncStatus(`Tersinkron ${new Date().toLocaleTimeString("id-ID")}`);
   } catch (err) {
     setSyncStatus("Gagal sinkron ke cloud: " + err.message);
   }
 }
+function subscribeRealtime(userId) {
+  if (!sb || realtimeChannel || typeof sb.channel !== "function") return;
+  try {
+    realtimeChannel = sb
+      .channel("app_state_" + userId)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "app_state", filter: `user_id=eq.${userId}` }, (payload) => {
+        if (Date.now() < suppressRealtimeUntil) return;
+        if (cloudSyncTimer) return;
+        if (document.querySelector(".modal-backdrop.open")) return;
+        if (!payload.new || !payload.new.data) return;
+        state = withDefaults(payload.new.data);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        renderAll();
+        setSyncStatus(`Diperbarui otomatis dari perangkat lain, ${new Date().toLocaleTimeString("id-ID")}`);
+      })
+      .subscribe();
+  } catch (e) { realtimeChannel = null; }
+}
+function unsubscribeRealtime() {
+  if (sb && realtimeChannel && typeof sb.removeChannel === "function") {
+    try { sb.removeChannel(realtimeChannel); } catch (e) {}
+  }
+  realtimeChannel = null;
+}
 async function handlePostLoginSync(user) {
   currentSyncUser = user;
   updateSyncUI();
+  subscribeRealtime(user.id);
   try {
     const { data, error } = await sb.from("app_state").select("data, updated_at").eq("user_id", user.id).maybeSingle();
     if (error) throw error;
@@ -4802,6 +4830,7 @@ if (sb) {
       if (!currentSyncUser || currentSyncUser.id !== session.user.id) handlePostLoginSync(session.user);
     } else {
       currentSyncUser = null;
+      unsubscribeRealtime();
       updateSyncUI();
     }
   });
