@@ -47,6 +47,8 @@ function withDefaults(s) {
   if (!s.ownerJabatan) s.ownerJabatan = OWNER_INFO.jabatan;
   if (!s.stok) s.stok = [];
   if (!s.karyawan) s.karyawan = [];
+  if (!s.klien) s.klien = [];
+  if (!s.pemasok) s.pemasok = [];
   return s;
 }
 function saveState() {
@@ -489,6 +491,336 @@ function renderProyekDetail() {
   `; }).join("") : '<tr class="empty-row"><td colspan="6">Belum ada subkontraktor</td></tr>';
 }
 
+// ===== Klien (CRM/Pipeline) =====
+function klienDerived(k) {
+  const proyekTerkait = state.proyek.filter(p => p.klienId === k.id);
+  const penawaranTerkait = state.penawaran.filter(p => p.klienId === k.id);
+  const totalNilai = proyekTerkait.reduce((s, p) => s + (p.nilaiKontrak || 0), 0);
+  const totalMargin = proyekTerkait.reduce((s, p) => s + projectCalc(p).margin, 0);
+  return { proyekTerkait, penawaranTerkait, totalNilai, totalMargin };
+}
+function klienTahapBadge(tahap) {
+  if (tahap === "Deal/SPK" || tahap === "Selesai") return "good";
+  if (tahap === "Hilang") return "critical";
+  return "warning";
+}
+let currentKlienId = null;
+function showKlienList() {
+  currentKlienId = null;
+  document.getElementById("kl_listView").style.display = "block";
+  document.getElementById("kl_detailView").style.display = "none";
+  renderKlienList();
+}
+function showKlienDetail(id) {
+  currentKlienId = id;
+  document.getElementById("kl_listView").style.display = "none";
+  document.getElementById("kl_detailView").style.display = "block";
+  renderKlienDetail();
+}
+function renderKlienList() {
+  const filterSel = document.getElementById("kl_filterTahap");
+  if (filterSel.options.length <= 1) filterSel.innerHTML = '<option value="">Semua Tahap</option>' + KLIEN_TAHAP.map(t => `<option value="${t}">${t}</option>`).join("");
+
+  const today = new Date().toISOString().slice(0, 10);
+  const finalTahap = ["Selesai", "Hilang"];
+  const rowsAll = state.klien.map(k => ({ ...k, ...klienDerived(k) }));
+
+  document.getElementById("kl_totalKlien").textContent = rowsAll.length;
+  document.getElementById("kl_totalAktif").textContent = rowsAll.filter(k => !finalTahap.includes(k.tahap)).length;
+  document.getElementById("kl_totalFollowUp").textContent = rowsAll.filter(k => !finalTahap.includes(k.tahap) && k.followUpTanggal && k.followUpTanggal <= today).length;
+  document.getElementById("kl_totalNilai").textContent = rupiah(rowsAll.reduce((s, k) => s + k.totalNilai, 0));
+
+  const search = (document.getElementById("kl_search").value || "").toLowerCase();
+  const filterTahap = document.getElementById("kl_filterTahap").value;
+  let rows = rowsAll;
+  if (search) rows = rows.filter(k => k.nama.toLowerCase().includes(search));
+  if (filterTahap) rows = rows.filter(k => k.tahap === filterTahap);
+  rows = rows.slice().sort((a, b) => a.nama.localeCompare(b.nama));
+
+  const tbody = document.querySelector("#kl_table tbody");
+  tbody.innerHTML = "";
+  if (!rows.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Belum ada klien</td></tr>';
+    return;
+  }
+  rows.forEach(k => {
+    const overdue = !finalTahap.includes(k.tahap) && k.followUpTanggal && k.followUpTanggal <= today;
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${escapeHtml(k.nama)}</td>
+      <td><span class="badge-margin ${klienTahapBadge(k.tahap)}">${escapeHtml(k.tahap || "Leads")}</span></td>
+      <td>${escapeHtml(k.kontakNama || "-")}${k.telepon ? ` · ${escapeHtml(k.telepon)}` : ""}</td>
+      <td class="${overdue ? "bad" : ""}">${k.followUpTanggal ? formatTanggal(k.followUpTanggal) : "-"}${overdue ? " ⚠️" : ""}</td>
+      <td class="num">${k.proyekTerkait.length}</td>
+      <td>
+        <div class="row-actions">
+          <button class="icon-btn" data-open-klien="${k.id}" title="Buka Detail">📂</button>
+          <button class="icon-btn" data-edit-klien="${k.id}" title="Edit">✏️</button>
+          <button class="icon-btn" data-delete-klien="${k.id}" title="Hapus">🗑️</button>
+        </div>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+function renderKlienDetail() {
+  const k = state.klien.find(x => x.id === currentKlienId);
+  if (!k) { showKlienList(); return; }
+  if (!k.riwayatKontak) k.riwayatKontak = [];
+  const derived = klienDerived(k);
+
+  document.getElementById("kld_nama").textContent = k.nama;
+  document.getElementById("kld_sub").textContent = [k.kontakNama, k.telepon].filter(Boolean).join(" · ") || "-";
+  document.getElementById("kld_tahap").textContent = k.tahap || "Leads";
+  document.getElementById("kld_totalProyek").textContent = derived.proyekTerkait.length;
+  document.getElementById("kld_totalNilai").textContent = rupiah(derived.totalNilai);
+  document.getElementById("kld_totalMargin").textContent = rupiah(derived.totalMargin);
+
+  document.getElementById("kld_infoRows").innerHTML = `
+    <div class="summary-row"><span>Telepon</span><strong>${escapeHtml(k.telepon || "-")}</strong></div>
+    <div class="summary-row"><span>Email</span><strong>${escapeHtml(k.email || "-")}</strong></div>
+    <div class="summary-row"><span>Alamat</span><strong>${escapeHtml(k.alamat || "-")}</strong></div>
+    <div class="summary-row"><span>Sumber</span><strong>${escapeHtml(k.sumber || "-")}</strong></div>
+    <div class="summary-row"><span>Follow-up Berikutnya</span><strong>${k.followUpTanggal ? formatTanggal(k.followUpTanggal) : "-"}</strong></div>
+    <div class="summary-row"><span>Catatan</span><strong>${escapeHtml(k.catatan || "-")}</strong></div>
+  `;
+
+  const kontakRows = k.riwayatKontak.slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
+  document.querySelector("#kld_kontakTable tbody").innerHTML = kontakRows.length ? kontakRows.map(r => `
+    <tr>
+      <td>${formatTanggal(r.tanggal)}</td>
+      <td>${escapeHtml(r.catatan)}</td>
+      <td><div class="row-actions"><button class="icon-btn" data-delete-kontak="${r.id}" title="Hapus">🗑️</button></div></td>
+    </tr>
+  `).join("") : '<tr class="empty-row"><td colspan="3">Belum ada riwayat kontak</td></tr>';
+
+  document.querySelector("#kld_penawaranTable tbody").innerHTML = derived.penawaranTerkait.length ? derived.penawaranTerkait.slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || "")).map(pw => {
+    const { total } = penawaranTotals(pw);
+    return `<tr><td>${escapeHtml(pw.nomor || "-")}</td><td>${escapeHtml(pw.perihal || "-")}</td><td>${formatTanggal(pw.tanggal)}</td><td class="num">${rupiah(total)}</td><td>${pwStatusLabel(pw.status)}</td></tr>`;
+  }).join("") : '<tr class="empty-row"><td colspan="5">Belum ada penawaran terkait</td></tr>';
+
+  document.querySelector("#kld_proyekTable tbody").innerHTML = derived.proyekTerkait.length ? derived.proyekTerkait.map(p => {
+    const calc = projectCalc(p);
+    return `<tr>
+      <td>${escapeHtml(p.nama)}</td>
+      <td>${proyekStatusLabel(p.status)}</td>
+      <td class="num">${rupiah(p.nilaiKontrak)}</td>
+      <td class="num">${rupiah(calc.margin)}</td>
+      <td><button class="icon-btn" data-goto-proyek="${p.id}" title="Buka Proyek">📂</button></td>
+    </tr>`;
+  }).join("") : '<tr class="empty-row"><td colspan="5">Belum ada proyek terkait</td></tr>';
+}
+const klienModal = document.getElementById("klienModal");
+function openKlienModal(existing) {
+  const sumberSel = document.getElementById("kl_sumber");
+  if (sumberSel.options.length === 0) sumberSel.innerHTML = KLIEN_SUMBER.map(s => `<option value="${s}">${s}</option>`).join("");
+  const tahapSel = document.getElementById("kl_tahap");
+  if (tahapSel.options.length === 0) tahapSel.innerHTML = KLIEN_TAHAP.map(t => `<option value="${t}">${t}</option>`).join("");
+
+  document.getElementById("kl_id").value = existing ? existing.id : "";
+  document.getElementById("klienModalTitle").textContent = existing ? "Edit Klien" : "Tambah Klien";
+  document.getElementById("kl_nama").value = existing ? existing.nama : "";
+  document.getElementById("kl_kontakNama").value = existing ? (existing.kontakNama || "") : "";
+  document.getElementById("kl_telepon").value = existing ? (existing.telepon || "") : "";
+  document.getElementById("kl_email").value = existing ? (existing.email || "") : "";
+  sumberSel.value = existing ? (existing.sumber || KLIEN_SUMBER[0]) : KLIEN_SUMBER[0];
+  document.getElementById("kl_alamat").value = existing ? (existing.alamat || "") : "";
+  tahapSel.value = existing ? (existing.tahap || "Leads") : "Leads";
+  document.getElementById("kl_followUpTanggal").value = existing ? (existing.followUpTanggal || "") : "";
+  document.getElementById("kl_catatan").value = existing ? (existing.catatan || "") : "";
+  klienModal.classList.add("open");
+}
+document.getElementById("kl_addBtn").addEventListener("click", () => openKlienModal(null));
+document.getElementById("klienForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const id = document.getElementById("kl_id").value;
+  const idx = state.klien.findIndex(k => k.id === id);
+  const existing = idx >= 0 ? state.klien[idx] : null;
+  const k = {
+    ...existing,
+    id: id || uid(),
+    nama: document.getElementById("kl_nama").value.trim(),
+    kontakNama: document.getElementById("kl_kontakNama").value.trim(),
+    telepon: document.getElementById("kl_telepon").value.trim(),
+    email: document.getElementById("kl_email").value.trim(),
+    sumber: document.getElementById("kl_sumber").value,
+    alamat: document.getElementById("kl_alamat").value.trim(),
+    tahap: document.getElementById("kl_tahap").value,
+    followUpTanggal: document.getElementById("kl_followUpTanggal").value,
+    catatan: document.getElementById("kl_catatan").value.trim(),
+    riwayatKontak: existing ? (existing.riwayatKontak || []) : []
+  };
+  if (idx >= 0) state.klien[idx] = k; else state.klien.push(k);
+  saveState();
+  renderAll();
+  closeModals();
+});
+document.getElementById("kl_table").addEventListener("click", e => {
+  const openBtn = e.target.closest("[data-open-klien]");
+  const editBtn = e.target.closest("[data-edit-klien]");
+  const delBtn = e.target.closest("[data-delete-klien]");
+  if (openBtn) showKlienDetail(openBtn.dataset.openKlien);
+  else if (editBtn) {
+    const k = state.klien.find(x => x.id === editBtn.dataset.editKlien);
+    if (k) openKlienModal(k);
+  } else if (delBtn) {
+    if (confirm("Hapus klien ini? Proyek/Penawaran yang sudah dikaitkan tidak akan ikut terhapus, hanya kaitannya yang hilang.")) {
+      state.klien = state.klien.filter(x => x.id !== delBtn.dataset.deleteKlien);
+      if (currentKlienId === delBtn.dataset.deleteKlien) currentKlienId = null;
+      saveState();
+      renderAll();
+    }
+  }
+});
+document.getElementById("kl_search").addEventListener("input", renderKlienList);
+document.getElementById("kl_filterTahap").addEventListener("change", renderKlienList);
+document.getElementById("kld_backBtn").addEventListener("click", showKlienList);
+document.getElementById("kld_editBtn").addEventListener("click", () => {
+  const k = state.klien.find(x => x.id === currentKlienId);
+  if (k) openKlienModal(k);
+});
+document.getElementById("rk_addBtn").addEventListener("click", () => {
+  const k = state.klien.find(x => x.id === currentKlienId);
+  if (!k) return;
+  const tanggal = document.getElementById("rk_tanggal").value;
+  const catatan = document.getElementById("rk_catatan").value.trim();
+  if (!tanggal || !catatan) { alert("Isi tanggal dan catatan terlebih dahulu."); return; }
+  if (!k.riwayatKontak) k.riwayatKontak = [];
+  k.riwayatKontak.push({ id: uid(), tanggal, catatan });
+  saveState();
+  document.getElementById("rk_tanggal").value = "";
+  document.getElementById("rk_catatan").value = "";
+  renderKlienDetail();
+});
+document.getElementById("kld_kontakTable").addEventListener("click", e => {
+  const delBtn = e.target.closest("[data-delete-kontak]");
+  const k = state.klien.find(x => x.id === currentKlienId);
+  if (delBtn && k) {
+    k.riwayatKontak = (k.riwayatKontak || []).filter(r => r.id !== delBtn.dataset.deleteKontak);
+    saveState();
+    renderKlienDetail();
+  }
+});
+document.getElementById("kld_proyekTable").addEventListener("click", e => {
+  const gotoBtn = e.target.closest("[data-goto-proyek]");
+  if (gotoBtn) {
+    showPage("proyek");
+    showProyekDetail(gotoBtn.dataset.gotoProyek);
+  }
+});
+
+// ===== Laporan Keuangan =====
+function computeLabaRugi(mulai, selesai) {
+  const txns = state.kasUsaha.transactions.filter(t => (t.status || "lunas") === "lunas" && t.tanggal >= mulai && t.tanggal <= selesai);
+  const byKategori = {};
+  txns.forEach(t => {
+    const key = t.kategori || "(Tanpa Kategori)";
+    if (!byKategori[key]) byKategori[key] = { tipe: t.tipe, jumlah: 0 };
+    byKategori[key].jumlah += t.jumlah || 0;
+  });
+  const rows = Object.entries(byKategori)
+    .map(([kategori, v]) => ({ kategori, kelompok: v.tipe === "Masuk" ? "Pendapatan" : "Beban", jumlah: v.jumlah }))
+    .sort((a, b) => (a.kelompok === b.kelompok ? b.jumlah - a.jumlah : (a.kelompok === "Pendapatan" ? -1 : 1)));
+  const pendapatan = rows.filter(r => r.kelompok === "Pendapatan").reduce((s, r) => s + r.jumlah, 0);
+  const beban = rows.filter(r => r.kelompok === "Beban").reduce((s, r) => s + r.jumlah, 0);
+  return { rows, pendapatan, beban, labaBersih: pendapatan - beban };
+}
+function computeNeraca(tanggal) {
+  const txnsUpTo = state.kasUsaha.transactions.filter(t => t.tanggal <= tanggal);
+  const masukLunas = txnsUpTo.filter(t => t.tipe === "Masuk" && (t.status || "lunas") === "lunas").reduce((s, t) => s + (t.jumlah || 0), 0);
+  const keluar = txnsUpTo.filter(t => t.tipe === "Keluar").reduce((s, t) => s + (t.jumlah || 0), 0);
+  const saldoKas = (state.kasUsaha.saldoAwal || 0) + masukLunas - keluar;
+  const piutangUsaha = txnsUpTo.filter(t => t.tipe === "Masuk" && (t.status || "lunas") === "pending").reduce((s, t) => s + (t.jumlah || 0), 0);
+  const nilaiStok = state.stok.reduce((s, item) => s + stokValue(item), 0);
+  const piutangKaryawan = state.karyawan.reduce((s, k) => s + Math.max(0, sisaPinjaman(k)), 0);
+  const totalAset = saldoKas + piutangUsaha + nilaiStok + piutangKaryawan;
+  return { saldoKas, piutangUsaha, nilaiStok, piutangKaryawan, totalAset };
+}
+function renderLabaRugi() {
+  const mulaiInput = document.getElementById("lr_mulai");
+  const selesaiInput = document.getElementById("lr_selesai");
+  if (!mulaiInput.value) {
+    const now = new Date();
+    mulaiInput.value = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+  }
+  if (!selesaiInput.value) selesaiInput.value = new Date().toISOString().slice(0, 10);
+  const { rows, pendapatan, beban, labaBersih } = computeLabaRugi(mulaiInput.value, selesaiInput.value);
+  document.getElementById("lr_pendapatan").textContent = rupiah(pendapatan);
+  document.getElementById("lr_beban").textContent = rupiah(beban);
+  const labaEl = document.getElementById("lr_labaBersih");
+  labaEl.textContent = rupiah(labaBersih);
+  labaEl.className = "stat-value " + (labaBersih >= 0 ? "good" : "bad");
+  document.querySelector("#lr_table tbody").innerHTML = rows.length ? rows.map(r => `
+    <tr><td>${escapeHtml(r.kategori)}</td><td>${r.kelompok}</td><td class="num">${rupiah(r.jumlah)}</td></tr>
+  `).join("") : '<tr class="empty-row"><td colspan="3">Belum ada transaksi di periode ini</td></tr>';
+}
+function renderNeraca() {
+  const tanggalInput = document.getElementById("nr_tanggal");
+  if (!tanggalInput.value) tanggalInput.value = new Date().toISOString().slice(0, 10);
+  const n = computeNeraca(tanggalInput.value);
+  document.getElementById("nr_asetRows").innerHTML = `
+    <div class="summary-row"><span>Saldo Kas Perusahaan</span><strong>${rupiah(n.saldoKas)}</strong></div>
+    <div class="summary-row"><span>Piutang Usaha (belum cair)</span><strong>${rupiah(n.piutangUsaha)}</strong></div>
+    <div class="summary-row"><span>Nilai Stok Material &amp; Alat</span><strong>${rupiah(n.nilaiStok)}</strong></div>
+    <div class="summary-row"><span>Piutang Karyawan (pinjaman belum lunas)</span><strong>${rupiah(n.piutangKaryawan)}</strong></div>
+    <div class="summary-row total"><span>Total Aset</span><strong>${rupiah(n.totalAset)}</strong></div>
+  `;
+  document.getElementById("nr_modal").textContent = rupiah(n.totalAset);
+}
+document.getElementById("lr_mulai").addEventListener("change", renderLabaRugi);
+document.getElementById("lr_selesai").addEventListener("change", renderLabaRugi);
+document.getElementById("nr_tanggal").addEventListener("change", renderNeraca);
+function buildLaporanKeuanganPrintHtml() {
+  const mulai = document.getElementById("lr_mulai").value;
+  const selesai = document.getElementById("lr_selesai").value;
+  const tanggalNeraca = document.getElementById("nr_tanggal").value;
+  const lr = computeLabaRugi(mulai, selesai);
+  const nr = computeNeraca(tanggalNeraca);
+  return `
+    <div class="letterhead">
+      <div class="letterhead-logo">${LOGO_SVG}</div>
+      <div class="letterhead-text">
+        <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+      </div>
+    </div>
+    <div class="letterhead-rule"></div>
+    <h3 style="text-align:center; margin:6px 0 16px; letter-spacing:.5px;">LAPORAN KEUANGAN</h3>
+    <p class="doc-p" style="font-weight:700; margin-bottom:6px;">Laba Rugi Periode ${formatTanggal(mulai)} — ${formatTanggal(selesai)}</p>
+    <table class="doc-items" style="margin-bottom:10px;">
+      <thead><tr><th>Kategori</th><th>Kelompok</th><th class="r">Jumlah</th></tr></thead>
+      <tbody>${lr.rows.length ? lr.rows.map(r => `<tr><td>${escapeHtml(r.kategori)}</td><td>${r.kelompok}</td><td class="r">${rupiah(r.jumlah)}</td></tr>`).join("") : `<tr><td colspan="3" class="c">Tidak ada data</td></tr>`}</tbody>
+    </table>
+    <table class="doc-summary-table" style="margin-bottom:14px;">
+      <tr><td>Total Pendapatan</td><td class="r">${rupiah(lr.pendapatan)}</td></tr>
+      <tr><td>Total Beban</td><td class="r">- ${rupiah(lr.beban)}</td></tr>
+      <tr class="total-row"><td>Laba Bersih</td><td class="r">${rupiah(lr.labaBersih)}</td></tr>
+    </table>
+    <p class="doc-p" style="font-weight:700; margin-bottom:6px;">Neraca (Ringkasan) per ${formatTanggal(tanggalNeraca)}</p>
+    <table class="doc-summary-table">
+      <tr><td>Saldo Kas Perusahaan</td><td class="r">${rupiah(nr.saldoKas)}</td></tr>
+      <tr><td>Piutang Usaha</td><td class="r">${rupiah(nr.piutangUsaha)}</td></tr>
+      <tr><td>Nilai Stok Material &amp; Alat</td><td class="r">${rupiah(nr.nilaiStok)}</td></tr>
+      <tr><td>Piutang Karyawan</td><td class="r">${rupiah(nr.piutangKaryawan)}</td></tr>
+      <tr class="total-row"><td>Total Aset = Total Modal Pemilik</td><td class="r">${rupiah(nr.totalAset)}</td></tr>
+    </table>
+    <p style="font-size:11px; color:#777; margin-top:6px;">Ringkasan sederhana berbasis kas — belum mencatat utang usaha/aset tetap seperti neraca akuntansi penuh.</p>
+    <div style="display:flex; justify-content:flex-end; margin-top:30px; font-size:12.5px;">
+      <div style="text-align:right;">
+        Dibuat oleh,<br>${escapeHtml(state.company || "CV. Mitra Creative")}
+        <div class="sign-space"></div>
+        <strong>${escapeHtml(state.ownerNama)}</strong><br>${escapeHtml(state.ownerJabatan)}
+      </div>
+    </div>
+  `;
+}
+document.getElementById("lk_printBtn").addEventListener("click", () => {
+  document.getElementById("printArea").innerHTML = buildLaporanKeuanganPrintHtml();
+  document.body.classList.add("printing-quote");
+  window.print();
+});
+
 // ===== Stok Material & Alat =====
 function stokQty(item) {
   let qty = item.stokAwal || 0;
@@ -676,9 +1008,14 @@ function openStokTxnModal(existing) {
   document.getElementById("st_tipe").value = existing ? existing.tipe : "Masuk";
   document.getElementById("st_tanggal").value = existing ? existing.tanggal : new Date().toISOString().slice(0, 10);
   document.getElementById("st_qty").value = existing ? String(existing.qty) : "";
+  const pemasokSel = document.getElementById("st_pemasokId");
+  pemasokSel.innerHTML = '<option value="">Tidak dikaitkan</option>' + state.pemasok.map(pm => `<option value="${pm.id}">${escapeHtml(pm.nama)}</option>`).join("");
+  pemasokSel.value = existing ? (existing.pemasokId || "") : "";
+  document.getElementById("st_harga").value = existing ? formatNumberInput(existing.hargaSatuan) : "";
   document.getElementById("st_keterangan").value = existing ? (existing.keterangan || "") : "";
   stokTxnModal.classList.add("open");
 }
+attachNumberFormatting(document.getElementById("st_harga"));
 document.getElementById("stok_addTxnBtn").addEventListener("click", () => openStokTxnModal(null));
 document.getElementById("stokTxnForm").addEventListener("submit", e => {
   e.preventDefault();
@@ -690,6 +1027,8 @@ document.getElementById("stokTxnForm").addEventListener("submit", e => {
     tipe: document.getElementById("st_tipe").value,
     tanggal: document.getElementById("st_tanggal").value,
     qty: parseFloat((document.getElementById("st_qty").value || "").replace(",", ".")) || 0,
+    pemasokId: document.getElementById("st_pemasokId").value || "",
+    hargaSatuan: parseNumberInput(document.getElementById("st_harga").value),
     keterangan: document.getElementById("st_keterangan").value.trim()
   };
   const idx = item.transactions.findIndex(t => t.id === id);
@@ -743,16 +1082,24 @@ function hitungBonusTarget(target, realisasi, persen) {
   return kelebihan * (persen || 0) / 100;
 }
 
-// ----- Subtab switching -----
+// ----- Subtab switching (scoped by data-subtab-page so different pages don't clash) -----
+const SUBTAB_PANEL_PREFIX = { ky: "ky_", lk: "lk_" };
 document.querySelectorAll(".subtab-item").forEach(btn => {
-  btn.addEventListener("click", () => showKaryawanSubtab(btn.dataset.subtab));
+  btn.addEventListener("click", () => showSubtab(btn.dataset.subtabPage, btn.dataset.subtab));
 });
-function showKaryawanSubtab(name) {
-  document.querySelectorAll(".subtab-item").forEach(b => b.classList.toggle("active", b.dataset.subtab === name));
-  document.querySelectorAll(".subtab-panel").forEach(p => p.classList.remove("active"));
-  document.getElementById(`ky_${name}Panel`).classList.add("active");
-  if (name === "absensi") renderAbsensiPanel();
-  if (name === "penggajian") renderPenggajianPanel();
+function showSubtab(pagePrefix, name) {
+  document.querySelectorAll(`.subtab-item[data-subtab-page="${pagePrefix}"]`).forEach(b => b.classList.toggle("active", b.dataset.subtab === name));
+  document.querySelectorAll(`.subtab-item[data-subtab-page="${pagePrefix}"]`).forEach(b => {
+    document.getElementById(`${SUBTAB_PANEL_PREFIX[pagePrefix]}${b.dataset.subtab}Panel`).classList.toggle("active", b.dataset.subtab === name);
+  });
+  if (pagePrefix === "ky") {
+    if (name === "absensi") renderAbsensiPanel();
+    if (name === "penggajian") renderPenggajianPanel();
+  }
+  if (pagePrefix === "lk") {
+    if (name === "labarugi") renderLabaRugi();
+    if (name === "neraca") renderNeraca();
+  }
 }
 
 // ----- Daftar Karyawan -----
@@ -1285,6 +1632,137 @@ document.getElementById("pd_printBtn").addEventListener("click", () => {
   const p = state.proyek.find(x => x.id === currentProyekId);
   if (p) printProyekLaporan(p);
 });
+
+// ===== Pemasok =====
+function pemasokRiwayat(pm) {
+  const rows = [];
+  state.stok.forEach(item => {
+    (item.transactions || []).forEach(t => {
+      if (t.tipe === "Masuk" && t.pemasokId === pm.id) {
+        rows.push({ tanggal: t.tanggal, material: item.nama, qty: t.qty || 0, harga: t.hargaSatuan || 0, sumber: "Stok Material" });
+      }
+    });
+  });
+  state.proyek.forEach(p => {
+    (p.belanjaMaterial || []).forEach(b => {
+      if (b.pemasokId === pm.id) {
+        rows.push({ tanggal: b.tanggal, material: b.nama, qty: b.qty || 0, harga: b.hargaSatuan || 0, sumber: `Proyek: ${p.nama}` });
+      }
+    });
+  });
+  return rows.sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
+}
+function pemasokTotal(pm) {
+  return pemasokRiwayat(pm).reduce((s, r) => s + r.qty * r.harga, 0);
+}
+let currentPemasokId = null;
+function showPemasokList() {
+  currentPemasokId = null;
+  document.getElementById("pm_listView").style.display = "block";
+  document.getElementById("pm_detailView").style.display = "none";
+  renderPemasokList();
+}
+function showPemasokDetail(id) {
+  currentPemasokId = id;
+  document.getElementById("pm_listView").style.display = "none";
+  document.getElementById("pm_detailView").style.display = "block";
+  renderPemasokDetail();
+}
+function renderPemasokList() {
+  const tbody = document.querySelector("#pm_table tbody");
+  tbody.innerHTML = "";
+  if (!state.pemasok.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">Belum ada pemasok</td></tr>';
+    return;
+  }
+  state.pemasok.slice().sort((a, b) => a.nama.localeCompare(b.nama)).forEach(pm => {
+    const total = pemasokTotal(pm);
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${escapeHtml(pm.nama)}</td>
+      <td>${escapeHtml(pm.kategori || "-")}</td>
+      <td>${escapeHtml(pm.telepon || "-")}</td>
+      <td class="num">${rupiah(total)}</td>
+      <td>
+        <div class="row-actions">
+          <button class="icon-btn" data-open-pemasok="${pm.id}" title="Buka Detail">📂</button>
+          <button class="icon-btn" data-edit-pemasok="${pm.id}" title="Edit">✏️</button>
+          <button class="icon-btn" data-delete-pemasok="${pm.id}" title="Hapus">🗑️</button>
+        </div>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+function renderPemasokDetail() {
+  const pm = state.pemasok.find(x => x.id === currentPemasokId);
+  if (!pm) { showPemasokList(); return; }
+  document.getElementById("pmd_nama").textContent = pm.nama;
+  document.getElementById("pmd_sub").textContent = pm.kategori || "-";
+  document.getElementById("pmd_infoRows").innerHTML = `
+    <div class="summary-row"><span>Kategori</span><strong>${escapeHtml(pm.kategori || "-")}</strong></div>
+    <div class="summary-row"><span>Telepon</span><strong>${escapeHtml(pm.telepon || "-")}</strong></div>
+    <div class="summary-row"><span>Alamat</span><strong>${escapeHtml(pm.alamat || "-")}</strong></div>
+    <div class="summary-row"><span>Catatan</span><strong>${escapeHtml(pm.catatan || "-")}</strong></div>
+  `;
+  const rows = pemasokRiwayat(pm);
+  document.querySelector("#pmd_riwayatTable tbody").innerHTML = rows.length ? rows.map(r => `
+    <tr>
+      <td>${r.tanggal ? formatTanggal(r.tanggal) : "-"}</td>
+      <td>${escapeHtml(r.material)}</td>
+      <td class="num">${r.qty}</td>
+      <td class="num">${rupiah(r.harga)}</td>
+      <td>${escapeHtml(r.sumber)}</td>
+    </tr>
+  `).join("") : '<tr class="empty-row"><td colspan="5">Belum ada riwayat pembelian</td></tr>';
+}
+const pemasokModal = document.getElementById("pemasokModal");
+function openPemasokModal(existing) {
+  document.getElementById("pm_id").value = existing ? existing.id : "";
+  document.getElementById("pemasokModalTitle").textContent = existing ? "Edit Pemasok" : "Tambah Pemasok";
+  document.getElementById("pm_nama").value = existing ? existing.nama : "";
+  document.getElementById("pm_kategori").value = existing ? (existing.kategori || "") : "";
+  document.getElementById("pm_telepon").value = existing ? (existing.telepon || "") : "";
+  document.getElementById("pm_alamat").value = existing ? (existing.alamat || "") : "";
+  document.getElementById("pm_catatan").value = existing ? (existing.catatan || "") : "";
+  pemasokModal.classList.add("open");
+}
+document.getElementById("pm_addBtn").addEventListener("click", () => openPemasokModal(null));
+document.getElementById("pemasokForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const id = document.getElementById("pm_id").value;
+  const idx = state.pemasok.findIndex(x => x.id === id);
+  const pm = {
+    id: id || uid(),
+    nama: document.getElementById("pm_nama").value.trim(),
+    kategori: document.getElementById("pm_kategori").value.trim(),
+    telepon: document.getElementById("pm_telepon").value.trim(),
+    alamat: document.getElementById("pm_alamat").value.trim(),
+    catatan: document.getElementById("pm_catatan").value.trim()
+  };
+  if (idx >= 0) state.pemasok[idx] = pm; else state.pemasok.push(pm);
+  saveState();
+  renderAll();
+  closeModals();
+});
+document.getElementById("pm_table").addEventListener("click", e => {
+  const openBtn = e.target.closest("[data-open-pemasok]");
+  const editBtn = e.target.closest("[data-edit-pemasok]");
+  const delBtn = e.target.closest("[data-delete-pemasok]");
+  if (openBtn) showPemasokDetail(openBtn.dataset.openPemasok);
+  else if (editBtn) {
+    const pm = state.pemasok.find(x => x.id === editBtn.dataset.editPemasok);
+    if (pm) openPemasokModal(pm);
+  } else if (delBtn) {
+    if (confirm("Hapus pemasok ini? Riwayat pembelian yang sudah tercatat di Stok/Proyek tidak ikut terhapus, hanya kaitannya yang hilang.")) {
+      state.pemasok = state.pemasok.filter(x => x.id !== delBtn.dataset.deletePemasok);
+      if (currentPemasokId === delBtn.dataset.deletePemasok) currentPemasokId = null;
+      saveState();
+      renderAll();
+    }
+  }
+});
+document.getElementById("pmd_backBtn").addEventListener("click", showPemasokList);
 
 // ===== AHSP / RAB / Penawaran calculations =====
 function ahspHarga(item) {
@@ -2072,6 +2550,9 @@ function renderPwEditor() {
   if (focusedId !== "pw_nomor") document.getElementById("pw_nomor").value = pw.nomor || "";
   document.getElementById("pw_tanggal").value = pw.tanggal || "";
   if (focusedId !== "pw_kepada") document.getElementById("pw_kepada").value = pw.kepada || "";
+  const pwKlienSel = document.getElementById("pw_klienId");
+  pwKlienSel.innerHTML = '<option value="">Tidak dikaitkan</option>' + state.klien.map(k => `<option value="${k.id}">${escapeHtml(k.nama)}</option>`).join("");
+  pwKlienSel.value = pw.klienId || "";
   if (focusedId !== "pw_alamatKlien") document.getElementById("pw_alamatKlien").value = pw.alamatKlien || "";
   if (focusedId !== "pw_perihal") document.getElementById("pw_perihal").value = pw.perihal || "";
   kategoriSel.value = pw.kategori || KATEGORI_PEKERJAAN[0];
@@ -2152,6 +2633,10 @@ document.getElementById("pw_table").addEventListener("click", e => {
     pw[id.replace("pw_", "")] = document.getElementById(id).value;
     saveState();
   });
+});
+document.getElementById("pw_klienId").addEventListener("change", () => {
+  const pw = state.penawaran.find(p => p.id === currentPwId);
+  if (pw) { pw.klienId = document.getElementById("pw_klienId").value || ""; saveState(); }
 });
 document.getElementById("pw_tanggal").addEventListener("change", () => {
   const pw = state.penawaran.find(p => p.id === currentPwId);
@@ -2294,16 +2779,24 @@ function renderAll() {
   renderDashboard();
   renderKasBook("kasUsaha");
   renderKasBook("kasPribadi");
+  document.getElementById("kl_listView").style.display = currentKlienId ? "none" : "block";
+  document.getElementById("kl_detailView").style.display = currentKlienId ? "block" : "none";
+  if (currentKlienId) renderKlienDetail(); else renderKlienList();
   document.getElementById("pr_listView").style.display = currentProyekId ? "none" : "block";
   document.getElementById("pr_detailView").style.display = currentProyekId ? "block" : "none";
   if (currentProyekId) renderProyekDetail(); else renderProyekList();
   renderKaryawanList();
-  { const activeSubtab = document.querySelector(".subtab-item.active");
+  { const activeSubtab = document.querySelector('.subtab-item[data-subtab-page="ky"].active');
     if (activeSubtab && activeSubtab.dataset.subtab === "absensi") renderAbsensiPanel();
     if (activeSubtab && activeSubtab.dataset.subtab === "penggajian") renderPenggajianPanel(); }
+  { const activeLkSubtab = document.querySelector('.subtab-item[data-subtab-page="lk"].active');
+    if (!activeLkSubtab || activeLkSubtab.dataset.subtab === "labarugi") renderLabaRugi(); else renderNeraca(); }
   document.getElementById("stok_listView").style.display = currentStokId ? "none" : "block";
   document.getElementById("stok_riwayatView").style.display = currentStokId ? "block" : "none";
   if (currentStokId) renderStokRiwayat(); else renderStokList();
+  document.getElementById("pm_listView").style.display = currentPemasokId ? "none" : "block";
+  document.getElementById("pm_detailView").style.display = currentPemasokId ? "block" : "none";
+  if (currentPemasokId) renderPemasokDetail(); else renderPemasokList();
   renderAhsp();
   document.getElementById("rab_listView").style.display = currentRabId ? "none" : "block";
   document.getElementById("rab_editorView").style.display = currentRabId ? "block" : "none";
@@ -2443,6 +2936,9 @@ function openProyekModal(existing) {
   document.getElementById("proyekModalTitle").textContent = existing ? "Edit Proyek" : "Tambah Proyek";
   document.getElementById("pj_nama").value = existing ? existing.nama : "";
   document.getElementById("pj_klien").value = existing ? (existing.klien || "") : "";
+  const pjKlienSel = document.getElementById("pj_klienId");
+  pjKlienSel.innerHTML = '<option value="">Tidak dikaitkan</option>' + state.klien.map(k => `<option value="${k.id}">${escapeHtml(k.nama)}</option>`).join("");
+  pjKlienSel.value = existing ? (existing.klienId || "") : "";
   document.getElementById("pj_lokasi").value = existing ? (existing.lokasi || "") : "";
   document.getElementById("pj_nilai").value = existing ? formatNumberInput(existing.nilaiKontrak) : "";
   document.getElementById("pj_status").value = existing ? (existing.status || "berjalan") : "berjalan";
@@ -2479,6 +2975,7 @@ document.getElementById("proyekForm").addEventListener("submit", e => {
     id: id || uid(),
     nama: document.getElementById("pj_nama").value.trim(),
     klien: document.getElementById("pj_klien").value.trim(),
+    klienId: document.getElementById("pj_klienId").value || "",
     lokasi: document.getElementById("pj_lokasi").value.trim(),
     nilaiKontrak: parseNumberInput(document.getElementById("pj_nilai").value),
     status: document.getElementById("pj_status").value,
@@ -2601,6 +3098,9 @@ function openBelanjaModal(existing) {
   const stokSelect = document.getElementById("bm_stokId");
   stokSelect.innerHTML = '<option value="">Tidak dikaitkan</option>' + state.stok.map(s => `<option value="${s.id}">${escapeHtml(s.nama)}</option>`).join("");
   stokSelect.value = existing ? (existing.stokId || "") : "";
+  const pemasokSelect = document.getElementById("bm_pemasokId");
+  pemasokSelect.innerHTML = '<option value="">Tidak dikaitkan</option>' + state.pemasok.map(pm => `<option value="${pm.id}">${escapeHtml(pm.nama)}</option>`).join("");
+  pemasokSelect.value = existing ? (existing.pemasokId || "") : "";
   belanjaModal.classList.add("open");
 }
 attachNumberFormatting(document.getElementById("bm_harga"));
@@ -2619,7 +3119,8 @@ document.getElementById("belanjaForm").addEventListener("submit", e => {
     hargaSatuan: parseNumberInput(document.getElementById("bm_harga").value),
     tanggal: document.getElementById("bm_tanggal").value,
     status: document.getElementById("bm_status").value,
-    stokId: document.getElementById("bm_stokId").value || ""
+    stokId: document.getElementById("bm_stokId").value || "",
+    pemasokId: document.getElementById("bm_pemasokId").value || ""
   };
   const idx = p.belanjaMaterial.findIndex(b => b.id === id);
   if (idx >= 0) p.belanjaMaterial[idx] = item; else p.belanjaMaterial.push(item);

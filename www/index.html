@@ -30,6 +30,11 @@
         <svg viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
         Dashboard
       </button>
+      <button class="nav-item" data-page="klien">
+        <svg viewBox="0 0 24 24"><path d="M16 11c1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 3-1.34 3-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+        Klien
+      </button>
+      <div class="nav-sep"></div>
       <button class="nav-item" data-page="kasUsaha">
         <svg viewBox="0 0 24 24"><path d="M3 6h18v12H3V6zm2 2v8h14V8H5zm7 1a3 3 0 110 6 3 3 0 010-6z"/></svg>
         Kas Perusahaan
@@ -37,6 +42,10 @@
       <button class="nav-item" data-page="kasPribadi">
         <svg viewBox="0 0 24 24"><path d="M12 12a5 5 0 100-10 5 5 0 000 10zm0 2c-4.4 0-8 2.2-8 5v3h16v-3c0-2.8-3.6-5-8-5z"/></svg>
         Kas Pribadi
+      </button>
+      <button class="nav-item" data-page="laporan">
+        <svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v13a2 2 0 01-2 2H6a2 2 0 01-2-2V4a2 2 0 012-2zm8 1.5V8h4.5L14 3.5zM8 13h8v1.5H8V13zm0 3h8v1.5H8V16zm0-6h4v1.5H8V10z"/></svg>
+        Laporan Keuangan
       </button>
       <button class="nav-item" data-page="proyek">
         <svg viewBox="0 0 24 24"><path d="M4 4h16v4H4V4zm0 6h10v10H4V10zm12 0h4v10h-4V10z"/></svg>
@@ -51,6 +60,10 @@
       <button class="nav-item" data-page="stok">
         <svg viewBox="0 0 24 24"><path d="M12 2L2 7v10l10 5 10-5V7L12 2zm0 2.18L18.82 7 12 10.18 5.18 7 12 4.18zM4 8.82l7 3.5v7.86l-7-3.5V8.82zm9 11.36v-7.86l7-3.5v7.86l-7 3.5z"/></svg>
         Stok Material &amp; Alat
+      </button>
+      <button class="nav-item" data-page="pemasok">
+        <svg viewBox="0 0 24 24"><path d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.3 3.5A1 1 0 005.5 18H17M17 18a1.5 1.5 0 100 3 1.5 1.5 0 000-3zM8 18a1.5 1.5 0 100 3 1.5 1.5 0 000-3z"/></svg>
+        Pemasok
       </button>
       <div class="nav-sep"></div>
       <button class="nav-item" data-page="ahsp">
@@ -133,6 +146,197 @@
             <thead><tr><th>Tanggal</th><th>Sumber</th><th>Keterangan</th><th>Tipe</th><th class="num">Jumlah</th></tr></thead>
             <tbody></tbody>
           </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- KLIEN (CRM / PIPELINE) -->
+    <section class="page" id="page-klien">
+      <div id="kl_listView">
+        <header class="page-header">
+          <div>
+            <h1>Klien</h1>
+            <p class="page-sub">Pipeline klien dari leads sampai repeat order — status, follow-up, dan riwayat proyek per klien.</p>
+          </div>
+          <button class="btn-primary" id="kl_addBtn">+ Tambah Klien</button>
+        </header>
+
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-label">Total Klien</div>
+            <div class="stat-value" id="kl_totalKlien">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Leads/Nego Aktif</div>
+            <div class="stat-value" id="kl_totalAktif">0</div>
+          </div>
+          <div class="stat-card accent">
+            <div class="stat-label">Follow-up Jatuh Tempo</div>
+            <div class="stat-value warn" id="kl_totalFollowUp">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Total Nilai Kontrak (semua proyek)</div>
+            <div class="stat-value" id="kl_totalNilai">Rp 0</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="toolbar">
+            <input type="search" placeholder="Cari nama klien..." class="search-input" id="kl_search">
+            <select id="kl_filterTahap">
+              <option value="">Semua Tahap</option>
+            </select>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="kl_table">
+              <thead><tr>
+                <th>Nama Klien</th><th>Tahap</th><th>Kontak</th><th>Follow-up Berikutnya</th>
+                <th class="num">Total Proyek</th><th></th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="kl_detailView" style="display:none;">
+        <header class="page-header">
+          <div>
+            <h1 id="kld_nama">Detail Klien</h1>
+            <p class="page-sub" id="kld_sub">-</p>
+          </div>
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button class="btn-ghost" id="kld_backBtn">← Kembali ke Daftar</button>
+            <button class="btn-ghost" id="kld_editBtn">✏️ Edit Klien</button>
+          </div>
+        </header>
+
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-label">Tahap</div>
+            <div class="stat-value" id="kld_tahap">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Total Proyek</div>
+            <div class="stat-value" id="kld_totalProyek">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Total Nilai Kontrak</div>
+            <div class="stat-value" id="kld_totalNilai">Rp 0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Total Margin</div>
+            <div class="stat-value good" id="kld_totalMargin">Rp 0</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>Info Klien</h3>
+          <div class="summary-rows" id="kld_infoRows"></div>
+        </div>
+
+        <div class="panel">
+          <div class="muted" style="margin-bottom:10px;">Riwayat Kontak</div>
+          <div class="form-grid" style="margin-bottom:12px;">
+            <div class="field"><label>Tanggal</label><input type="date" id="rk_tanggal"></div>
+            <div class="field full"><label>Catatan</label><input type="text" id="rk_catatan" placeholder="mis. Telepon follow-up, klien minta revisi penawaran"></div>
+            <div class="field" style="justify-content:flex-end;">
+              <button type="button" class="btn-primary" id="rk_addBtn">+ Catat Kontak</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="kld_kontakTable">
+              <thead><tr><th>Tanggal</th><th>Catatan</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="muted" style="margin-bottom:10px;">Penawaran Terkait</div>
+          <div class="table-wrap">
+            <table class="tbl" id="kld_penawaranTable">
+              <thead><tr><th>No. Surat</th><th>Perihal</th><th>Tanggal</th><th class="num">Total</th><th>Status</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="muted" style="margin-bottom:10px;">Proyek Terkait</div>
+          <div class="table-wrap">
+            <table class="tbl" id="kld_proyekTable">
+              <thead><tr><th>Nama Proyek</th><th>Status</th><th class="num">Nilai Kontrak</th><th class="num">Margin</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- LAPORAN KEUANGAN -->
+    <section class="page" id="page-laporan">
+      <header class="page-header">
+        <div>
+          <h1>Laporan Keuangan</h1>
+          <p class="page-sub">Laba Rugi periode berjalan dan ringkasan Neraca sederhana, dihitung otomatis dari Kas Perusahaan, Stok, dan pinjaman karyawan.</p>
+        </div>
+        <button class="btn-primary" id="lk_printBtn">🖨️ Cetak Laporan Keuangan</button>
+      </header>
+
+      <div class="subtabs">
+        <button class="subtab-item active" data-subtab="labarugi" data-subtab-page="lk">Laba Rugi</button>
+        <button class="subtab-item" data-subtab="neraca" data-subtab-page="lk">Neraca (Ringkasan)</button>
+      </div>
+
+      <div class="subtab-panel active" id="lk_labarugiPanel">
+        <div class="panel">
+          <div class="form-grid">
+            <div class="field"><label>Periode Mulai</label><input type="date" id="lr_mulai"></div>
+            <div class="field"><label>Periode Selesai</label><input type="date" id="lr_selesai"></div>
+          </div>
+        </div>
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-label">Total Pendapatan</div>
+            <div class="stat-value good" id="lr_pendapatan">Rp 0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Total Beban</div>
+            <div class="stat-value bad" id="lr_beban">Rp 0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Laba Bersih</div>
+            <div class="stat-value" id="lr_labaBersih">Rp 0</div>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Rincian per Kategori</h3>
+          <div class="table-wrap">
+            <table class="tbl" id="lr_table">
+              <thead><tr><th>Kategori</th><th>Kelompok</th><th class="num">Jumlah</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="subtab-panel" id="lk_neracaPanel">
+        <div class="panel">
+          <div class="form-grid">
+            <div class="field"><label>Per Tanggal</label><input type="date" id="nr_tanggal"></div>
+          </div>
+          <p class="muted" style="font-size:12px;">Ringkasan sederhana berbasis kas — belum mencatat utang usaha/aset tetap seperti neraca akuntansi penuh.</p>
+        </div>
+        <div class="panel">
+          <h3>Aset</h3>
+          <div class="summary-rows" id="nr_asetRows"></div>
+        </div>
+        <div class="panel narrow">
+          <h3>Modal / Ekuitas Pemilik</h3>
+          <div class="summary-rows">
+            <div class="summary-row total"><span>Total Modal (= Total Aset)</span><strong id="nr_modal">Rp 0</strong></div>
+          </div>
         </div>
       </div>
     </section>
@@ -418,9 +622,9 @@
       </header>
 
       <div class="subtabs">
-        <button class="subtab-item active" data-subtab="daftar">Daftar Karyawan</button>
-        <button class="subtab-item" data-subtab="absensi">Absensi Harian</button>
-        <button class="subtab-item" data-subtab="penggajian">Penggajian &amp; Slip Gaji</button>
+        <button class="subtab-item active" data-subtab="daftar" data-subtab-page="ky">Daftar Karyawan</button>
+        <button class="subtab-item" data-subtab="absensi" data-subtab-page="ky">Absensi Harian</button>
+        <button class="subtab-item" data-subtab="penggajian" data-subtab-page="ky">Penggajian &amp; Slip Gaji</button>
       </div>
 
       <!-- Daftar Karyawan -->
@@ -668,6 +872,50 @@
       </div>
     </section>
 
+    <!-- PEMASOK -->
+    <section class="page" id="page-pemasok">
+      <div id="pm_listView">
+        <header class="page-header">
+          <div>
+            <h1>Pemasok</h1>
+            <p class="page-sub">Daftar pemasok/supplier material dan riwayat harga pembelian, dikumpulkan otomatis dari Stok Material dan Belanja Material proyek.</p>
+          </div>
+          <button class="btn-primary" id="pm_addBtn">+ Tambah Pemasok</button>
+        </header>
+        <div class="panel">
+          <div class="table-wrap">
+            <table class="tbl" id="pm_table">
+              <thead><tr><th>Nama Pemasok</th><th>Kategori</th><th>Kontak</th><th class="num">Total Pembelian</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="pm_detailView" style="display:none;">
+        <header class="page-header">
+          <div>
+            <h1 id="pmd_nama">Detail Pemasok</h1>
+            <p class="page-sub" id="pmd_sub">-</p>
+          </div>
+          <button class="btn-ghost" id="pmd_backBtn">← Kembali ke Daftar</button>
+        </header>
+        <div class="panel">
+          <h3>Info Pemasok</h3>
+          <div class="summary-rows" id="pmd_infoRows"></div>
+        </div>
+        <div class="panel">
+          <div class="muted" style="margin-bottom:10px;">Riwayat Pembelian (dari Stok Material &amp; Belanja Material Proyek)</div>
+          <div class="table-wrap">
+            <table class="tbl" id="pmd_riwayatTable">
+              <thead><tr><th>Tanggal</th><th>Material</th><th class="num">Qty</th><th class="num">Harga Satuan</th><th>Sumber</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- AHSP -->
     <section class="page" id="page-ahsp">
       <header class="page-header">
@@ -845,6 +1093,12 @@
             <div class="field full">
               <label>Kepada Yth (Nama Klien/Perusahaan)</label>
               <input type="text" id="pw_kepada" placeholder="mis. PT Sumber Makmur">
+            </div>
+            <div class="field">
+              <label>Kaitkan ke Klien (opsional)</label>
+              <select id="pw_klienId">
+                <option value="">Tidak dikaitkan</option>
+              </select>
             </div>
             <div class="field full">
               <label>Alamat Klien</label>
@@ -1065,6 +1319,12 @@
           <input type="text" id="pj_klien" placeholder="Nama klien">
         </div>
         <div class="field">
+          <label>Kaitkan ke Klien (opsional)</label>
+          <select id="pj_klienId">
+            <option value="">Tidak dikaitkan</option>
+          </select>
+        </div>
+        <div class="field">
           <label>Lokasi</label>
           <input type="text" id="pj_lokasi" placeholder="Lokasi proyek">
         </div>
@@ -1156,6 +1416,12 @@
             <option value="">Tidak dikaitkan</option>
           </select>
         </div>
+        <div class="field full">
+          <label>Pemasok (opsional)</label>
+          <select id="bm_pemasokId">
+            <option value="">Tidak dikaitkan</option>
+          </select>
+        </div>
       </div>
       <p class="muted" style="font-size:12px;margin-top:4px;">Kalau status "Sudah Dibeli", otomatis tercatat sebagai pengeluaran "Biaya Bahan" di Kas Perusahaan (dan menambah stok kalau dikaitkan ke Stok Material).</p>
       <div class="modal-actions">
@@ -1225,6 +1491,100 @@
         </div>
       </div>
       <p class="muted" style="font-size:12px;margin-top:4px;">Otomatis tercatat sebagai pengeluaran "Biaya Subkontraktor" di Kas Perusahaan.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: klien -->
+<div class="modal-backdrop" id="klienModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="klienModalTitle">Tambah Klien</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <form id="klienForm">
+      <input type="hidden" id="kl_id">
+      <div class="form-grid">
+        <div class="field full">
+          <label>Nama Klien / Perusahaan</label>
+          <input type="text" id="kl_nama" required placeholder="mis. PT Sumber Makmur">
+        </div>
+        <div class="field">
+          <label>Nama Kontak</label>
+          <input type="text" id="kl_kontakNama" placeholder="mis. Bpk. Ahmad">
+        </div>
+        <div class="field">
+          <label>Telepon</label>
+          <input type="text" id="kl_telepon" placeholder="08xx...">
+        </div>
+        <div class="field">
+          <label>Email</label>
+          <input type="text" id="kl_email" placeholder="opsional">
+        </div>
+        <div class="field">
+          <label>Sumber</label>
+          <select id="kl_sumber"></select>
+        </div>
+        <div class="field full">
+          <label>Alamat</label>
+          <input type="text" id="kl_alamat" placeholder="opsional">
+        </div>
+        <div class="field">
+          <label>Tahap Pipeline</label>
+          <select id="kl_tahap"></select>
+        </div>
+        <div class="field">
+          <label>Follow-up Berikutnya</label>
+          <input type="date" id="kl_followUpTanggal">
+        </div>
+        <div class="field full">
+          <label>Catatan</label>
+          <input type="text" id="kl_catatan" placeholder="opsional">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: pemasok -->
+<div class="modal-backdrop" id="pemasokModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="pemasokModalTitle">Tambah Pemasok</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <form id="pemasokForm">
+      <input type="hidden" id="pm_id">
+      <div class="form-grid">
+        <div class="field full">
+          <label>Nama Pemasok</label>
+          <input type="text" id="pm_nama" required placeholder="mis. Toko Bangunan Jaya">
+        </div>
+        <div class="field">
+          <label>Kategori</label>
+          <input type="text" id="pm_kategori" placeholder="mis. Material Besi, Cat, Listrik">
+        </div>
+        <div class="field">
+          <label>Telepon</label>
+          <input type="text" id="pm_telepon" placeholder="08xx...">
+        </div>
+        <div class="field full">
+          <label>Alamat</label>
+          <input type="text" id="pm_alamat" placeholder="opsional">
+        </div>
+        <div class="field full">
+          <label>Catatan</label>
+          <input type="text" id="pm_catatan" placeholder="opsional">
+        </div>
+      </div>
       <div class="modal-actions">
         <button type="button" class="btn-ghost" data-close-modal>Batal</button>
         <button type="submit" class="btn-primary">Simpan</button>
@@ -1450,6 +1810,16 @@
         <div class="field">
           <label>Qty</label>
           <input type="text" inputmode="decimal" id="st_qty" required placeholder="0">
+        </div>
+        <div class="field">
+          <label>Pemasok (opsional, untuk transaksi Masuk)</label>
+          <select id="st_pemasokId">
+            <option value="">Tidak dikaitkan</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Harga Satuan saat Beli (opsional, Rp)</label>
+          <input type="text" inputmode="numeric" id="st_harga" placeholder="0">
         </div>
         <div class="field full">
           <label>Keterangan</label>
