@@ -770,10 +770,12 @@ function renderPenggajianPanel() {
     .map(k => `<option value="${k.id}">${escapeHtml(k.nama)}</option>`).join("");
   if (prevValue && state.karyawan.some(k => k.id === prevValue)) sel.value = prevValue;
   if (!document.getElementById("pg_mulai").value) {
+    // Gajian mingguan jatuh tiap Sabtu, jadi periode berjalan Minggu s.d. Sabtu —
+    // bukan Senin s.d. Minggu, supaya hari Minggu (hari pertama periode) ikut terhitung.
     const today = new Date();
-    const monday = new Date(today);
-    monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
-    document.getElementById("pg_mulai").value = monday.toISOString().slice(0, 10);
+    const sunday = new Date(today);
+    sunday.setDate(today.getDate() - today.getDay());
+    document.getElementById("pg_mulai").value = sunday.toISOString().slice(0, 10);
     document.getElementById("pg_selesai").value = today.toISOString().slice(0, 10);
   }
   computePayrollFromAbsensi(true);

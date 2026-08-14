@@ -104,8 +104,10 @@ Sub TambahSlipGaji()
     Dim ws As Worksheet: Set ws = ThisWorkbook.Sheets("Penggajian & Slip Gaji")
     Dim r As Long: r = NextBlankRow(ws, "B", 3, 82)
     If r = -1 Then Exit Sub
-    Dim mondayThis As Date: mondayThis = Date - Weekday(Date, vbMonday) + 1
-    ws.Range("E" & r).Value = mondayThis
+    ' Gajian mingguan jatuh tiap Sabtu, jadi periode berjalan Minggu s.d. Sabtu -
+    ' bukan Senin s.d. Minggu, supaya hari Minggu (hari pertama periode) ikut terhitung.
+    Dim sundayThis As Date: sundayThis = Date - Weekday(Date, vbSunday) + 1
+    ws.Range("E" & r).Value = sundayThis
     ws.Range("F" & r).Value = Date
     GoToCell ws, "B" & r
 End Sub
