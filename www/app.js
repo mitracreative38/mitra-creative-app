@@ -2013,6 +2013,7 @@ function renderAhsp() {
       <td>${a.mode === "manual" ? "Manual" : "Rincian Komponen"}</td>
       <td>
         <div class="row-actions">
+          <button class="icon-btn" data-riwayat-ahsp="${a.id}" title="Riwayat Harga">👁️</button>
           <button class="icon-btn" data-edit-ahsp="${a.id}" title="Edit">✏️</button>
           <button class="icon-btn" data-delete-ahsp="${a.id}" title="Hapus">🗑️</button>
         </div>
@@ -2021,10 +2022,65 @@ function renderAhsp() {
     tbody.appendChild(tr);
   });
 }
+function buildAhspListPrintHtml() {
+  const filterSel = document.getElementById("ah_filterKategori");
+  const search = (document.getElementById("ah_search").value || "").toLowerCase();
+  const filterKategori = filterSel.value;
+  let rows = state.ahsp.slice().sort((a, b) => a.kategori.localeCompare(b.kategori) || a.uraian.localeCompare(b.uraian));
+  if (filterKategori) rows = rows.filter(a => a.kategori === filterKategori);
+  if (search) rows = rows.filter(a => (a.uraian || "").toLowerCase().includes(search) || (a.kode || "").toLowerCase().includes(search));
+
+  const bodyRows = rows.length ? rows.map(a => `
+    <tr><td>${escapeHtml(a.kategori)}</td><td>${escapeHtml(a.kode || "-")}</td><td>${escapeHtml(a.uraian)}</td><td class="c">${escapeHtml(a.satuan)}</td><td class="r">${rupiah(ahspHarga(a))}</td><td>${escapeHtml(a.referensi || "-")}</td></tr>
+  `).join("") : `<tr><td colspan="6" class="c">Tidak ada item</td></tr>`;
+
+  return `
+    <div class="letterhead">
+      <div class="letterhead-logo">${LOGO_SVG}</div>
+      <div class="letterhead-text">
+        <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+      </div>
+    </div>
+    <div class="letterhead-rule"></div>
+    <h3 style="text-align:center; margin:6px 0 16px; letter-spacing:.5px;">DAFTAR HARGA SATUAN PEKERJAAN (AHSP)</h3>
+    ${filterKategori ? `<p class="doc-p">Kategori: <strong>${escapeHtml(filterKategori)}</strong></p>` : ""}
+    <table class="doc-items">
+      <thead><tr><th>Kategori</th><th>Kode</th><th>Uraian Pekerjaan</th><th>Satuan</th><th class="r">Harga Satuan</th><th>Referensi</th></tr></thead>
+      <tbody>${bodyRows}</tbody>
+    </table>
+    <p style="font-size:11px; color:#777; margin-top:10px;">Dicetak ${formatTanggal(new Date().toISOString().slice(0, 10))} — ${rows.length} item.</p>
+  `;
+}
+document.getElementById("ah_printBtn").addEventListener("click", () => {
+  document.getElementById("printArea").innerHTML = buildAhspListPrintHtml();
+  document.body.classList.add("printing-quote");
+  window.print();
+});
 
 // ===== Modal: AHSP item =====
 const ahspModal = document.getElementById("ahspModal");
 let ahspKomponenRows = [];
+
+function sumberOptionsForJenis(jenis) {
+  if (jenis === "Upah") {
+    return state.karyawan.filter(k => k.aktif !== false).map(k => ({ value: `karyawan|${k.id}`, label: k.nama }));
+  }
+  const kategoriStok = jenis === "Alat" ? "Alat" : "Material";
+  return state.stok.filter(s => s.kategori === kategoriStok).map(s => ({ value: `stok|${s.id}`, label: s.nama }));
+}
+function sumberHargaLookup(tipe, id) {
+  if (tipe === "stok") {
+    const s = state.stok.find(x => x.id === id);
+    return s ? { harga: s.hargaSatuan || 0, satuan: s.satuan, uraian: s.nama } : null;
+  }
+  if (tipe === "karyawan") {
+    const k = state.karyawan.find(x => x.id === id);
+    return k ? { harga: k.upahHarian || 0, satuan: "OH", uraian: k.nama } : null;
+  }
+  return null;
+}
 
 function openAhspModal(existing) {
   document.getElementById("ah_id").value = existing ? existing.id : "";
@@ -2042,6 +2098,7 @@ function openAhspModal(existing) {
   document.getElementById("ah_mode").value = existing ? existing.mode : "manual";
   document.getElementById("ah_hargaManual").value = existing ? formatNumberInput(existing.hargaManual || 0) : "";
   document.getElementById("ah_overhead").value = existing ? (existing.overhead ?? 10) : 10;
+  document.getElementById("ah_referensi").value = existing ? (existing.referensi || "") : "";
 
   ahspKomponenRows = existing && existing.komponen ? JSON.parse(JSON.stringify(existing.komponen)) : [];
   renderKomponenRows();
@@ -2061,8 +2118,14 @@ function renderKomponenRows() {
   ahspKomponenRows.forEach((k, idx) => {
     const tr = document.createElement("tr");
     tr.dataset.idx = idx;
+    const sumberOpts = sumberOptionsForJenis(k.jenis);
+    const currentVal = k.sumberTipe && k.sumberId ? `${k.sumberTipe}|${k.sumberId}` : "";
     tr.innerHTML = `
       <td><select class="komp-jenis">${JENIS_KOMPONEN.map(j => `<option value="${j}" ${k.jenis === j ? "selected" : ""}>${j}</option>`).join("")}</select></td>
+      <td><select class="komp-sumber">
+        <option value="">Manual</option>
+        ${sumberOpts.map(o => `<option value="${o.value}" ${o.value === currentVal ? "selected" : ""}>${escapeHtml(o.label)}</option>`).join("")}
+      </select></td>
       <td><input type="text" class="komp-uraian" value="${escapeHtml(k.uraian || "")}" placeholder="mis. Semen PC"></td>
       <td><input type="text" class="komp-satuan" value="${escapeHtml(k.satuan || "")}" placeholder="kg"></td>
       <td class="num"><input type="text" inputmode="decimal" class="komp-koef" value="${k.koefisien || ""}" style="text-align:right"></td>
@@ -2089,6 +2152,36 @@ document.querySelector("#ah_komponenTable tbody").addEventListener("input", e =>
   tr.querySelector(".komp-jumlah").textContent = rupiah(row.koefisien * row.harga);
   recalcAhspTotals();
 });
+document.querySelector("#ah_komponenTable tbody").addEventListener("change", e => {
+  const tr = e.target.closest("tr");
+  if (!tr) return;
+  const idx = Number(tr.dataset.idx);
+  const row = ahspKomponenRows[idx];
+  if (!row) return;
+  if (e.target.classList.contains("komp-jenis")) {
+    row.jenis = e.target.value;
+    row.sumberTipe = "";
+    row.sumberId = "";
+    renderKomponenRows();
+  } else if (e.target.classList.contains("komp-sumber")) {
+    const val = e.target.value;
+    if (!val) {
+      row.sumberTipe = "";
+      row.sumberId = "";
+    } else {
+      const [tipe, id] = val.split("|");
+      const src = sumberHargaLookup(tipe, id);
+      if (src) {
+        row.sumberTipe = tipe;
+        row.sumberId = id;
+        row.uraian = src.uraian;
+        row.satuan = src.satuan;
+        row.harga = src.harga;
+      }
+    }
+    renderKomponenRows();
+  }
+});
 document.querySelector("#ah_komponenTable tbody").addEventListener("click", e => {
   const btn = e.target.closest("[data-remove-komponen]");
   if (btn) {
@@ -2097,8 +2190,19 @@ document.querySelector("#ah_komponenTable tbody").addEventListener("click", e =>
   }
 });
 document.getElementById("ah_addKomponenBtn").addEventListener("click", () => {
-  ahspKomponenRows.push({ jenis: "Bahan", uraian: "", satuan: "", koefisien: 0, harga: 0 });
+  ahspKomponenRows.push({ jenis: "Bahan", uraian: "", satuan: "", koefisien: 0, harga: 0, sumberTipe: "", sumberId: "" });
   renderKomponenRows();
+});
+document.getElementById("ah_refreshHargaBtn").addEventListener("click", () => {
+  let updated = 0;
+  ahspKomponenRows.forEach(row => {
+    if (row.sumberTipe && row.sumberId) {
+      const src = sumberHargaLookup(row.sumberTipe, row.sumberId);
+      if (src) { row.harga = src.harga; updated++; }
+    }
+  });
+  renderKomponenRows();
+  alert(updated ? `${updated} komponen diperbarui ke harga terbaru dari Stok Material/Karyawan.` : "Tidak ada komponen yang terhubung ke Stok Material/Karyawan. Pilih sumber harga di kolom \"Sumber Harga\" dulu.");
 });
 document.getElementById("ah_overhead").addEventListener("input", recalcAhspTotals);
 function recalcAhspTotals() {
@@ -2114,6 +2218,8 @@ document.getElementById("ah_filterKategori").addEventListener("change", renderAh
 document.getElementById("ahspForm").addEventListener("submit", e => {
   e.preventDefault();
   const id = document.getElementById("ah_id").value;
+  const idx = state.ahsp.findIndex(a => a.id === id);
+  const existing = idx >= 0 ? state.ahsp[idx] : null;
   const item = {
     id: id || uid(),
     kategori: document.getElementById("ah_kategori").value,
@@ -2123,17 +2229,40 @@ document.getElementById("ahspForm").addEventListener("submit", e => {
     mode: document.getElementById("ah_mode").value,
     hargaManual: parseNumberInput(document.getElementById("ah_hargaManual").value),
     overhead: parseFloat(document.getElementById("ah_overhead").value) || 0,
-    komponen: JSON.parse(JSON.stringify(ahspKomponenRows))
+    referensi: document.getElementById("ah_referensi").value.trim(),
+    komponen: JSON.parse(JSON.stringify(ahspKomponenRows)),
+    riwayatHarga: existing ? (existing.riwayatHarga || []) : []
   };
-  const idx = state.ahsp.findIndex(a => a.id === id);
+  const hargaBaru = ahspHarga(item);
+  if (existing) {
+    const hargaLama = ahspHarga(existing);
+    if (hargaBaru !== hargaLama) {
+      item.riwayatHarga.push({ id: uid(), tanggal: new Date().toISOString().slice(0, 10), hargaLama, hargaBaru });
+    }
+  }
   if (idx >= 0) state.ahsp[idx] = item; else state.ahsp.push(item);
   saveState();
   renderAll();
   closeModals();
 });
+const ahspRiwayatModal = document.getElementById("ahspRiwayatModal");
+function openAhspRiwayat(item) {
+  document.getElementById("ahspRiwayatTitle").textContent = `Riwayat Harga: ${item.uraian}`;
+  const rows = (item.riwayatHarga || []).slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
+  document.querySelector("#ahspRiwayatTable tbody").innerHTML = rows.length ? rows.map(r => `
+    <tr>
+      <td>${formatTanggal(r.tanggal)}</td>
+      <td class="num">${rupiah(r.hargaLama)}</td>
+      <td class="num">${rupiah(r.hargaBaru)}</td>
+      <td class="num ${r.hargaBaru >= r.hargaLama ? "bad" : "good"}">${r.hargaBaru >= r.hargaLama ? "+" : ""}${rupiah(r.hargaBaru - r.hargaLama)}</td>
+    </tr>
+  `).join("") : '<tr class="empty-row"><td colspan="4">Belum ada perubahan harga tercatat</td></tr>';
+  ahspRiwayatModal.classList.add("open");
+}
 document.getElementById("ah_table").addEventListener("click", e => {
   const editBtn = e.target.closest("[data-edit-ahsp]");
   const delBtn = e.target.closest("[data-delete-ahsp]");
+  const riwayatBtn = e.target.closest("[data-riwayat-ahsp]");
   if (editBtn) {
     const a = state.ahsp.find(x => x.id === editBtn.dataset.editAhsp);
     if (a) openAhspModal(a);
@@ -2143,7 +2272,190 @@ document.getElementById("ah_table").addEventListener("click", e => {
       saveState();
       renderAll();
     }
+  } else if (riwayatBtn) {
+    const a = state.ahsp.find(x => x.id === riwayatBtn.dataset.riwayatAhsp);
+    if (a) openAhspRiwayat(a);
   }
+});
+
+// ===== Import AHSP (.xlsx) =====
+async function parseAhspXlsx(arrayBuffer) {
+  const zip = await JSZip.loadAsync(arrayBuffer);
+  const parser = new DOMParser();
+  async function readXml(path) {
+    const file = zip.file(path);
+    if (!file) return null;
+    const text = await file.async("text");
+    return parser.parseFromString(text, "application/xml");
+  }
+  const sharedStringsDoc = await readXml("xl/sharedStrings.xml");
+  const sharedStrings = [];
+  if (sharedStringsDoc) sharedStringsDoc.querySelectorAll("si").forEach(si => sharedStrings.push(si.textContent || ""));
+  const relsDoc = await readXml("xl/_rels/workbook.xml.rels");
+  const relMap = {};
+  if (relsDoc) relsDoc.querySelectorAll("Relationship").forEach(rel => { relMap[rel.getAttribute("Id")] = rel.getAttribute("Target"); });
+  const wbDoc = await readXml("xl/workbook.xml");
+  let sheetPath = "xl/worksheets/sheet1.xml";
+  if (wbDoc) {
+    const sheetEl = wbDoc.querySelector("sheets sheet");
+    if (sheetEl) {
+      const rid = sheetEl.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id");
+      const target = rid ? relMap[rid] : null;
+      if (target) sheetPath = target.startsWith("/") ? target.slice(1) : "xl/" + target;
+    }
+  }
+  const sheetDoc = await readXml(sheetPath);
+  if (!sheetDoc) return [];
+
+  function colToNum(letters) {
+    let n = 0;
+    for (const ch of letters) n = n * 26 + (ch.charCodeAt(0) - 64);
+    return n;
+  }
+  const grid = {};
+  let maxRow = 0, maxCol = 0;
+  sheetDoc.querySelectorAll("row").forEach(row => {
+    const r = parseInt(row.getAttribute("r"), 10);
+    if (r > maxRow) maxRow = r;
+    row.querySelectorAll("c").forEach(c => {
+      const ref = c.getAttribute("r");
+      if (!ref) return;
+      const m = ref.match(/[A-Z]+/);
+      if (!m) return;
+      const colNum = colToNum(m[0]);
+      if (colNum > maxCol) maxCol = colNum;
+      const type = c.getAttribute("t");
+      const vEl = c.querySelector("v");
+      const isEl = c.querySelector("is");
+      let val = null;
+      if (type === "s" && vEl) val = sharedStrings[parseInt(vEl.textContent, 10)] || "";
+      else if (isEl) val = isEl.textContent || "";
+      else if (vEl) val = vEl.textContent;
+      grid[`${r},${colNum}`] = { raw: val, type };
+    });
+  });
+
+  function cellText(r, c) {
+    const cell = grid[`${r},${c}`];
+    if (!cell || cell.raw == null) return "";
+    return String(cell.raw).trim();
+  }
+  function cellNumber(r, c) {
+    const cell = grid[`${r},${c}`];
+    if (!cell || cell.raw == null) return null;
+    if (cell.type === "s" || cell.type === "str" || cell.type === "inlineStr") {
+      const cleaned = String(cell.raw).replace(",", ".").replace(/[^\d.]/g, "");
+      const n = parseFloat(cleaned);
+      return isNaN(n) ? null : n;
+    }
+    const n = parseFloat(cell.raw);
+    return isNaN(n) ? null : n;
+  }
+
+  let headerRow = -1, kategoriCol = -1, kodeCol = -1, uraianCol = -1, satuanCol = -1, hargaCol = -1;
+  for (let r = 1; r <= maxRow && headerRow === -1; r++) {
+    let kc = -1, kdc = -1, uc = -1, sc = -1, hc = -1;
+    for (let c = 1; c <= maxCol; c++) {
+      const txt = cellText(r, c).toLowerCase();
+      if (!txt) continue;
+      if (/kategori/.test(txt)) kc = c;
+      else if (/^kode/.test(txt)) kdc = c;
+      else if (/uraian/.test(txt)) uc = c;
+      else if (/^sat/.test(txt)) sc = c;
+      else if (/harga/.test(txt)) hc = c;
+    }
+    if (uc > -1 && (sc > -1 || hc > -1)) { headerRow = r; kategoriCol = kc; kodeCol = kdc; uraianCol = uc; satuanCol = sc; hargaCol = hc; }
+  }
+  if (headerRow === -1) return [];
+
+  const results = [];
+  for (let r = headerRow + 1; r <= maxRow; r++) {
+    const uraian = uraianCol > -1 ? cellText(r, uraianCol) : "";
+    if (!uraian) continue;
+    results.push({
+      kategori: kategoriCol > -1 ? cellText(r, kategoriCol) : "",
+      kode: kodeCol > -1 ? cellText(r, kodeCol) : "",
+      uraian,
+      satuan: satuanCol > -1 ? cellText(r, satuanCol) : "",
+      harga: hargaCol > -1 ? (cellNumber(r, hargaCol) || 0) : 0
+    });
+  }
+  return results;
+}
+let ahImportRows = [];
+const ahspImportModal = document.getElementById("ahspImportModal");
+function renderAhImportRows() {
+  document.querySelector("#ahi_table tbody").innerHTML = ahImportRows.map((r, idx) => `
+    <tr data-idx="${idx}">
+      <td><input type="checkbox" class="ahi-checked" ${r.checked ? "checked" : ""}></td>
+      <td><input type="text" class="ahi-kategori" value="${escapeHtml(r.kategori || "")}" style="width:130px"></td>
+      <td><input type="text" class="ahi-kode" value="${escapeHtml(r.kode || "")}" style="width:90px"></td>
+      <td><input type="text" class="ahi-uraian" value="${escapeHtml(r.uraian || "")}"></td>
+      <td><input type="text" class="ahi-satuan" value="${escapeHtml(r.satuan || "")}" style="width:70px"></td>
+      <td class="num"><input type="text" inputmode="numeric" class="ahi-harga" value="${formatNumberInput(r.harga || 0)}" style="width:110px; text-align:right"></td>
+    </tr>
+  `).join("");
+  document.querySelectorAll("#ahi_table .ahi-harga").forEach(attachNumberFormatting);
+}
+document.querySelector("#ahi_table tbody").addEventListener("input", e => {
+  const tr = e.target.closest("tr");
+  if (!tr) return;
+  const idx = Number(tr.dataset.idx);
+  const row = ahImportRows[idx];
+  if (!row) return;
+  row.checked = tr.querySelector(".ahi-checked").checked;
+  row.kategori = tr.querySelector(".ahi-kategori").value;
+  row.kode = tr.querySelector(".ahi-kode").value;
+  row.uraian = tr.querySelector(".ahi-uraian").value;
+  row.satuan = tr.querySelector(".ahi-satuan").value;
+  row.harga = parseNumberInput(tr.querySelector(".ahi-harga").value);
+});
+document.getElementById("ah_importBtn").addEventListener("click", () => document.getElementById("ah_importInput").click());
+document.getElementById("ah_importInput").addEventListener("change", async e => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  if (typeof JSZip === "undefined") {
+    alert("Gagal memuat pembaca file Excel (JSZip). Pastikan koneksi internet aktif saat pertama kali memakai fitur ini.");
+    return;
+  }
+  try {
+    const buf = await file.arrayBuffer();
+    const rows = await parseAhspXlsx(buf);
+    if (!rows.length) {
+      alert("Tidak ditemukan baris item. Pastikan file punya header kolom Kategori/Kode/Uraian/Satuan/Harga.");
+      return;
+    }
+    ahImportRows = rows.map(r => ({ checked: true, ...r }));
+    document.getElementById("ahi_count").textContent = ahImportRows.length;
+    renderAhImportRows();
+    ahspImportModal.classList.add("open");
+  } catch (err) {
+    alert("Gagal membaca file: " + err.message);
+  }
+});
+document.getElementById("ahi_confirmBtn").addEventListener("click", () => {
+  const toImport = ahImportRows.filter(r => r.checked && (r.uraian || "").trim());
+  if (!toImport.length) { alert("Tidak ada baris yang dicentang untuk diimpor."); return; }
+  toImport.forEach(r => {
+    state.ahsp.push({
+      id: uid(),
+      kategori: r.kategori || KATEGORI_PEKERJAAN[0],
+      kode: r.kode || "",
+      uraian: r.uraian.trim(),
+      satuan: r.satuan || "",
+      mode: "manual",
+      hargaManual: r.harga || 0,
+      overhead: 0,
+      referensi: "",
+      komponen: [],
+      riwayatHarga: []
+    });
+  });
+  saveState();
+  renderAll();
+  closeModals();
+  alert(`${toImport.length} item AHSP berhasil diimpor.`);
 });
 
 // ===== Shared item modal (used by RAB & Penawaran) =====
