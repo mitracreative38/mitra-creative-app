@@ -1515,13 +1515,21 @@
         <h3>☁️ Akun &amp; Sinkronisasi Cloud</h3>
         <p class="muted">Masuk untuk menyinkronkan data ini otomatis ke semua perangkat (HP &amp; laptop tetap sama). Kalau tidak masuk, aplikasi tetap berfungsi normal seperti biasa — data hanya tersimpan di perangkat ini.</p>
         <p class="muted" id="sync_authMsg" style="display:none;"></p>
-        <label class="field-label">Email</label>
-        <input type="email" id="sync_email" class="text-input" style="width:100%" autocomplete="email">
-        <label class="field-label">Password</label>
-        <input type="password" id="sync_password" class="text-input" style="width:100%" autocomplete="current-password">
-        <div class="settings-actions">
-          <button class="btn-primary" id="sync_loginBtn">Masuk</button>
-          <button class="btn-ghost" id="sync_signupBtn">Daftar Akun Baru</button>
+        <div id="sync_step_email">
+          <label class="field-label">Email</label>
+          <input type="email" id="sync_email" class="text-input" style="width:100%" autocomplete="email">
+          <div class="settings-actions">
+            <button class="btn-primary" id="sync_sendCodeBtn">Kirim Kode ke Email</button>
+          </div>
+        </div>
+        <div id="sync_step_code" style="display:none;">
+          <p class="muted">Kode 6 digit sudah dikirim ke <strong id="sync_codeEmailLabel">-</strong>. Cek juga folder Spam/Promosi. Buka email dari HP atau perangkat lain juga bisa.</p>
+          <label class="field-label">Kode 6 Digit</label>
+          <input type="text" id="sync_code" class="text-input" style="width:100%" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
+          <div class="settings-actions">
+            <button class="btn-primary" id="sync_verifyCodeBtn">Verifikasi &amp; Masuk</button>
+            <button class="btn-ghost" id="sync_backToEmailBtn">Ganti Email / Kirim Ulang</button>
+          </div>
         </div>
       </div>
       <div class="panel narrow" id="sync_loggedInPanel" style="display:none;">

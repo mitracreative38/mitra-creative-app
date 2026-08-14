@@ -4811,23 +4811,34 @@ if (sb) {
 } else {
   showSyncAuthMsg("Fitur sinkronisasi cloud tidak tersedia saat ini (gagal memuat pustaka Supabase). Aplikasi tetap berfungsi normal secara lokal.");
 }
-document.getElementById("sync_loginBtn").addEventListener("click", async () => {
+document.getElementById("sync_sendCodeBtn").addEventListener("click", async () => {
   if (!sb) { showSyncAuthMsg("Fitur cloud sync tidak tersedia (gagal memuat pustaka Supabase)."); return; }
   const email = document.getElementById("sync_email").value.trim();
-  const password = document.getElementById("sync_password").value;
-  if (!email || !password) { showSyncAuthMsg("Isi email dan password terlebih dahulu."); return; }
-  const { error } = await sb.auth.signInWithPassword({ email, password });
-  showSyncAuthMsg(error ? "Gagal masuk: " + error.message : "");
+  if (!email) { showSyncAuthMsg("Isi email terlebih dahulu."); return; }
+  const btn = document.getElementById("sync_sendCodeBtn");
+  btn.disabled = true;
+  showSyncAuthMsg("Mengirim kode...");
+  const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+  btn.disabled = false;
+  if (error) { showSyncAuthMsg("Gagal mengirim kode: " + error.message); return; }
+  document.getElementById("sync_codeEmailLabel").textContent = email;
+  document.getElementById("sync_step_email").style.display = "none";
+  document.getElementById("sync_step_code").style.display = "block";
+  document.getElementById("sync_code").value = "";
+  showSyncAuthMsg("Kode terkirim. Cek email Anda (termasuk folder Spam).");
 });
-document.getElementById("sync_signupBtn").addEventListener("click", async () => {
+document.getElementById("sync_verifyCodeBtn").addEventListener("click", async () => {
   if (!sb) { showSyncAuthMsg("Fitur cloud sync tidak tersedia (gagal memuat pustaka Supabase)."); return; }
   const email = document.getElementById("sync_email").value.trim();
-  const password = document.getElementById("sync_password").value;
-  if (!email || !password) { showSyncAuthMsg("Isi email dan password terlebih dahulu."); return; }
-  if (password.length < 6) { showSyncAuthMsg("Password minimal 6 karakter."); return; }
-  const { data, error } = await sb.auth.signUp({ email, password });
-  if (error) { showSyncAuthMsg("Gagal daftar: " + error.message); return; }
-  showSyncAuthMsg(data.session ? "Akun berhasil dibuat, langsung masuk." : "Akun berhasil dibuat. Cek email Anda untuk konfirmasi, lalu masuk.");
+  const code = document.getElementById("sync_code").value.trim();
+  if (!code) { showSyncAuthMsg("Isi kode 6 digit yang dikirim ke email."); return; }
+  const { error } = await sb.auth.verifyOtp({ email, token: code, type: "email" });
+  showSyncAuthMsg(error ? "Gagal verifikasi: " + error.message : "");
+});
+document.getElementById("sync_backToEmailBtn").addEventListener("click", () => {
+  document.getElementById("sync_step_code").style.display = "none";
+  document.getElementById("sync_step_email").style.display = "block";
+  showSyncAuthMsg("");
 });
 document.getElementById("sync_logoutBtn").addEventListener("click", async () => {
   if (!sb) return;
