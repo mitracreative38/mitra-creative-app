@@ -60,7 +60,7 @@ const SEED_DATA = {
   ]
 };
 
-const KATEGORI_USAHA = ["Pendapatan Jasa", "Pendapatan Lain-lain", "Biaya Bahan", "Biaya Upah/Tenaga", "Biaya Operasional", "Biaya Transport", "Biaya Alat", "Biaya Lain-lain"];
+const KATEGORI_USAHA = ["Pendapatan Jasa", "Pendapatan Lain-lain", "Biaya Bahan", "Biaya Upah/Tenaga", "Biaya Subkontraktor", "Biaya Operasional", "Biaya Transport", "Biaya Alat", "Biaya Lain-lain"];
 const KATEGORI_PRIBADI = ["Prive/Gaji Owner", "Kebutuhan Harian", "Tagihan/Utilitas", "Cicilan/Utang", "Kesehatan", "Pendidikan", "Hiburan", "Lainnya"];
 const SUMBER_DANA_PRIBADI = ["Kas Usaha", "Tabungan Pribadi", "Lainnya"];
 
