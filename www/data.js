@@ -61,6 +61,8 @@ const SEED_DATA = {
 };
 
 const KATEGORI_USAHA = ["Pendapatan Jasa", "Pendapatan Lain-lain", "Biaya Bahan", "Biaya Upah/Tenaga", "Biaya Subkontraktor", "Biaya Operasional", "Biaya Transport", "Biaya Alat", "Biaya Lain-lain"];
+const KLIEN_TAHAP = ["Leads", "Penawaran Terkirim", "Nego", "Deal/SPK", "Selesai", "Hilang"];
+const KLIEN_SUMBER = ["Referral", "Online/Sosmed", "Pameran", "Follow-up Lama", "Lainnya"];
 const KATEGORI_PRIBADI = ["Prive/Gaji Owner", "Kebutuhan Harian", "Tagihan/Utilitas", "Cicilan/Utang", "Kesehatan", "Pendidikan", "Hiburan", "Lainnya"];
 const SUMBER_DANA_PRIBADI = ["Kas Usaha", "Tabungan Pribadi", "Lainnya"];
 
@@ -133,3 +135,9 @@ SEED_DATA.stok = [];
 
 // ===== Karyawan & Gaji =====
 SEED_DATA.karyawan = [];
+
+// ===== Klien (CRM/Pipeline) =====
+SEED_DATA.klien = [];
+
+// ===== Pemasok =====
+SEED_DATA.pemasok = [];
