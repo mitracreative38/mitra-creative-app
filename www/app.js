@@ -1317,6 +1317,13 @@ function openKaryawanModal(existing) {
   karyawanModal.classList.add("open");
 }
 ["kym_upahHarian", "kym_tarifLembur", "kym_uangMakanHarian", "kym_gajiBulanan", "kym_targetBulanan", "kym_pinjamanAwal"].forEach(id => attachNumberFormatting(document.getElementById(id)));
+function recalcTarifLemburOtomatis() {
+  const upahHarian = parseNumberInput(document.getElementById("kym_upahHarian").value);
+  const uangMakan = parseNumberInput(document.getElementById("kym_uangMakanHarian").value);
+  const tarifLembur = Math.max(0, Math.round((upahHarian - uangMakan) / 6));
+  document.getElementById("kym_tarifLembur").value = formatNumberInput(tarifLembur);
+}
+["kym_upahHarian", "kym_uangMakanHarian"].forEach(id => document.getElementById(id).addEventListener("input", recalcTarifLemburOtomatis));
 document.getElementById("ky_addBtn").addEventListener("click", () => openKaryawanModal(null));
 document.getElementById("karyawanForm").addEventListener("submit", e => {
   e.preventDefault();
