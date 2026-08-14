@@ -128,6 +128,14 @@
         </div>
       </div>
 
+      <div class="panel panel-alert" id="dash_alertPanel" style="display:none;">
+        <div class="muted" style="margin-bottom:10px; font-weight:600;">⚠️ Perlu Perhatian</div>
+        <div class="summary-rows" id="dash_alertRows"></div>
+      </div>
+      <div class="panel" id="dash_allClearPanel" style="display:none;">
+        <div class="muted">✅ Semua aman, tidak ada yang perlu ditindaklanjuti saat ini.</div>
+      </div>
+
       <div class="grid-2">
         <div class="panel">
           <h3>Pemasukan vs Pengeluaran</h3>
@@ -458,6 +466,7 @@
             <option value="menunggu_persetujuan">Menunggu Persetujuan</option>
           </select>
           <button class="btn-ghost" id="ku_exportCsv">⬇ Export CSV</button>
+          <button class="btn-ghost" id="ku_printBtn">🖨️ Cetak</button>
         </div>
         <div class="table-wrap">
           <table class="tbl" id="ku_table">
@@ -513,6 +522,7 @@
             <option value="Keluar">Keluar</option>
           </select>
           <button class="btn-ghost" id="kp_exportCsv">⬇ Export CSV</button>
+          <button class="btn-ghost" id="kp_printBtn">🖨️ Cetak</button>
         </div>
         <div class="table-wrap">
           <table class="tbl" id="kp_table">
@@ -557,6 +567,15 @@
         </div>
 
         <div class="panel">
+          <div class="toolbar">
+            <input type="search" placeholder="Cari nama proyek / klien..." class="search-input" id="pr_search">
+            <select id="pr_filterStatus">
+              <option value="">Semua Status</option>
+              <option value="berjalan">Berjalan</option>
+              <option value="selesai">Selesai</option>
+              <option value="batal">Batal</option>
+            </select>
+          </div>
           <div class="legend-note">
             <span class="dot critical"></span> &lt;15% margin tipis/berisiko
             <span class="dot warning"></span> 15–30% cukup sehat
@@ -965,6 +984,8 @@
               <option value="hampir">Hampir Habis</option>
               <option value="habis">Habis</option>
             </select>
+            <button class="btn-ghost" id="stok_printBtn">🖨️ Cetak Daftar Stok</button>
+            <button class="btn-ghost" id="stok_exportCsv">⬇ Export CSV</button>
           </div>
           <div class="table-wrap">
             <table class="tbl" id="stok_table">
@@ -1043,7 +1064,23 @@
           </div>
           <button class="btn-primary" id="pm_addBtn">+ Tambah Pemasok</button>
         </header>
+
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-label">Total Pemasok</div>
+            <div class="stat-value" id="pm_totalPemasok">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Total Nilai Pembelian</div>
+            <div class="stat-value" id="pm_totalNilai">Rp 0</div>
+          </div>
+        </div>
+
         <div class="panel">
+          <div class="toolbar">
+            <input type="search" placeholder="Cari nama pemasok..." class="search-input" id="pm_search">
+            <button class="btn-ghost" id="pm_printBtn">🖨️ Cetak Daftar Pemasok</button>
+          </div>
           <div class="table-wrap">
             <table class="tbl" id="pm_table">
               <thead><tr><th>Nama Pemasok</th><th>Kategori</th><th>Kontak</th><th class="num">Total Pembelian</th><th></th></tr></thead>

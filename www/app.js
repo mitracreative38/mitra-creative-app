@@ -232,6 +232,33 @@ function renderDashboard() {
   document.getElementById("dashMarginMeta").textContent = totalKontrak ? `Rata-rata margin ${(totalMargin / totalKontrak * 100).toFixed(1)}%` : "Belum ada proyek";
   document.getElementById("dashPiutang").textContent = rupiah(ku.pending);
 
+  const today = new Date().toISOString().slice(0, 10);
+  const finalTahap = ["Selesai", "Hilang"];
+  const pendingTxns = state.kasUsaha.transactions.filter(t => (t.status || "lunas") === "menunggu_persetujuan");
+  const stokHampir = state.stok.filter(s => stokStatus(s) === "hampir").length;
+  const stokHabis = state.stok.filter(s => stokStatus(s) === "habis").length;
+  const klienFollowUp = state.klien.filter(k => !finalTahap.includes(k.tahap) && k.followUpTanggal && k.followUpTanggal <= today).length;
+  const klienMandek = state.klien.filter(k => klienIsStale(k, today)).length;
+  const pwKadaluarsa = state.penawaran.filter(p => pwIsKadaluarsa(p, today)).length;
+
+  const alerts = [
+    pendingTxns.length ? { icon: "⏳", label: "Kas Perusahaan menunggu persetujuan", value: `${pendingTxns.length} transaksi · ${rupiah(ku.menungguPersetujuan)}`, page: "kasUsaha" } : null,
+    stokHabis ? { icon: "🔴", label: "Stok habis", value: `${stokHabis} barang`, page: "stok" } : null,
+    stokHampir ? { icon: "🟡", label: "Stok hampir habis", value: `${stokHampir} barang`, page: "stok" } : null,
+    klienFollowUp ? { icon: "📞", label: "Klien follow-up jatuh tempo", value: `${klienFollowUp} klien`, page: "klien" } : null,
+    klienMandek ? { icon: "⚠️", label: "Klien mandek (>21 hari tanpa perubahan tahap)", value: `${klienMandek} klien`, page: "klien" } : null,
+    pwKadaluarsa ? { icon: "📄", label: "Penawaran kadaluarsa", value: `${pwKadaluarsa} penawaran`, page: "penawaran" } : null
+  ].filter(Boolean);
+
+  document.getElementById("dash_alertPanel").style.display = alerts.length ? "block" : "none";
+  document.getElementById("dash_allClearPanel").style.display = alerts.length ? "none" : "block";
+  document.getElementById("dash_alertRows").innerHTML = alerts.map(a => `
+    <div class="summary-row">
+      <span>${a.icon} ${escapeHtml(a.label)}</span>
+      <strong><a href="#" data-goto-page="${a.page}">${escapeHtml(a.value)} →</a></strong>
+    </div>
+  `).join("");
+
   renderBarChart(document.getElementById("chartCashflow"), [
     { label: "Usaha - Masuk", value: ku.masukLunas, color: "var(--series-1)", formattedValue: rupiah(ku.masukLunas) },
     { label: "Usaha - Keluar", value: ku.keluarLunas, color: "var(--series-2)", formattedValue: rupiah(ku.keluarLunas) },
@@ -272,6 +299,10 @@ function renderDashboard() {
     });
   }
 }
+document.getElementById("dash_alertRows").addEventListener("click", e => {
+  const link = e.target.closest("[data-goto-page]");
+  if (link) { e.preventDefault(); showPage(link.dataset.gotoPage); }
+});
 
 // ===== Rendering: Kas books (Usaha / Pribadi) =====
 const bookConfig = {
@@ -389,14 +420,20 @@ function renderProyekList() {
   document.getElementById("pr_totalMargin").textContent = rupiah(totalMargin);
   document.getElementById("pr_avgMargin").textContent = avgMargin.toFixed(1) + "%";
 
+  const search = (document.getElementById("pr_search").value || "").toLowerCase();
+  const filterStatus = document.getElementById("pr_filterStatus").value;
+  let rows = projects;
+  if (search) rows = rows.filter(p => (p.nama || "").toLowerCase().includes(search) || (p.klien || "").toLowerCase().includes(search));
+  if (filterStatus) rows = rows.filter(p => p.status === filterStatus);
+
   const tbody = document.querySelector("#pr_table tbody");
   tbody.innerHTML = "";
-  if (!projects.length) {
+  if (!rows.length) {
     tbody.innerHTML = '<tr class="empty-row"><td colspan="8">Belum ada proyek</td></tr>';
     return;
   }
   const today = new Date().toISOString().slice(0, 10);
-  projects.forEach(p => {
+  rows.forEach(p => {
     const tr = document.createElement("tr");
     const overdue = p.status === "berjalan" && p.tanggalSelesai && p.tanggalSelesai < today;
     tr.innerHTML = `
@@ -1271,6 +1308,63 @@ document.getElementById("stok_search").addEventListener("input", renderStokList)
 document.getElementById("stok_filterKategori").addEventListener("change", renderStokList);
 document.getElementById("stok_filterStatus").addEventListener("change", renderStokList);
 document.getElementById("stok_backBtn").addEventListener("click", showStokList);
+function filteredStokItems() {
+  const items = state.stok.map(s => ({ ...s, qty: stokQty(s), nilai: stokValue(s), status: stokStatus(s) }));
+  const search = (document.getElementById("stok_search").value || "").toLowerCase();
+  const filterKategori = document.getElementById("stok_filterKategori").value;
+  const filterStatus = document.getElementById("stok_filterStatus").value;
+  let rows = items.slice().sort((a, b) => a.nama.localeCompare(b.nama));
+  if (search) rows = rows.filter(s => s.nama.toLowerCase().includes(search));
+  if (filterKategori) rows = rows.filter(s => s.kategori === filterKategori);
+  if (filterStatus) rows = rows.filter(s => s.status === filterStatus);
+  return rows;
+}
+function buildStokListPrintHtml() {
+  const rows = filteredStokItems();
+  const bodyRows = rows.length ? rows.map(s => `
+    <tr>
+      <td>${escapeHtml(s.nama)}</td>
+      <td>${escapeHtml(s.kategori)}</td>
+      <td class="c">${escapeHtml(s.satuan)}</td>
+      <td class="r">${s.qty}</td>
+      <td class="r">${s.stokMinimum || 0}</td>
+      <td class="r">${rupiah(s.hargaSatuan)}</td>
+      <td class="r">${rupiah(s.nilai)}</td>
+      <td class="c">${stokStatusLabel(s.status)}</td>
+    </tr>
+  `).join("") : `<tr><td colspan="8" class="c">Tidak ada barang</td></tr>`;
+  return `
+    <div class="letterhead">
+      <div class="letterhead-logo">${LOGO_SVG}</div>
+      <div class="letterhead-text">
+        <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+      </div>
+    </div>
+    <div class="letterhead-rule"></div>
+    <h3 style="text-align:center; margin:6px 0 4px; letter-spacing:.5px;">DAFTAR STOK MATERIAL &amp; ALAT</h3>
+    <p class="doc-p" style="text-align:center; margin:0 0 16px;">Untuk kebutuhan stock opname — cocokkan dengan stok fisik di lapangan</p>
+    <table class="doc-items">
+      <thead><tr><th>Nama Barang</th><th>Kategori</th><th class="c">Satuan</th><th class="r">Qty</th><th class="r">Min.</th><th class="r">Harga Satuan</th><th class="r">Nilai</th><th class="c">Status</th></tr></thead>
+      <tbody>${bodyRows}</tbody>
+    </table>
+    <p style="font-size:11px; color:#777; margin-top:10px;">Dicetak ${formatTanggal(new Date().toISOString().slice(0, 10))} — ${rows.length} barang.</p>
+  `;
+}
+document.getElementById("stok_printBtn").addEventListener("click", () => {
+  document.getElementById("printArea").innerHTML = buildStokListPrintHtml();
+  document.body.classList.add("printing-quote");
+  window.print();
+});
+document.getElementById("stok_exportCsv").addEventListener("click", () => {
+  const rows = filteredStokItems();
+  const lines = [["Nama Barang", "Kategori", "Satuan", "Qty", "Stok Minimum", "Harga Satuan", "Nilai", "Status"].join(",")];
+  rows.forEach(s => {
+    lines.push([s.nama, s.kategori, s.satuan, s.qty, s.stokMinimum || 0, s.hargaSatuan, s.nilai, stokStatusLabel(s.status)].map(csvEscape).join(","));
+  });
+  downloadFile(`stok_${new Date().toISOString().slice(0, 10)}.csv`, lines.join("\n"), "text/csv");
+});
 document.getElementById("stok_table").addEventListener("click", e => {
   const openLink = e.target.closest("[data-open-stok]");
   const editBtn = e.target.closest("[data-edit-stok]");
@@ -2047,14 +2141,22 @@ function showPemasokDetail(id) {
   renderPemasokDetail();
 }
 function renderPemasokList() {
+  const allWithTotal = state.pemasok.map(pm => ({ ...pm, total: pemasokTotal(pm) }));
+  document.getElementById("pm_totalPemasok").textContent = allWithTotal.length;
+  document.getElementById("pm_totalNilai").textContent = rupiah(allWithTotal.reduce((s, pm) => s + pm.total, 0));
+
+  const search = (document.getElementById("pm_search").value || "").toLowerCase();
+  let rows = allWithTotal.slice().sort((a, b) => a.nama.localeCompare(b.nama));
+  if (search) rows = rows.filter(pm => pm.nama.toLowerCase().includes(search));
+
   const tbody = document.querySelector("#pm_table tbody");
   tbody.innerHTML = "";
-  if (!state.pemasok.length) {
+  if (!rows.length) {
     tbody.innerHTML = '<tr class="empty-row"><td colspan="5">Belum ada pemasok</td></tr>';
     return;
   }
-  state.pemasok.slice().sort((a, b) => a.nama.localeCompare(b.nama)).forEach(pm => {
-    const total = pemasokTotal(pm);
+  rows.forEach(pm => {
+    const total = pm.total;
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${escapeHtml(pm.nama)}</td>
@@ -2141,6 +2243,43 @@ document.getElementById("pm_table").addEventListener("click", e => {
   }
 });
 document.getElementById("pmd_backBtn").addEventListener("click", showPemasokList);
+document.getElementById("pm_search").addEventListener("input", renderPemasokList);
+function buildPemasokListPrintHtml() {
+  const search = (document.getElementById("pm_search").value || "").toLowerCase();
+  let rows = state.pemasok.map(pm => ({ ...pm, total: pemasokTotal(pm) })).sort((a, b) => a.nama.localeCompare(b.nama));
+  if (search) rows = rows.filter(pm => pm.nama.toLowerCase().includes(search));
+  const bodyRows = rows.length ? rows.map(pm => `
+    <tr>
+      <td>${escapeHtml(pm.nama)}</td>
+      <td>${escapeHtml(pm.kategori || "-")}</td>
+      <td>${escapeHtml(pm.telepon || "-")}</td>
+      <td>${escapeHtml(pm.alamat || "-")}</td>
+      <td class="r">${rupiah(pm.total)}</td>
+    </tr>
+  `).join("") : `<tr><td colspan="5" class="c">Tidak ada pemasok</td></tr>`;
+  return `
+    <div class="letterhead">
+      <div class="letterhead-logo">${LOGO_SVG}</div>
+      <div class="letterhead-text">
+        <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+      </div>
+    </div>
+    <div class="letterhead-rule"></div>
+    <h3 style="text-align:center; margin:6px 0 16px; letter-spacing:.5px;">DAFTAR PEMASOK</h3>
+    <table class="doc-items">
+      <thead><tr><th>Nama Pemasok</th><th>Kategori</th><th>Telepon</th><th>Alamat</th><th class="r">Total Pembelian</th></tr></thead>
+      <tbody>${bodyRows}</tbody>
+    </table>
+    <p style="font-size:11px; color:#777; margin-top:10px;">Dicetak ${formatTanggal(new Date().toISOString().slice(0, 10))} — ${rows.length} pemasok.</p>
+  `;
+}
+document.getElementById("pm_printBtn").addEventListener("click", () => {
+  document.getElementById("printArea").innerHTML = buildPemasokListPrintHtml();
+  document.body.classList.add("printing-quote");
+  window.print();
+});
 
 // ===== AHSP / RAB / Penawaran calculations =====
 function ahspHarga(item) {
@@ -4032,6 +4171,8 @@ function openProyekModal(existing) {
 document.querySelectorAll("[data-open-modal='proyek']").forEach(btn => {
   btn.addEventListener("click", () => openProyekModal(null));
 });
+document.getElementById("pr_search").addEventListener("input", renderProyekList);
+document.getElementById("pr_filterStatus").addEventListener("change", renderProyekList);
 document.getElementById("proyekForm").addEventListener("submit", e => {
   e.preventDefault();
   const id = document.getElementById("pj_id").value;
@@ -4461,6 +4602,71 @@ function downloadFile(filename, content, mime) {
 }
 document.getElementById("ku_exportCsv").addEventListener("click", () => exportCsv("kasUsaha"));
 document.getElementById("kp_exportCsv").addEventListener("click", () => exportCsv("kasPribadi"));
+
+// ===== Cetak Kas Perusahaan / Kas Pribadi =====
+function buildKasPrintHtml(book) {
+  const cfg = bookConfig[book];
+  const p = cfg.prefix;
+  const sum = kasSummary(book);
+  const search = (document.getElementById(`${p}_search`)?.value || "").toLowerCase();
+  const filterTipe = document.getElementById(`${p}_filterTipe`)?.value || "";
+  const filterStatus = document.getElementById(`${p}_filterStatus`)?.value || "";
+  let rows = state[book].transactions.slice().sort((a, b) => (a.tanggal || "").localeCompare(b.tanggal || ""));
+  if (search) rows = rows.filter(t => (t.keterangan || "").toLowerCase().includes(search) || (t.extra || "").toLowerCase().includes(search) || (t.kategori || "").toLowerCase().includes(search));
+  if (filterTipe) rows = rows.filter(t => t.tipe === filterTipe);
+  if (filterStatus) rows = rows.filter(t => (t.status || "lunas") === filterStatus);
+
+  const statusLabel = { lunas: "Lunas", pending: "Piutang", menunggu_persetujuan: "Menunggu Persetujuan" };
+  const bodyRows = rows.length ? rows.map(t => `
+    <tr>
+      <td>${formatTanggal(t.tanggal)}</td>
+      <td>${escapeHtml(t.keterangan)}</td>
+      <td>${escapeHtml(t.kategori || "-")}</td>
+      <td>${escapeHtml(t.extra || "-")}</td>
+      <td class="c">${t.tipe}</td>
+      ${book === "kasUsaha" ? `<td class="c">${statusLabel[t.status || "lunas"]}</td>` : ""}
+      <td class="r">${rupiah(t.jumlah)}</td>
+    </tr>
+  `).join("") : `<tr><td colspan="${book === "kasUsaha" ? 7 : 6}" class="c">Tidak ada transaksi</td></tr>`;
+
+  return `
+    <div class="letterhead">
+      <div class="letterhead-logo">${LOGO_SVG}</div>
+      <div class="letterhead-text">
+        <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+      </div>
+    </div>
+    <div class="letterhead-rule"></div>
+    <h3 style="text-align:center; margin:6px 0 16px; letter-spacing:.5px;">${book === "kasUsaha" ? "BUKU KAS PERUSAHAAN" : "BUKU KAS PRIBADI"}</h3>
+    <table class="doc-summary-table" style="margin-bottom:16px;">
+      <tr><td>Saldo Awal</td><td class="r">${rupiah(sum.saldoAwal)}</td></tr>
+      <tr><td>Total Pemasukan</td><td class="r">${rupiah(sum.masukLunas)}</td></tr>
+      <tr><td>Total Pengeluaran</td><td class="r">${rupiah(sum.keluarLunas)}</td></tr>
+      <tr class="total-row"><td>Saldo Akhir</td><td class="r">${rupiah(sum.saldoAkhir)}</td></tr>
+    </table>
+    <table class="doc-items">
+      <thead><tr>
+        <th>Tanggal</th><th>Keterangan</th><th>Kategori</th><th>${cfg.extraLabel}</th><th class="c">Tipe</th>
+        ${book === "kasUsaha" ? '<th class="c">Status</th>' : ""}
+        <th class="r">Jumlah</th>
+      </tr></thead>
+      <tbody>${bodyRows}</tbody>
+    </table>
+    <p style="font-size:11px; color:#777; margin-top:10px;">Dicetak ${formatTanggal(new Date().toISOString().slice(0, 10))} — ${rows.length} transaksi.</p>
+  `;
+}
+document.getElementById("ku_printBtn").addEventListener("click", () => {
+  document.getElementById("printArea").innerHTML = buildKasPrintHtml("kasUsaha");
+  document.body.classList.add("printing-quote");
+  window.print();
+});
+document.getElementById("kp_printBtn").addEventListener("click", () => {
+  document.getElementById("printArea").innerHTML = buildKasPrintHtml("kasPribadi");
+  document.body.classList.add("printing-quote");
+  window.print();
+});
 
 // ===== Settings =====
 document.getElementById("settingsCompanyName").addEventListener("input", e => {
