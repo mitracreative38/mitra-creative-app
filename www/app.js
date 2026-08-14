@@ -4818,7 +4818,8 @@ document.getElementById("sync_sendCodeBtn").addEventListener("click", async () =
   const btn = document.getElementById("sync_sendCodeBtn");
   btn.disabled = true;
   showSyncAuthMsg("Mengirim kode...");
-  const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+  const redirectTo = window.location.origin + window.location.pathname;
+  const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: true, emailRedirectTo: redirectTo } });
   btn.disabled = false;
   if (error) { showSyncAuthMsg("Gagal mengirim kode: " + error.message); return; }
   document.getElementById("sync_codeEmailLabel").textContent = email;
