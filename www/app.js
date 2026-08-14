@@ -910,12 +910,11 @@ document.getElementById("pg_riwayatTable").addEventListener("click", e => {
     const sl = k.slipGaji.find(s => s.id === printBtn.dataset.printSlip);
     if (sl) printSlipGaji(k, sl);
   } else if (delBtn) {
-    if (confirm("Hapus slip gaji ini? Sisa pinjaman akan otomatis dihitung ulang tanpa potongan dari slip ini.")) {
+    if (confirm("Hapus slip gaji ini? Sisa pinjaman akan otomatis dihitung ulang tanpa potongan dari slip ini, dan transaksi Kas Perusahaan yang tercatat otomatis dari slip ini akan ikut terhapus.")) {
       k.slipGaji = k.slipGaji.filter(s => s.id !== delBtn.dataset.deleteSlip);
+      state.kasUsaha.transactions = state.kasUsaha.transactions.filter(t => t.sumberSlipId !== delBtn.dataset.deleteSlip);
       saveState();
-      renderPenggajianRiwayat();
-      refreshPenggajianSummary();
-      renderKaryawanList();
+      renderAll();
     }
   }
 });
@@ -956,10 +955,20 @@ document.getElementById("pg_simpanCetakBtn").addEventListener("click", () => {
   slip.sisaSesudah = slip.sisaSebelum - slip.potonganPinjaman;
   if (!k.slipGaji) k.slipGaji = [];
   k.slipGaji.push(slip);
+  state.kasUsaha.transactions.push({
+    id: uid(),
+    sumberSlipId: slip.id,
+    tipe: "Keluar",
+    status: "lunas",
+    tanggal: slip.selesai,
+    jumlah: slipGajiBersih(slip),
+    keterangan: `Gaji ${k.nama} (${formatTanggal(slip.mulai)} - ${formatTanggal(slip.selesai)})`,
+    kategori: "Biaya Upah/Tenaga",
+    extra: k.nama,
+    catatan: "Otomatis dari slip gaji"
+  });
   saveState();
-  renderPenggajianRiwayat();
-  refreshPenggajianSummary();
-  renderKaryawanList();
+  renderAll();
   printSlipGaji(k, slip);
 });
 
