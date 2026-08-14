@@ -88,6 +88,19 @@ function addDaysIso(iso, days) {
   d.setDate(d.getDate() + days);
   return d.toISOString().slice(0, 10);
 }
+function daysBetweenIso(fromIso, toIso) {
+  if (!fromIso || !toIso) return 0;
+  const a = new Date(fromIso + "T00:00:00");
+  const b = new Date(toIso + "T00:00:00");
+  return Math.round((b - a) / 86400000);
+}
+function waLink(nomor) {
+  let digits = (nomor || "").replace(/[^0-9]/g, "");
+  if (!digits) return "";
+  if (digits.startsWith("0")) digits = "62" + digits.slice(1);
+  else if (!digits.startsWith("62")) digits = "62" + digits;
+  return `https://wa.me/${digits}`;
+}
 function currentMonthKey() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -573,9 +586,13 @@ function renderProyekDetail() {
 function klienDerived(k) {
   const proyekTerkait = state.proyek.filter(p => p.klienId === k.id);
   const penawaranTerkait = state.penawaran.filter(p => p.klienId === k.id);
+  const rabTerkait = state.proyekRab.filter(r => r.klienId === k.id);
   const totalNilai = proyekTerkait.reduce((s, p) => s + (p.nilaiKontrak || 0), 0);
   const totalMargin = proyekTerkait.reduce((s, p) => s + projectCalc(p).margin, 0);
-  return { proyekTerkait, penawaranTerkait, totalNilai, totalMargin };
+  const nilaiPipeline = penawaranTerkait
+    .filter(p => ["draft", "terkirim"].includes(p.status))
+    .reduce((s, p) => s + penawaranTotals(p).total, 0);
+  return { proyekTerkait, penawaranTerkait, rabTerkait, totalNilai, totalMargin, nilaiPipeline };
 }
 function klienTahapBadge(tahap) {
   if (tahap === "Deal/SPK" || tahap === "Selesai") return "good";
@@ -595,6 +612,10 @@ function showKlienDetail(id) {
   document.getElementById("kl_detailView").style.display = "block";
   renderKlienDetail();
 }
+const KLIEN_STALE_HARI = 21;
+function klienIsStale(k, today) {
+  return !["Selesai", "Hilang"].includes(k.tahap) && k.tahapSejak && daysBetweenIso(k.tahapSejak, today) > KLIEN_STALE_HARI;
+}
 function renderKlienList() {
   const filterSel = document.getElementById("kl_filterTahap");
   if (filterSel.options.length <= 1) filterSel.innerHTML = '<option value="">Semua Tahap</option>' + KLIEN_TAHAP.map(t => `<option value="${t}">${t}</option>`).join("");
@@ -607,6 +628,13 @@ function renderKlienList() {
   document.getElementById("kl_totalAktif").textContent = rowsAll.filter(k => !finalTahap.includes(k.tahap)).length;
   document.getElementById("kl_totalFollowUp").textContent = rowsAll.filter(k => !finalTahap.includes(k.tahap) && k.followUpTanggal && k.followUpTanggal <= today).length;
   document.getElementById("kl_totalNilai").textContent = rupiah(rowsAll.reduce((s, k) => s + k.totalNilai, 0));
+  document.getElementById("kl_totalPipeline").textContent = rupiah(rowsAll.reduce((s, k) => s + k.nilaiPipeline, 0));
+
+  const sumberCounts = {};
+  KLIEN_SUMBER.forEach(s => { sumberCounts[s] = 0; });
+  rowsAll.forEach(k => { const s = k.sumber || "Lainnya"; sumberCounts[s] = (sumberCounts[s] || 0) + 1; });
+  const sumberRows = Object.entries(sumberCounts).filter(([, v]) => v > 0).map(([label, value]) => ({ label, value, color: "var(--series-1)", formattedValue: `${value} klien` }));
+  renderBarChart(document.getElementById("kl_sumberChart"), sumberRows);
 
   const search = (document.getElementById("kl_search").value || "").toLowerCase();
   const filterTahap = document.getElementById("kl_filterTahap").value;
@@ -623,10 +651,11 @@ function renderKlienList() {
   }
   rows.forEach(k => {
     const overdue = !finalTahap.includes(k.tahap) && k.followUpTanggal && k.followUpTanggal <= today;
+    const stale = klienIsStale(k, today);
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${escapeHtml(k.nama)}</td>
-      <td><span class="badge-margin ${klienTahapBadge(k.tahap)}">${escapeHtml(k.tahap || "Leads")}</span></td>
+      <td><span class="badge-margin ${klienTahapBadge(k.tahap)}">${escapeHtml(k.tahap || "Leads")}</span>${stale ? ` <span class="bad" style="font-size:11px;" title="Sudah ${daysBetweenIso(k.tahapSejak, today)} hari tanpa perubahan tahap">⚠️ Mandek</span>` : ""}</td>
       <td>${escapeHtml(k.kontakNama || "-")}${k.telepon ? ` · ${escapeHtml(k.telepon)}` : ""}</td>
       <td class="${overdue ? "bad" : ""}">${k.followUpTanggal ? formatTanggal(k.followUpTanggal) : "-"}${overdue ? " ⚠️" : ""}</td>
       <td class="num">${k.proyekTerkait.length}</td>
@@ -641,18 +670,68 @@ function renderKlienList() {
     tbody.appendChild(tr);
   });
 }
+function buildKlienListPrintHtml() {
+  const today = new Date().toISOString().slice(0, 10);
+  const search = (document.getElementById("kl_search").value || "").toLowerCase();
+  const filterTahap = document.getElementById("kl_filterTahap").value;
+  let rows = state.klien.map(k => ({ ...k, ...klienDerived(k) }));
+  if (search) rows = rows.filter(k => k.nama.toLowerCase().includes(search));
+  if (filterTahap) rows = rows.filter(k => k.tahap === filterTahap);
+  rows = rows.slice().sort((a, b) => a.nama.localeCompare(b.nama));
+
+  const bodyRows = rows.length ? rows.map(k => `
+    <tr>
+      <td>${escapeHtml(k.nama)}</td>
+      <td>${escapeHtml(k.tahap || "Leads")}</td>
+      <td>${escapeHtml(k.kontakNama || "-")}${k.telepon ? " / " + escapeHtml(k.telepon) : ""}</td>
+      <td class="c">${k.followUpTanggal ? formatTanggal(k.followUpTanggal) : "-"}</td>
+      <td class="r">${rupiah(k.totalNilai)}</td>
+      <td class="r">${rupiah(k.nilaiPipeline)}</td>
+    </tr>
+  `).join("") : `<tr><td colspan="6" class="c">Tidak ada klien</td></tr>`;
+
+  return `
+    <div class="letterhead">
+      <div class="letterhead-logo">${LOGO_SVG}</div>
+      <div class="letterhead-text">
+        <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+      </div>
+    </div>
+    <div class="letterhead-rule"></div>
+    <h3 style="text-align:center; margin:6px 0 16px; letter-spacing:.5px;">DAFTAR KLIEN / PIPELINE</h3>
+    ${filterTahap ? `<p class="doc-p">Tahap: <strong>${escapeHtml(filterTahap)}</strong></p>` : ""}
+    <table class="doc-items">
+      <thead><tr><th>Nama Klien</th><th>Tahap</th><th>Kontak</th><th class="c">Follow-up</th><th class="r">Nilai Kontrak</th><th class="r">Nilai Pipeline</th></tr></thead>
+      <tbody>${bodyRows}</tbody>
+    </table>
+    <p style="font-size:11px; color:#777; margin-top:10px;">Dicetak ${formatTanggal(today)} — ${rows.length} klien.</p>
+  `;
+}
+document.getElementById("kl_printBtn").addEventListener("click", () => {
+  document.getElementById("printArea").innerHTML = buildKlienListPrintHtml();
+  document.body.classList.add("printing-quote");
+  window.print();
+});
 function renderKlienDetail() {
   const k = state.klien.find(x => x.id === currentKlienId);
   if (!k) { showKlienList(); return; }
   if (!k.riwayatKontak) k.riwayatKontak = [];
+  if (!k.kontakList) k.kontakList = [];
   const derived = klienDerived(k);
 
+  const today = new Date().toISOString().slice(0, 10);
   document.getElementById("kld_nama").textContent = k.nama;
   document.getElementById("kld_sub").textContent = [k.kontakNama, k.telepon].filter(Boolean).join(" · ") || "-";
   document.getElementById("kld_tahap").textContent = k.tahap || "Leads";
+  const hariDiTahap = k.tahapSejak ? daysBetweenIso(k.tahapSejak, today) : 0;
+  document.getElementById("kld_tahapSejak").textContent = k.tahapSejak ? `${hariDiTahap} hari sejak ${formatTanggal(k.tahapSejak)}` : "-";
+  document.getElementById("kld_tahapSejak").className = "stat-meta " + (klienIsStale(k, today) ? "bad" : "");
   document.getElementById("kld_totalProyek").textContent = derived.proyekTerkait.length;
   document.getElementById("kld_totalNilai").textContent = rupiah(derived.totalNilai);
   document.getElementById("kld_totalMargin").textContent = rupiah(derived.totalMargin);
+  document.getElementById("kld_totalPipeline").textContent = rupiah(derived.nilaiPipeline);
 
   document.getElementById("kld_infoRows").innerHTML = `
     <div class="summary-row"><span>Telepon</span><strong>${escapeHtml(k.telepon || "-")}</strong></div>
@@ -672,6 +751,11 @@ function renderKlienDetail() {
     </tr>
   `).join("") : '<tr class="empty-row"><td colspan="3">Belum ada riwayat kontak</td></tr>';
 
+  document.querySelector("#kld_rabTable tbody").innerHTML = derived.rabTerkait.length ? derived.rabTerkait.slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || "")).map(r => {
+    const { total } = rabTotals(r);
+    return `<tr><td>${escapeHtml(r.nomor || "-")}</td><td>${escapeHtml(r.nama || "-")}</td><td>${formatTanggal(r.tanggal)}</td><td class="num">${rupiah(total)}</td><td><button class="icon-btn" data-goto-rab="${r.id}" title="Buka RAB">📂</button></td></tr>`;
+  }).join("") : '<tr class="empty-row"><td colspan="5">Belum ada RAB terkait</td></tr>';
+
   document.querySelector("#kld_penawaranTable tbody").innerHTML = derived.penawaranTerkait.length ? derived.penawaranTerkait.slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || "")).map(pw => {
     const { total } = penawaranTotals(pw);
     return `<tr><td>${escapeHtml(pw.nomor || "-")}</td><td>${escapeHtml(pw.perihal || "-")}</td><td>${formatTanggal(pw.tanggal)}</td><td class="num">${rupiah(total)}</td><td>${pwStatusLabel(pw.status)}</td></tr>`;
@@ -687,6 +771,18 @@ function renderKlienDetail() {
       <td><button class="icon-btn" data-goto-proyek="${p.id}" title="Buka Proyek">📂</button></td>
     </tr>`;
   }).join("") : '<tr class="empty-row"><td colspan="5">Belum ada proyek terkait</td></tr>';
+
+  const picRows = k.kontakList.slice().sort((a, b) => (a.tipe === "Pusat" ? -1 : 1) - (b.tipe === "Pusat" ? -1 : 1));
+  document.querySelector("#kld_picTable tbody").innerHTML = picRows.length ? picRows.map(pic => `
+    <tr>
+      <td>${escapeHtml(pic.tipe)}</td>
+      <td>${escapeHtml(pic.area || "-")}</td>
+      <td>${escapeHtml(pic.nama || "-")}</td>
+      <td>${escapeHtml(pic.jabatan || "-")}</td>
+      <td>${pic.whatsapp ? `<a href="${waLink(pic.whatsapp)}" target="_blank" rel="noopener">${escapeHtml(pic.whatsapp)} 💬</a>` : "-"}</td>
+      <td><div class="row-actions"><button class="icon-btn" data-delete-pic="${pic.id}" title="Hapus">🗑️</button></div></td>
+    </tr>
+  `).join("") : '<tr class="empty-row"><td colspan="6">Belum ada kontak/PIC tercatat</td></tr>';
 }
 const klienModal = document.getElementById("klienModal");
 function openKlienModal(existing) {
@@ -714,6 +810,8 @@ document.getElementById("klienForm").addEventListener("submit", e => {
   const id = document.getElementById("kl_id").value;
   const idx = state.klien.findIndex(k => k.id === id);
   const existing = idx >= 0 ? state.klien[idx] : null;
+  const tahapBaru = document.getElementById("kl_tahap").value;
+  const tahapBerubah = !existing || existing.tahap !== tahapBaru;
   const k = {
     ...existing,
     id: id || uid(),
@@ -723,10 +821,12 @@ document.getElementById("klienForm").addEventListener("submit", e => {
     email: document.getElementById("kl_email").value.trim(),
     sumber: document.getElementById("kl_sumber").value,
     alamat: document.getElementById("kl_alamat").value.trim(),
-    tahap: document.getElementById("kl_tahap").value,
+    tahap: tahapBaru,
+    tahapSejak: tahapBerubah ? new Date().toISOString().slice(0, 10) : (existing.tahapSejak || new Date().toISOString().slice(0, 10)),
     followUpTanggal: document.getElementById("kl_followUpTanggal").value,
     catatan: document.getElementById("kl_catatan").value.trim(),
-    riwayatKontak: existing ? (existing.riwayatKontak || []) : []
+    riwayatKontak: existing ? (existing.riwayatKontak || []) : [],
+    kontakList: existing ? (existing.kontakList || []) : []
   };
   if (idx >= 0) state.klien[idx] = k; else state.klien.push(k);
   saveState();
@@ -757,6 +857,38 @@ document.getElementById("kld_editBtn").addEventListener("click", () => {
   const k = state.klien.find(x => x.id === currentKlienId);
   if (k) openKlienModal(k);
 });
+function toggleKlienPicArea() {
+  document.getElementById("pic_areaField").style.display = document.getElementById("pic_tipe").value === "Area" ? "flex" : "none";
+}
+document.getElementById("pic_tipe").addEventListener("change", toggleKlienPicArea);
+toggleKlienPicArea();
+document.getElementById("pic_addBtn").addEventListener("click", () => {
+  const k = state.klien.find(x => x.id === currentKlienId);
+  if (!k) return;
+  const tipe = document.getElementById("pic_tipe").value;
+  const nama = document.getElementById("pic_nama").value.trim();
+  const jabatan = document.getElementById("pic_jabatan").value.trim();
+  const whatsapp = document.getElementById("pic_wa").value.trim();
+  const area = document.getElementById("pic_area").value.trim();
+  if (!nama) { alert("Isi nama PIC terlebih dahulu."); return; }
+  if (!k.kontakList) k.kontakList = [];
+  k.kontakList.push({ id: uid(), tipe, area: tipe === "Area" ? area : "", nama, jabatan, whatsapp });
+  saveState();
+  document.getElementById("pic_area").value = "";
+  document.getElementById("pic_nama").value = "";
+  document.getElementById("pic_jabatan").value = "";
+  document.getElementById("pic_wa").value = "";
+  renderKlienDetail();
+});
+document.getElementById("kld_picTable").addEventListener("click", e => {
+  const delBtn = e.target.closest("[data-delete-pic]");
+  const k = state.klien.find(x => x.id === currentKlienId);
+  if (delBtn && k) {
+    k.kontakList = (k.kontakList || []).filter(p => p.id !== delBtn.dataset.deletePic);
+    saveState();
+    renderKlienDetail();
+  }
+});
 document.getElementById("rk_addBtn").addEventListener("click", () => {
   const k = state.klien.find(x => x.id === currentKlienId);
   if (!k) return;
@@ -785,6 +917,31 @@ document.getElementById("kld_proyekTable").addEventListener("click", e => {
     showPage("proyek");
     showProyekDetail(gotoBtn.dataset.gotoProyek);
   }
+});
+document.getElementById("kld_rabTable").addEventListener("click", e => {
+  const gotoBtn = e.target.closest("[data-goto-rab]");
+  if (gotoBtn) goToDoc("rab", gotoBtn.dataset.gotoRab);
+});
+document.getElementById("kld_toRabBtn").addEventListener("click", () => {
+  const k = state.klien.find(x => x.id === currentKlienId);
+  if (!k) return;
+  const rab = { id: uid(), nomor: nextRabNomor(), nama: k.nama, klien: k.nama, klienId: k.id, lokasi: k.alamat || "", kategori: KATEGORI_PEKERJAAN[0], tanggal: new Date().toISOString().slice(0, 10), ppn: 0, pph: 0.5, biayaLain: 0, items: [] };
+  state.proyekRab.push(rab);
+  saveState();
+  goToDoc("rab", rab.id);
+});
+document.getElementById("kld_toPwBtn").addEventListener("click", () => {
+  const k = state.klien.find(x => x.id === currentKlienId);
+  if (!k) return;
+  const pw = {
+    id: uid(), nomor: nextPenawaranNomor(), tanggal: new Date().toISOString().slice(0, 10),
+    kepada: k.nama, klienId: k.id, alamatKlien: k.alamat || "", perihal: "", kategori: KATEGORI_PEKERJAAN[0], status: "draft",
+    diskon: 0, ppn: 11, pph: 0.5, items: [], syarat: defaultSyarat(), penutup: defaultPenutup(),
+    ttdNama: state.ownerNama, ttdJabatan: state.ownerJabatan
+  };
+  state.penawaran.push(pw);
+  saveState();
+  goToDoc("pw", pw.id);
 });
 
 // ===== Laporan Keuangan =====
@@ -3019,6 +3176,9 @@ function renderRabEditor() {
   if (document.activeElement.id !== "rab_nomor") document.getElementById("rab_nomor").value = rab.nomor || "";
   if (document.activeElement.id !== "rab_nama") document.getElementById("rab_nama").value = rab.nama || "";
   if (document.activeElement.id !== "rab_klien") document.getElementById("rab_klien").value = rab.klien || "";
+  const rabKlienSel = document.getElementById("rab_klienId");
+  rabKlienSel.innerHTML = '<option value="">Tidak dikaitkan</option>' + state.klien.map(k => `<option value="${k.id}">${escapeHtml(k.nama)}</option>`).join("");
+  rabKlienSel.value = rab.klienId || "";
   if (document.activeElement.id !== "rab_lokasi") document.getElementById("rab_lokasi").value = rab.lokasi || "";
   kategoriSel.value = rab.kategori || KATEGORI_PEKERJAAN[0];
   document.getElementById("rab_tanggal").value = rab.tanggal || new Date().toISOString().slice(0, 10);
@@ -3121,7 +3281,7 @@ document.getElementById("rab_printBtn").addEventListener("click", () => {
   window.print();
 });
 document.getElementById("rab_addBtn").addEventListener("click", () => {
-  const rab = { id: uid(), nomor: nextRabNomor(), nama: "", klien: "", lokasi: "", kategori: KATEGORI_PEKERJAAN[0], tanggal: new Date().toISOString().slice(0, 10), ppn: 0, pph: 0.5, biayaLain: 0, items: [] };
+  const rab = { id: uid(), nomor: nextRabNomor(), nama: "", klien: "", klienId: "", lokasi: "", kategori: KATEGORI_PEKERJAAN[0], tanggal: new Date().toISOString().slice(0, 10), ppn: 0, pph: 0.5, biayaLain: 0, items: [] };
   state.proyekRab.push(rab);
   saveState();
   showRabEditor(rab.id);
@@ -3153,6 +3313,10 @@ document.getElementById("rab_table").addEventListener("click", e => {
     rab[id.replace("rab_", "")] = document.getElementById(id).value;
     saveState();
   });
+});
+document.getElementById("rab_klienId").addEventListener("change", () => {
+  const rab = state.proyekRab.find(r => r.id === currentRabId);
+  if (rab) { rab.klienId = document.getElementById("rab_klienId").value || ""; saveState(); }
 });
 document.getElementById("rab_kategori").addEventListener("change", () => {
   const rab = state.proyekRab.find(r => r.id === currentRabId);
@@ -3245,7 +3409,7 @@ function createProyekFromDoc(kind, doc) {
     id: uid(),
     nama: kind === "rab" ? (doc.nama || "(Tanpa nama)") : (doc.perihal || doc.nomor || "(Tanpa nama)"),
     klien: kind === "rab" ? (doc.klien || "") : (doc.kepada || ""),
-    klienId: kind === "pw" ? (doc.klienId || "") : "",
+    klienId: doc.klienId || "",
     lokasi: kind === "rab" ? (doc.lokasi || "") : "",
     nilaiKontrak: totals.total,
     status: "berjalan",
