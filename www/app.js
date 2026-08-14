@@ -56,10 +56,83 @@ function withDefaults(s) {
 }
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  scheduleCloudPush();
 }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 
 let state = loadState();
+
+// ===== Cloud sync (Supabase) — optional & opt-in. If the user never logs in,
+// or the Supabase client/network is unavailable, the app behaves exactly as
+// before (pure localStorage, no behavior change). Nothing here ever blocks
+// rendering or normal use of the app. =====
+const SUPABASE_URL = "https://iapcwaowvscftjfcdutm.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_Hlr2FaEP0WH0EWg9ECO2-A_qvAYcoKs";
+let sb = null;
+try {
+  if (typeof supabase !== "undefined") sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+} catch (e) { sb = null; }
+let currentSyncUser = null;
+let cloudSyncTimer = null;
+
+function scheduleCloudPush() {
+  if (!sb || !currentSyncUser) return;
+  clearTimeout(cloudSyncTimer);
+  cloudSyncTimer = setTimeout(pushStateToCloud, 1500);
+}
+async function pushStateToCloud() {
+  if (!sb || !currentSyncUser) return;
+  try {
+    const { error } = await sb.from("app_state").upsert({ user_id: currentSyncUser.id, data: state, updated_at: new Date().toISOString() });
+    if (error) throw error;
+    setSyncStatus(`Tersinkron ${new Date().toLocaleTimeString("id-ID")}`);
+  } catch (err) {
+    setSyncStatus("Gagal sinkron ke cloud: " + err.message);
+  }
+}
+async function handlePostLoginSync(user) {
+  currentSyncUser = user;
+  updateSyncUI();
+  try {
+    const { data, error } = await sb.from("app_state").select("data, updated_at").eq("user_id", user.id).maybeSingle();
+    if (error) throw error;
+    if (!data) {
+      await pushStateToCloud();
+      setSyncStatus("Data awal berhasil diunggah ke cloud.");
+      return;
+    }
+    const cloudTanggal = data.updated_at ? `${formatTanggal(data.updated_at.slice(0, 10))} ${new Date(data.updated_at).toLocaleTimeString("id-ID")}` : "-";
+    const pakaiCloud = confirm(`Ditemukan data yang sudah tersinkron di cloud (terakhir disimpan: ${cloudTanggal}).\n\nKlik OK untuk memakai data dari CLOUD (data di perangkat ini akan diganti dengan data cloud).\nKlik Batal untuk tetap memakai data di PERANGKAT INI (data di cloud akan ditimpa dengan data perangkat ini).`);
+    if (pakaiCloud) {
+      state = withDefaults(data.data);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      renderAll();
+      setSyncStatus("Data dari cloud berhasil dimuat ke perangkat ini.");
+    } else {
+      await pushStateToCloud();
+      setSyncStatus("Data perangkat ini berhasil disimpan ke cloud.");
+    }
+  } catch (err) {
+    setSyncStatus("Gagal memeriksa data cloud: " + err.message);
+  }
+}
+function setSyncStatus(text) {
+  const el = document.getElementById("sync_status");
+  if (el) el.textContent = text;
+}
+function updateSyncUI() {
+  const loggedOut = document.getElementById("sync_loggedOutPanel");
+  const loggedIn = document.getElementById("sync_loggedInPanel");
+  if (!loggedOut || !loggedIn) return;
+  if (currentSyncUser) {
+    loggedOut.style.display = "none";
+    loggedIn.style.display = "block";
+    document.getElementById("sync_userEmail").textContent = currentSyncUser.email || "-";
+  } else {
+    loggedOut.style.display = "block";
+    loggedIn.style.display = "none";
+  }
+}
 
 // ===== Formatting helpers =====
 function rupiah(n) {
@@ -4715,6 +4788,53 @@ document.getElementById("resetDataBtn").addEventListener("click", () => {
     alert("Data telah direset.");
   }
 });
+
+// ===== Cloud Sync UI wiring =====
+function showSyncAuthMsg(text) {
+  const el = document.getElementById("sync_authMsg");
+  if (!el) return;
+  el.textContent = text;
+  el.style.display = text ? "block" : "none";
+}
+if (sb) {
+  sb.auth.onAuthStateChange((event, session) => {
+    if (session && session.user) {
+      if (!currentSyncUser || currentSyncUser.id !== session.user.id) handlePostLoginSync(session.user);
+    } else {
+      currentSyncUser = null;
+      updateSyncUI();
+    }
+  });
+  sb.auth.getSession().then(({ data }) => {
+    if (data && data.session && data.session.user) handlePostLoginSync(data.session.user);
+  }).catch(() => {});
+} else {
+  showSyncAuthMsg("Fitur sinkronisasi cloud tidak tersedia saat ini (gagal memuat pustaka Supabase). Aplikasi tetap berfungsi normal secara lokal.");
+}
+document.getElementById("sync_loginBtn").addEventListener("click", async () => {
+  if (!sb) { showSyncAuthMsg("Fitur cloud sync tidak tersedia (gagal memuat pustaka Supabase)."); return; }
+  const email = document.getElementById("sync_email").value.trim();
+  const password = document.getElementById("sync_password").value;
+  if (!email || !password) { showSyncAuthMsg("Isi email dan password terlebih dahulu."); return; }
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  showSyncAuthMsg(error ? "Gagal masuk: " + error.message : "");
+});
+document.getElementById("sync_signupBtn").addEventListener("click", async () => {
+  if (!sb) { showSyncAuthMsg("Fitur cloud sync tidak tersedia (gagal memuat pustaka Supabase)."); return; }
+  const email = document.getElementById("sync_email").value.trim();
+  const password = document.getElementById("sync_password").value;
+  if (!email || !password) { showSyncAuthMsg("Isi email dan password terlebih dahulu."); return; }
+  if (password.length < 6) { showSyncAuthMsg("Password minimal 6 karakter."); return; }
+  const { data, error } = await sb.auth.signUp({ email, password });
+  if (error) { showSyncAuthMsg("Gagal daftar: " + error.message); return; }
+  showSyncAuthMsg(data.session ? "Akun berhasil dibuat, langsung masuk." : "Akun berhasil dibuat. Cek email Anda untuk konfirmasi, lalu masuk.");
+});
+document.getElementById("sync_logoutBtn").addEventListener("click", async () => {
+  if (!sb) return;
+  if (!confirm("Keluar dari akun cloud sync? Data di perangkat ini tetap tersimpan lokal.")) return;
+  await sb.auth.signOut();
+});
+document.getElementById("sync_nowBtn").addEventListener("click", () => pushStateToCloud());
 
 // ===== Print =====
 document.getElementById("printBtn").addEventListener("click", () => window.print());
