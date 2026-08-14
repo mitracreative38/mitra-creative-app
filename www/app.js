@@ -2063,9 +2063,15 @@ document.getElementById("ah_printBtn").addEventListener("click", () => {
 const ahspModal = document.getElementById("ahspModal");
 let ahspKomponenRows = [];
 
+function maxUpahHarianMitra() {
+  const aktif = state.karyawan.filter(k => k.aktif !== false);
+  const list = aktif.length ? aktif : state.karyawan;
+  return list.reduce((max, k) => Math.max(max, k.upahHarian || 0), 0);
+}
 function sumberOptionsForJenis(jenis) {
   if (jenis === "Upah") {
-    return state.karyawan.filter(k => k.aktif !== false).map(k => ({ value: `karyawan|${k.id}`, label: k.nama }));
+    const opts = [{ value: "maxupah|auto", label: "⭐ Upah Tertinggi Mitra +20% (otomatis)" }];
+    return opts.concat(state.karyawan.filter(k => k.aktif !== false).map(k => ({ value: `karyawan|${k.id}`, label: k.nama })));
   }
   const kategoriStok = jenis === "Alat" ? "Alat" : "Material";
   return state.stok.filter(s => s.kategori === kategoriStok).map(s => ({ value: `stok|${s.id}`, label: s.nama }));
@@ -2078,6 +2084,9 @@ function sumberHargaLookup(tipe, id) {
   if (tipe === "karyawan") {
     const k = state.karyawan.find(x => x.id === id);
     return k ? { harga: k.upahHarian || 0, satuan: "OH", uraian: k.nama } : null;
+  }
+  if (tipe === "maxupah") {
+    return { harga: Math.round(maxUpahHarianMitra() * 1.2), satuan: "OH", uraian: "Upah Tenaga Kerja (tertinggi mitra +20%)" };
   }
   return null;
 }
@@ -2456,6 +2465,86 @@ document.getElementById("ahi_confirmBtn").addEventListener("click", () => {
   renderAll();
   closeModals();
   alert(`${toImport.length} item AHSP berhasil diimpor.`);
+});
+
+// ===== Template AHSP standar (per kategori: advertising, konstruksi, sipil, interior, eksterior, CCTV, AC, dst) =====
+function resolveTemplateKomponen(tpl) {
+  return tpl.komponen.map(k => {
+    if (k.jenis === "Upah") {
+      const src = sumberHargaLookup("maxupah", "auto");
+      return { jenis: "Upah", uraian: k.uraian, satuan: k.satuan, koefisien: k.koefisien, harga: src.harga, sumberTipe: "maxupah", sumberId: "auto" };
+    }
+    const kategoriStok = k.jenis === "Alat" ? "Alat" : "Material";
+    const kUraianLower = k.uraian.toLowerCase();
+    const match = state.stok.find(s => s.kategori === kategoriStok &&
+      (s.nama.toLowerCase().includes(kUraianLower) || kUraianLower.includes(s.nama.toLowerCase())));
+    if (match) {
+      return { jenis: k.jenis, uraian: match.nama, satuan: match.satuan, koefisien: k.koefisien, harga: match.hargaSatuan || 0, sumberTipe: "stok", sumberId: match.id };
+    }
+    return { jenis: k.jenis, uraian: k.uraian, satuan: k.satuan, koefisien: k.koefisien, harga: k.harga || 0, sumberTipe: "", sumberId: "" };
+  });
+}
+const ahspTemplateModal = document.getElementById("ahspTemplateModal");
+function renderAhTemplateList() {
+  const byKategori = {};
+  AHSP_TEMPLATES.forEach(tpl => {
+    if (!byKategori[tpl.kategori]) byKategori[tpl.kategori] = [];
+    byKategori[tpl.kategori].push(tpl);
+  });
+  const sudahAda = new Set(state.ahsp.map(a => a.kode).filter(Boolean));
+  const html = Object.keys(byKategori).sort().map(kategori => `
+    <div style="margin-bottom:14px;">
+      <div class="muted" style="font-weight:600; margin-bottom:6px;">${escapeHtml(kategori)}</div>
+      <div class="checklist" style="flex-direction:column; align-items:stretch; max-height:none;">
+        ${byKategori[kategori].map(tpl => {
+          const resolved = resolveTemplateKomponen(tpl);
+          const estHarga = ahspHarga({ mode: "detail", komponen: resolved, overhead: tpl.overhead });
+          const sudah = sudahAda.has(tpl.kode);
+          return `
+            <label style="align-items:flex-start; padding:6px 0; border-bottom:1px solid var(--border);">
+              <input type="checkbox" class="ahtpl-check" value="${escapeHtml(tpl.kode)}" ${sudah ? "disabled" : ""} style="margin-top:3px;">
+              <span>
+                <strong>${escapeHtml(tpl.uraian)}</strong> (${escapeHtml(tpl.satuan)}) — est. ${rupiah(estHarga)}${sudah ? ' <em>(sudah ada di daftar AHSP)</em>' : ""}<br>
+                <span class="muted" style="font-size:11px;">${escapeHtml(tpl.referensi)}</span>
+              </span>
+            </label>
+          `;
+        }).join("")}
+      </div>
+    </div>
+  `).join("");
+  document.getElementById("ahtpl_list").innerHTML = html || '<p class="muted">Tidak ada template tersedia.</p>';
+}
+document.getElementById("ah_templateBtn").addEventListener("click", () => {
+  renderAhTemplateList();
+  ahspTemplateModal.classList.add("open");
+});
+document.getElementById("ahtpl_confirmBtn").addEventListener("click", () => {
+  const checked = Array.from(document.querySelectorAll(".ahtpl-check:checked")).map(el => el.value);
+  if (!checked.length) { alert("Pilih minimal satu item template untuk ditambahkan."); return; }
+  let added = 0;
+  checked.forEach(kode => {
+    const tpl = AHSP_TEMPLATES.find(t => t.kode === kode);
+    if (!tpl || state.ahsp.some(a => a.kode === tpl.kode)) return;
+    state.ahsp.push({
+      id: uid(),
+      kategori: tpl.kategori,
+      kode: tpl.kode,
+      uraian: tpl.uraian,
+      satuan: tpl.satuan,
+      mode: "detail",
+      hargaManual: 0,
+      overhead: tpl.overhead,
+      referensi: tpl.referensi,
+      komponen: resolveTemplateKomponen(tpl),
+      riwayatHarga: []
+    });
+    added++;
+  });
+  saveState();
+  renderAll();
+  closeModals();
+  alert(added ? `${added} item AHSP dari template berhasil ditambahkan. Silakan cek & koreksi harga/koefisien sesuai kondisi Anda.` : "Tidak ada item baru yang ditambahkan (mungkin sudah ada).");
 });
 
 // ===== Shared item modal (used by RAB & Penawaran) =====
