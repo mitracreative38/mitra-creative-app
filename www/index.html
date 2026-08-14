@@ -372,6 +372,10 @@
           <div class="stat-label">Piutang (Belum Diterima)</div>
           <div class="stat-value warn" id="ku_piutang">Rp 0</div>
         </div>
+        <div class="stat-card accent">
+          <div class="stat-label">Menunggu Persetujuan</div>
+          <div class="stat-value warn" id="ku_menungguPersetujuan">Rp 0</div>
+        </div>
       </div>
 
       <div class="panel">
@@ -386,6 +390,7 @@
             <option value="">Semua Status</option>
             <option value="lunas">Lunas / Diterima</option>
             <option value="pending">Piutang / Pending</option>
+            <option value="menunggu_persetujuan">Menunggu Persetujuan</option>
           </select>
           <button class="btn-ghost" id="ku_exportCsv">⬇ Export CSV</button>
         </div>
@@ -609,6 +614,76 @@
             </table>
           </div>
         </div>
+
+        <div class="panel">
+          <div class="muted" style="margin-bottom:10px;">Progress Fisik Proyek — rencana (kurva-S sederhana) vs realisasi di lapangan</div>
+          <div class="stat-grid" style="margin-bottom:14px;">
+            <div class="stat-card">
+              <div class="stat-label">Progress Realisasi Terakhir</div>
+              <div class="stat-value" id="pf_realisasiTerakhir">0%</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Target Terdekat</div>
+              <div class="stat-value" id="pf_targetTerdekat">-</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Status</div>
+              <div class="stat-value" id="pf_statusProgress">-</div>
+            </div>
+          </div>
+          <div class="grid-2">
+            <div>
+              <div class="toolbar">
+                <div class="muted" style="flex:1; font-size:12px;">Rencana (Target Milestone)</div>
+              </div>
+              <div class="form-grid" style="margin-bottom:10px;">
+                <div class="field"><label>Tanggal Target</label><input type="date" id="pfr_tanggal"></div>
+                <div class="field"><label>% Target</label><input type="number" id="pfr_persen" min="0" max="100" step="1" placeholder="0"></div>
+                <div class="field full"><label>Keterangan</label><input type="text" id="pfr_keterangan" placeholder="mis. Pemasangan rangka selesai"></div>
+                <div class="field" style="justify-content:flex-end;"><button type="button" class="btn-ghost" id="pfr_addBtn">+ Tambah Target</button></div>
+              </div>
+              <div class="table-wrap">
+                <table class="tbl" id="pf_rencanaTable">
+                  <thead><tr><th>Tanggal</th><th class="num">%</th><th>Keterangan</th><th></th></tr></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+            <div>
+              <div class="toolbar">
+                <div class="muted" style="flex:1; font-size:12px;">Realisasi (Laporan Progress)</div>
+              </div>
+              <div class="form-grid" style="margin-bottom:10px;">
+                <div class="field"><label>Tanggal</label><input type="date" id="pfa_tanggal"></div>
+                <div class="field"><label>% Realisasi</label><input type="number" id="pfa_persen" min="0" max="100" step="1" placeholder="0"></div>
+                <div class="field full"><label>Catatan</label><input type="text" id="pfa_catatan" placeholder="mis. Rangka atap sudah 40% terpasang"></div>
+                <div class="field" style="justify-content:flex-end;"><button type="button" class="btn-primary" id="pfa_addBtn">+ Tambah Laporan</button></div>
+              </div>
+              <div class="table-wrap">
+                <table class="tbl" id="pf_realisasiTable">
+                  <thead><tr><th>Tanggal</th><th class="num">%</th><th>Catatan</th><th></th></tr></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="toolbar">
+            <div class="muted" style="flex:1">Dokumen Proyek (SPK/BAST) &amp; Garansi</div>
+            <button class="btn-primary" id="dok_addBtn">+ Tambah Dokumen</button>
+          </div>
+          <p class="muted" style="font-size:12px; margin:-6px 0 12px;">Registrasi metadata dokumen (nomor, tanggal, garansi) — bukan unggah file, supaya data browser tetap ringan.</p>
+          <div class="table-wrap">
+            <table class="tbl" id="pd_dokumenTable">
+              <thead><tr>
+                <th>Jenis</th><th>Nomor</th><th>Tanggal Terbit</th><th>Garansi Sampai</th><th>Catatan</th><th></th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -670,7 +745,7 @@
           </div>
           <div class="table-wrap">
             <table class="tbl" id="ab_table">
-              <thead><tr><th>Nama</th><th>Jabatan</th><th>Hadir</th><th class="num">Jam Lembur</th></tr></thead>
+              <thead><tr><th>Nama</th><th>Jabatan</th><th>Hadir</th><th class="num">Jam Lembur</th><th>Lokasi Absen</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -772,7 +847,10 @@
             <h1>Stok Material &amp; Alat</h1>
             <p class="page-sub">Kelola stok material &amp; alat. Stok saat ini dihitung otomatis dari riwayat barang masuk/keluar — tidak pernah ditimpa manual, jadi selalu bisa diaudit.</p>
           </div>
-          <button class="btn-primary" id="stok_addBtn">+ Tambah Barang</button>
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button class="btn-ghost" id="gudang_manageBtn">🏭 Kelola Gudang/Lokasi</button>
+            <button class="btn-primary" id="stok_addBtn">+ Tambah Barang</button>
+          </div>
         </header>
 
         <div class="stat-grid">
@@ -855,6 +933,11 @@
           </div>
         </div>
 
+        <div class="panel narrow">
+          <h3>Ringkasan per Gudang/Lokasi</h3>
+          <div class="summary-rows" id="stok_gudangRows"></div>
+        </div>
+
         <div class="panel">
           <div class="toolbar">
             <div class="muted" style="flex:1">Riwayat Barang Masuk / Keluar</div>
@@ -863,7 +946,7 @@
           <div class="table-wrap">
             <table class="tbl" id="stok_txnTable">
               <thead><tr>
-                <th>Tanggal</th><th>Tipe</th><th class="num">Qty</th><th>Keterangan</th><th></th>
+                <th>Tanggal</th><th>Tipe</th><th class="num">Qty</th><th>Gudang/Lokasi</th><th>Keterangan</th><th></th>
               </tr></thead>
               <tbody></tbody>
             </table>
@@ -1219,6 +1302,13 @@
       </div>
 
       <div class="panel narrow">
+        <h3>Approval Pengeluaran</h3>
+        <p class="muted">Transaksi Keluar di Kas Perusahaan dengan jumlah di atas batas ini otomatis berstatus "Menunggu Persetujuan" dan tidak mengurangi saldo sampai disetujui. Isi 0 untuk mematikan fitur ini.</p>
+        <label class="field-label">Batas Nominal Perlu Persetujuan (Rp)</label>
+        <input type="text" inputmode="numeric" id="settingsApprovalThreshold" class="text-input" style="width:100%">
+      </div>
+
+      <div class="panel narrow">
         <h3>Data</h3>
         <p class="muted">Semua data tersimpan otomatis di browser ini (localStorage). Gunakan Export untuk backup, atau Import untuk memulihkan.</p>
         <div class="settings-actions">
@@ -1257,6 +1347,7 @@
           <select id="txn_status">
             <option value="lunas">Lunas / Diterima</option>
             <option value="pending">Piutang / Pending (belum cair)</option>
+            <option value="menunggu_persetujuan">Menunggu Persetujuan (Keluar besar)</option>
           </select>
         </div>
         <div class="field">
@@ -1416,14 +1507,20 @@
             <option value="">Tidak dikaitkan</option>
           </select>
         </div>
-        <div class="field full">
+        <div class="field">
           <label>Pemasok (opsional)</label>
           <select id="bm_pemasokId">
             <option value="">Tidak dikaitkan</option>
           </select>
         </div>
+        <div class="field">
+          <label>Gudang/Lokasi Tujuan (opsional)</label>
+          <select id="bm_gudangId">
+            <option value="">Tidak ditentukan</option>
+          </select>
+        </div>
       </div>
-      <p class="muted" style="font-size:12px;margin-top:4px;">Kalau status "Sudah Dibeli", otomatis tercatat sebagai pengeluaran "Biaya Bahan" di Kas Perusahaan (dan menambah stok kalau dikaitkan ke Stok Material).</p>
+      <p class="muted" style="font-size:12px;margin-top:4px;">Kalau status "Sudah Dibeli", otomatis tercatat sebagai pengeluaran "Biaya Bahan" di Kas Perusahaan (dan menambah stok di gudang yang dipilih kalau dikaitkan ke Stok Material).</p>
       <div class="modal-actions">
         <button type="button" class="btn-ghost" data-close-modal>Batal</button>
         <button type="submit" class="btn-primary">Simpan</button>
@@ -1491,6 +1588,51 @@
         </div>
       </div>
       <p class="muted" style="font-size:12px;margin-top:4px;">Otomatis tercatat sebagai pengeluaran "Biaya Subkontraktor" di Kas Perusahaan.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: dokumen proyek -->
+<div class="modal-backdrop" id="dokumenModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="dokumenModalTitle">Tambah Dokumen</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <form id="dokumenForm">
+      <input type="hidden" id="dok_id">
+      <div class="form-grid">
+        <div class="field">
+          <label>Jenis Dokumen</label>
+          <select id="dok_jenis">
+            <option value="SPK">SPK</option>
+            <option value="BAST">BAST</option>
+            <option value="Kontrak">Kontrak</option>
+            <option value="Foto Dokumentasi">Foto Dokumentasi</option>
+            <option value="Lainnya">Lainnya</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Nomor Dokumen</label>
+          <input type="text" id="dok_nomor" placeholder="opsional">
+        </div>
+        <div class="field">
+          <label>Tanggal Terbit</label>
+          <input type="date" id="dok_tanggalTerbit">
+        </div>
+        <div class="field">
+          <label>Garansi Sampai (opsional)</label>
+          <input type="date" id="dok_garansiSampai">
+        </div>
+        <div class="field full">
+          <label>Catatan</label>
+          <input type="text" id="dok_catatan" placeholder="opsional">
+        </div>
+      </div>
       <div class="modal-actions">
         <button type="button" class="btn-ghost" data-close-modal>Batal</button>
         <button type="submit" class="btn-primary">Simpan</button>
@@ -1739,6 +1881,29 @@
   </div>
 </div>
 
+<!-- Modal: kelola gudang/lokasi -->
+<div class="modal-backdrop" id="gudangManagerModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Kelola Gudang / Lokasi</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <div class="form-grid" style="margin-bottom:12px;">
+      <div class="field full"><label>Nama Gudang/Lokasi</label><input type="text" id="gd_nama" placeholder="mis. Gudang Pusat / Lokasi Proyek Karangmulya"></div>
+      <div class="field" style="justify-content:flex-end;"><button type="button" class="btn-primary" id="gd_addBtn">+ Tambah</button></div>
+    </div>
+    <div class="table-wrap">
+      <table class="tbl" id="gd_table">
+        <thead><tr><th>Nama</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn-primary" data-close-modal>Selesai</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: barang stok (master data) -->
 <div class="modal-backdrop" id="stokModal">
   <div class="modal">
@@ -1820,6 +1985,12 @@
         <div class="field">
           <label>Harga Satuan saat Beli (opsional, Rp)</label>
           <input type="text" inputmode="numeric" id="st_harga" placeholder="0">
+        </div>
+        <div class="field">
+          <label>Gudang/Lokasi (opsional)</label>
+          <select id="st_gudangId">
+            <option value="">Tidak ditentukan</option>
+          </select>
         </div>
         <div class="field full">
           <label>Keterangan</label>

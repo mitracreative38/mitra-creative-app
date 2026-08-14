@@ -141,3 +141,9 @@ SEED_DATA.klien = [];
 
 // ===== Pemasok =====
 SEED_DATA.pemasok = [];
+
+// ===== Gudang / Lokasi Stok =====
+SEED_DATA.gudang = [];
+
+// ===== Approval pengeluaran besar =====
+SEED_DATA.approvalThreshold = 0;

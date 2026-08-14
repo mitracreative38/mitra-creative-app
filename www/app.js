@@ -49,6 +49,8 @@ function withDefaults(s) {
   if (!s.karyawan) s.karyawan = [];
   if (!s.klien) s.klien = [];
   if (!s.pemasok) s.pemasok = [];
+  if (!s.gudang) s.gudang = [];
+  if (typeof s.approvalThreshold !== "number") s.approvalThreshold = 0;
   return s;
 }
 function saveState() {
@@ -80,6 +82,11 @@ function formatTanggal(iso) {
   if (!y) return iso;
   return `${d} ${BULAN_ID[m - 1]} ${y}`;
 }
+function addDaysIso(iso, days) {
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
 function currentMonthKey() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -101,30 +108,36 @@ function attachNumberFormatting(input) {
 // ===== Calculations =====
 function kasSummary(book) {
   const b = state[book];
-  let masukLunas = 0, keluarLunas = 0, pending = 0;
+  let masukLunas = 0, keluarLunas = 0, pending = 0, menungguPersetujuan = 0;
   b.transactions.forEach(t => {
     const status = t.status || "lunas";
     if (t.tipe === "Masuk") {
       if (status === "pending") pending += t.jumlah;
       else masukLunas += t.jumlah;
     } else if (t.tipe === "Keluar") {
-      keluarLunas += t.jumlah;
+      if (status === "menunggu_persetujuan") menungguPersetujuan += t.jumlah;
+      else keluarLunas += t.jumlah;
     }
   });
   const saldoAkhir = (b.saldoAwal || 0) + masukLunas - keluarLunas;
-  return { masukLunas, keluarLunas, pending, saldoAkhir, saldoAwal: b.saldoAwal || 0 };
+  return { masukLunas, keluarLunas, pending, menungguPersetujuan, saldoAkhir, saldoAwal: b.saldoAwal || 0 };
+}
+function expenseApprovalStatus(jumlah) {
+  const threshold = state.approvalThreshold || 0;
+  return threshold > 0 && jumlah >= threshold ? "menunggu_persetujuan" : "lunas";
 }
 function proyekKasTxns(p) {
   return state.kasUsaha.transactions.filter(t => t.proyekId === p.id);
 }
 function sumTxns(txns, tipe, kategoris, status) {
   return txns
-    .filter(t => t.tipe === tipe && kategoris.includes(t.kategori) && (!status || (t.status || "lunas") === status))
+    .filter(t => t.tipe === tipe && kategoris.includes(t.kategori))
+    .filter(t => status ? (t.status || "lunas") === status : (t.status || "lunas") !== "menunggu_persetujuan")
     .reduce((s, t) => s + (t.jumlah || 0), 0);
 }
 function subkonDibayar(p, subkonId) {
   return proyekKasTxns(p)
-    .filter(t => t.tipe === "Keluar" && t.kategori === "Biaya Subkontraktor" && t.subkonId === subkonId)
+    .filter(t => t.tipe === "Keluar" && t.kategori === "Biaya Subkontraktor" && t.subkonId === subkonId && (t.status || "lunas") !== "menunggu_persetujuan")
     .reduce((s, t) => s + (t.jumlah || 0), 0);
 }
 function projectCalc(p) {
@@ -272,6 +285,7 @@ function renderKasBook(book) {
 
   if (book === "kasUsaha") {
     document.getElementById("ku_piutang").textContent = rupiah(sum.pending);
+    document.getElementById("ku_menungguPersetujuan").textContent = rupiah(sum.menungguPersetujuan);
   }
   if (book === "kasPribadi") {
     const mk = currentMonthKey();
@@ -304,10 +318,13 @@ function renderKasBook(book) {
     tbody.innerHTML = `<tr class="empty-row"><td colspan="${colCount}">Belum ada transaksi</td></tr>`;
     return;
   }
+  const statusLabel = { lunas: "Lunas", pending: "Piutang", menunggu_persetujuan: "Menunggu Persetujuan" };
+  const statusBadgeClass = { lunas: "badge-lunas", pending: "badge-pending", menunggu_persetujuan: "badge-pending" };
   rows.forEach(t => {
     const tr = document.createElement("tr");
+    const status = t.status || "lunas";
     const statusCell = book === "kasUsaha"
-      ? `<td><span class="badge ${(t.status || "lunas") === "lunas" ? "badge-lunas" : "badge-pending"}">${(t.status || "lunas") === "lunas" ? "Lunas" : "Piutang"}</span></td>`
+      ? `<td><span class="badge ${statusBadgeClass[status]}">${statusLabel[status]}</span></td>`
       : "";
     tr.innerHTML = `
       <td>${formatTanggal(t.tanggal)}</td>
@@ -319,6 +336,7 @@ function renderKasBook(book) {
       <td class="num">${rupiah(t.jumlah)}</td>
       <td>
         <div class="row-actions">
+          ${status === "menunggu_persetujuan" ? `<button class="icon-btn" data-approve="${t.id}" data-book="${book}" title="Setujui">✅</button>` : ""}
           <button class="icon-btn" data-edit="${t.id}" data-book="${book}" title="Edit">✏️</button>
           <button class="icon-btn" data-delete="${t.id}" data-book="${book}" title="Hapus">🗑️</button>
         </div>
@@ -489,6 +507,61 @@ function renderProyekDetail() {
       </td>
     </tr>
   `; }).join("") : '<tr class="empty-row"><td colspan="6">Belum ada subkontraktor</td></tr>';
+
+  if (!p.progressRencana) p.progressRencana = [];
+  if (!p.progressRealisasi) p.progressRealisasi = [];
+  if (!p.dokumen) p.dokumen = [];
+
+  const rencanaSorted = p.progressRencana.slice().sort((a, b) => (a.tanggal || "").localeCompare(b.tanggal || ""));
+  const realisasiSorted = p.progressRealisasi.slice().sort((a, b) => (a.tanggal || "").localeCompare(b.tanggal || ""));
+  const realisasiTerakhir = realisasiSorted.length ? realisasiSorted[realisasiSorted.length - 1] : null;
+  const targetTerdekat = rencanaSorted.find(r => r.tanggal >= today) || rencanaSorted[rencanaSorted.length - 1] || null;
+
+  document.getElementById("pf_realisasiTerakhir").textContent = realisasiTerakhir ? `${realisasiTerakhir.persen}%` : "0%";
+  document.getElementById("pf_targetTerdekat").textContent = targetTerdekat ? `${targetTerdekat.persen}% (${formatTanggal(targetTerdekat.tanggal)})` : "-";
+  const statusEl = document.getElementById("pf_statusProgress");
+  if (!targetTerdekat || !realisasiTerakhir) {
+    statusEl.textContent = "-";
+    statusEl.className = "stat-value";
+  } else {
+    const telat = targetTerdekat.tanggal <= today && realisasiTerakhir.persen < targetTerdekat.persen;
+    statusEl.textContent = telat ? "Telat dari Rencana" : "Sesuai/Lebih Cepat";
+    statusEl.className = "stat-value " + (telat ? "bad" : "good");
+  }
+
+  document.querySelector("#pf_rencanaTable tbody").innerHTML = rencanaSorted.length ? rencanaSorted.map(r => `
+    <tr>
+      <td>${formatTanggal(r.tanggal)}</td>
+      <td class="num">${r.persen}%</td>
+      <td>${escapeHtml(r.keterangan || "-")}</td>
+      <td><div class="row-actions"><button class="icon-btn" data-delete-rencana="${r.id}" title="Hapus">🗑️</button></div></td>
+    </tr>
+  `).join("") : '<tr class="empty-row"><td colspan="4">Belum ada target</td></tr>';
+
+  document.querySelector("#pf_realisasiTable tbody").innerHTML = realisasiSorted.length ? realisasiSorted.map(r => `
+    <tr>
+      <td>${formatTanggal(r.tanggal)}</td>
+      <td class="num">${r.persen}%</td>
+      <td>${escapeHtml(r.catatan || "-")}</td>
+      <td><div class="row-actions"><button class="icon-btn" data-delete-realisasi="${r.id}" title="Hapus">🗑️</button></div></td>
+    </tr>
+  `).join("") : '<tr class="empty-row"><td colspan="4">Belum ada laporan progress</td></tr>';
+
+  const dokRows = p.dokumen.slice().sort((a, b) => (b.tanggalTerbit || "").localeCompare(a.tanggalTerbit || ""));
+  document.querySelector("#pd_dokumenTable tbody").innerHTML = dokRows.length ? dokRows.map(d => {
+    const garansiSoon = d.garansiSampai && d.garansiSampai >= today && d.garansiSampai <= addDaysIso(today, 30);
+    const garansiHabis = d.garansiSampai && d.garansiSampai < today;
+    const garansiClass = garansiHabis ? "bad" : (garansiSoon ? "warn" : "");
+    return `
+    <tr>
+      <td>${escapeHtml(d.jenis)}</td>
+      <td>${escapeHtml(d.nomor || "-")}</td>
+      <td>${d.tanggalTerbit ? formatTanggal(d.tanggalTerbit) : "-"}</td>
+      <td class="${garansiClass}">${d.garansiSampai ? formatTanggal(d.garansiSampai) : "-"}${garansiHabis ? " (habis)" : garansiSoon ? " ⚠️ segera habis" : ""}</td>
+      <td>${escapeHtml(d.catatan || "-")}</td>
+      <td><div class="row-actions"><button class="icon-btn" data-edit-dokumen="${d.id}" title="Edit">✏️</button><button class="icon-btn" data-delete-dokumen="${d.id}" title="Hapus">🗑️</button></div></td>
+    </tr>
+  `; }).join("") : '<tr class="empty-row"><td colspan="6">Belum ada dokumen</td></tr>';
 }
 
 // ===== Klien (CRM/Pipeline) =====
@@ -728,7 +801,7 @@ function computeLabaRugi(mulai, selesai) {
 function computeNeraca(tanggal) {
   const txnsUpTo = state.kasUsaha.transactions.filter(t => t.tanggal <= tanggal);
   const masukLunas = txnsUpTo.filter(t => t.tipe === "Masuk" && (t.status || "lunas") === "lunas").reduce((s, t) => s + (t.jumlah || 0), 0);
-  const keluar = txnsUpTo.filter(t => t.tipe === "Keluar").reduce((s, t) => s + (t.jumlah || 0), 0);
+  const keluar = txnsUpTo.filter(t => t.tipe === "Keluar" && (t.status || "lunas") !== "menunggu_persetujuan").reduce((s, t) => s + (t.jumlah || 0), 0);
   const saldoKas = (state.kasUsaha.saldoAwal || 0) + masukLunas - keluar;
   const piutangUsaha = txnsUpTo.filter(t => t.tipe === "Masuk" && (t.status || "lunas") === "pending").reduce((s, t) => s + (t.jumlah || 0), 0);
   const nilaiStok = state.stok.reduce((s, item) => s + stokValue(item), 0);
@@ -821,6 +894,38 @@ document.getElementById("lk_printBtn").addEventListener("click", () => {
   window.print();
 });
 
+// ===== Gudang / Lokasi Stok =====
+const gudangManagerModal = document.getElementById("gudangManagerModal");
+function renderGudangManagerTable() {
+  document.querySelector("#gd_table tbody").innerHTML = state.gudang.length ? state.gudang.slice().sort((a, b) => a.nama.localeCompare(b.nama)).map(g => `
+    <tr><td>${escapeHtml(g.nama)}</td><td><button class="icon-btn" data-delete-gudang="${g.id}" title="Hapus">🗑️</button></td></tr>
+  `).join("") : '<tr class="empty-row"><td colspan="2">Belum ada gudang/lokasi</td></tr>';
+}
+document.getElementById("gudang_manageBtn").addEventListener("click", () => {
+  renderGudangManagerTable();
+  gudangManagerModal.classList.add("open");
+});
+document.getElementById("gd_addBtn").addEventListener("click", () => {
+  const nama = document.getElementById("gd_nama").value.trim();
+  if (!nama) { alert("Isi nama gudang/lokasi terlebih dahulu."); return; }
+  state.gudang.push({ id: uid(), nama });
+  saveState();
+  document.getElementById("gd_nama").value = "";
+  renderGudangManagerTable();
+  renderAll();
+});
+document.getElementById("gd_table").addEventListener("click", e => {
+  const delBtn = e.target.closest("[data-delete-gudang]");
+  if (delBtn) {
+    if (confirm("Hapus gudang/lokasi ini? Transaksi stok yang sudah tercatat tidak ikut terhapus, hanya kaitannya yang hilang.")) {
+      state.gudang = state.gudang.filter(g => g.id !== delBtn.dataset.deleteGudang);
+      saveState();
+      renderGudangManagerTable();
+      renderAll();
+    }
+  }
+});
+
 // ===== Stok Material & Alat =====
 function stokQty(item) {
   let qty = item.stokAwal || 0;
@@ -832,6 +937,19 @@ function stokQty(item) {
 }
 function stokValue(item) {
   return stokQty(item) * (item.hargaSatuan || 0);
+}
+function stokQtyByGudang(item) {
+  const byId = {};
+  (item.transactions || []).forEach(t => {
+    if (!t.gudangId) return;
+    byId[t.gudangId] = (byId[t.gudangId] || 0) + (t.tipe === "Masuk" ? (t.qty || 0) : -(t.qty || 0));
+  });
+  const result = {};
+  Object.entries(byId).forEach(([gudangId, qty]) => {
+    const g = state.gudang.find(x => x.id === gudangId);
+    result[g ? g.nama : "(Gudang Dihapus)"] = qty;
+  });
+  return result;
 }
 function stokStatus(item) {
   const qty = stokQty(item);
@@ -917,19 +1035,26 @@ function renderStokRiwayat() {
   document.getElementById("stok_infoQty").className = "stat-value " + (status === "habis" ? "bad" : status === "hampir" ? "warn" : "good");
   document.getElementById("stok_infoStatus").textContent = stokStatusLabel(status);
 
+  const byGudang = stokQtyByGudang(item);
+  document.getElementById("stok_gudangRows").innerHTML = Object.keys(byGudang).length
+    ? Object.entries(byGudang).map(([label, q]) => `<div class="summary-row"><span>${escapeHtml(label)}</span><strong>${q} ${escapeHtml(item.satuan)}</strong></div>`).join("")
+    : '<div class="checklist-empty">Belum ada transaksi dengan gudang/lokasi ditentukan</div>';
+
   const tbody = document.querySelector("#stok_txnTable tbody");
   tbody.innerHTML = "";
   const rows = (item.transactions || []).slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
   if (!rows.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">Belum ada riwayat transaksi</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Belum ada riwayat transaksi</td></tr>';
     return;
   }
   rows.forEach(t => {
+    const gudang = t.gudangId ? state.gudang.find(g => g.id === t.gudangId) : null;
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${formatTanggal(t.tanggal)}</td>
       <td><span class="badge ${t.tipe === "Masuk" ? "badge-masuk" : "badge-keluar"}">${t.tipe}</span></td>
       <td class="num">${t.qty}</td>
+      <td>${gudang ? escapeHtml(gudang.nama) : "-"}</td>
       <td>${escapeHtml(t.keterangan || "-")}</td>
       <td>
         <div class="row-actions">
@@ -1012,6 +1137,9 @@ function openStokTxnModal(existing) {
   pemasokSel.innerHTML = '<option value="">Tidak dikaitkan</option>' + state.pemasok.map(pm => `<option value="${pm.id}">${escapeHtml(pm.nama)}</option>`).join("");
   pemasokSel.value = existing ? (existing.pemasokId || "") : "";
   document.getElementById("st_harga").value = existing ? formatNumberInput(existing.hargaSatuan) : "";
+  const gudangSel = document.getElementById("st_gudangId");
+  gudangSel.innerHTML = '<option value="">Tidak ditentukan</option>' + state.gudang.map(g => `<option value="${g.id}">${escapeHtml(g.nama)}</option>`).join("");
+  gudangSel.value = existing ? (existing.gudangId || "") : "";
   document.getElementById("st_keterangan").value = existing ? (existing.keterangan || "") : "";
   stokTxnModal.classList.add("open");
 }
@@ -1029,6 +1157,7 @@ document.getElementById("stokTxnForm").addEventListener("submit", e => {
     qty: parseFloat((document.getElementById("st_qty").value || "").replace(",", ".")) || 0,
     pemasokId: document.getElementById("st_pemasokId").value || "",
     hargaSatuan: parseNumberInput(document.getElementById("st_harga").value),
+    gudangId: document.getElementById("st_gudangId").value || "",
     keterangan: document.getElementById("st_keterangan").value.trim()
   };
   const idx = item.transactions.findIndex(t => t.id === id);
@@ -1225,13 +1354,14 @@ function renderAbsensiPanel() {
   const tbody = document.querySelector("#ab_table tbody");
   tbody.innerHTML = "";
   if (!aktif.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="4">Belum ada karyawan aktif</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">Belum ada karyawan aktif</td></tr>';
     return;
   }
   aktif.forEach(k => {
     const existing = (k.absensi || []).find(a => a.tanggal === tanggal);
     const hadir = existing ? existing.hadir : true;
     const jamLembur = existing ? existing.jamLembur : 0;
+    const lokasi = existing ? existing.lokasi : null;
     const tr = document.createElement("tr");
     tr.dataset.karyawanId = k.id;
     tr.innerHTML = `
@@ -1239,12 +1369,39 @@ function renderAbsensiPanel() {
       <td>${escapeHtml(k.jabatan || "-")}</td>
       <td><input type="checkbox" class="att-check ab-hadir" ${hadir ? "checked" : ""}></td>
       <td class="num"><input type="text" inputmode="decimal" class="ab-lembur" value="${jamLembur || ""}" style="width:80px; text-align:right"></td>
+      <td>${lokasi
+        ? `<a href="https://www.google.com/maps?q=${lokasi.lat},${lokasi.lng}" target="_blank" rel="noopener">📍 ${new Date(lokasi.waktu).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}</a> <button type="button" class="icon-btn" data-catat-lokasi="${k.id}" title="Catat Ulang">🔄</button>`
+        : `<button type="button" class="btn-ghost" data-catat-lokasi="${k.id}" style="padding:4px 10px; font-size:12px;">📍 Catat Lokasi</button>`}</td>
     `;
     tbody.appendChild(tr);
   });
 }
 document.getElementById("ab_loadBtn").addEventListener("click", renderAbsensiPanel);
 document.getElementById("ab_tanggal").addEventListener("change", renderAbsensiPanel);
+document.getElementById("ab_table").addEventListener("click", e => {
+  const btn = e.target.closest("[data-catat-lokasi]");
+  if (!btn) return;
+  const tanggal = document.getElementById("ab_tanggal").value;
+  const k = state.karyawan.find(x => x.id === btn.dataset.catatLokasi);
+  if (!k || !tanggal) return;
+  if (!navigator.geolocation) { alert("Perangkat/browser ini tidak mendukung pencatatan lokasi GPS."); return; }
+  btn.disabled = true;
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      if (!k.absensi) k.absensi = [];
+      let rec = k.absensi.find(a => a.tanggal === tanggal);
+      if (!rec) { rec = { id: uid(), tanggal, hadir: true, jamLembur: 0 }; k.absensi.push(rec); }
+      rec.lokasi = { lat: pos.coords.latitude, lng: pos.coords.longitude, akurasi: pos.coords.accuracy, waktu: new Date().toISOString() };
+      saveState();
+      renderAbsensiPanel();
+    },
+    err => {
+      btn.disabled = false;
+      alert("Gagal mengambil lokasi: " + (err.message || "izin lokasi ditolak atau tidak tersedia.") + " Pastikan izin lokasi browser/aplikasi diaktifkan.");
+    },
+    { enableHighAccuracy: true, timeout: 15000 }
+  );
+});
 document.getElementById("ab_saveBtn").addEventListener("click", () => {
   const tanggal = document.getElementById("ab_tanggal").value;
   if (!tanggal) { alert("Pilih tanggal terlebih dahulu."); return; }
@@ -1259,7 +1416,7 @@ document.getElementById("ab_saveBtn").addEventListener("click", () => {
     const jamLembur = parseFloat((tr.querySelector(".ab-lembur").value || "").replace(",", ".")) || 0;
     if (!k.absensi) k.absensi = [];
     const idx = k.absensi.findIndex(a => a.tanggal === tanggal);
-    const rec = { id: idx >= 0 ? k.absensi[idx].id : uid(), tanggal, hadir, jamLembur };
+    const rec = { ...(idx >= 0 ? k.absensi[idx] : {}), id: idx >= 0 ? k.absensi[idx].id : uid(), tanggal, hadir, jamLembur };
     if (idx >= 0) k.absensi[idx] = rec; else k.absensi.push(rec);
     count++;
   });
@@ -1465,7 +1622,7 @@ document.getElementById("pg_simpanCetakBtn").addEventListener("click", () => {
     id: uid(),
     sumberSlipId: slip.id,
     tipe: "Keluar",
-    status: "lunas",
+    status: expenseApprovalStatus(slipGajiBersih(slip)),
     tanggal: slip.selesai,
     jumlah: slipGajiBersih(slip),
     keterangan: `Gaji ${k.nama} (${formatTanggal(slip.mulai)} - ${formatTanggal(slip.selesai)})`,
@@ -1565,6 +1722,12 @@ function buildProyekPrintHtml(p) {
     return `<tr><td>${escapeHtml(sk.nama)}</td><td>${escapeHtml(sk.pekerjaan || "-")}</td><td class="r">${rupiah(sk.nilaiKontrak)}</td><td class="r">${rupiah(dibayar)}</td><td class="r">${rupiah((sk.nilaiKontrak || 0) - dibayar)}</td></tr>`;
   }).join("") : `<tr><td colspan="5" class="c">Belum ada subkontraktor</td></tr>`;
 
+  const progressRealisasi = (p.progressRealisasi || []).slice().sort((a, b) => (a.tanggal || "").localeCompare(b.tanggal || ""));
+  const progressTerakhir = progressRealisasi.length ? progressRealisasi[progressRealisasi.length - 1] : null;
+  const dokumenRows = (p.dokumen || []).length ? p.dokumen.map(d => `
+    <tr><td>${escapeHtml(d.jenis)}</td><td>${escapeHtml(d.nomor || "-")}</td><td>${d.tanggalTerbit ? formatTanggal(d.tanggalTerbit) : "-"}</td><td>${d.garansiSampai ? formatTanggal(d.garansiSampai) : "-"}</td></tr>
+  `).join("") : `<tr><td colspan="4" class="c">Belum ada dokumen</td></tr>`;
+
   return `
     <div class="letterhead">
       <div class="letterhead-logo">${LOGO_SVG}</div>
@@ -1607,6 +1770,14 @@ function buildProyekPrintHtml(p) {
     <table class="doc-items" style="margin-bottom:14px;">
       <thead><tr><th>Nama</th><th>Pekerjaan</th><th class="r">Nilai Kontrak</th><th class="r">Dibayar</th><th class="r">Sisa</th></tr></thead>
       <tbody>${subkonRows}</tbody>
+    </table>
+
+    <p class="doc-p" style="font-weight:700; margin-bottom:6px;">Progress Fisik: ${progressTerakhir ? `${progressTerakhir.persen}% per ${formatTanggal(progressTerakhir.tanggal)}` : "Belum ada laporan"}</p>
+
+    <p class="doc-p" style="font-weight:700; margin-bottom:6px;">Dokumen Proyek</p>
+    <table class="doc-items" style="margin-bottom:14px;">
+      <thead><tr><th>Jenis</th><th>Nomor</th><th>Tanggal Terbit</th><th>Garansi Sampai</th></tr></thead>
+      <tbody>${dokumenRows}</tbody>
     </table>
 
     <table class="doc-summary-table">
@@ -2810,6 +2981,8 @@ function renderAll() {
   document.getElementById("settingsTelepon").value = state.telepon || "";
   document.getElementById("settingsOwnerNama").value = state.ownerNama || "";
   document.getElementById("settingsOwnerJabatan").value = state.ownerJabatan || "";
+  const approvalInput = document.getElementById("settingsApprovalThreshold");
+  if (document.activeElement !== approvalInput) approvalInput.value = formatNumberInput(state.approvalThreshold || 0);
   document.title = `${state.company || "Laporan Keuangan"} — Laporan Keuangan`;
 }
 
@@ -2880,7 +3053,18 @@ document.querySelectorAll("[data-open-modal='txn']").forEach(btn => {
   btn.addEventListener("click", () => openTxnModal(btn.dataset.book, null));
 });
 
-document.getElementById("txn_jumlah").addEventListener("input", () => {}); // placeholder, formatting attached below
+function maybeSuggestApprovalStatus() {
+  const book = document.getElementById("txn_book").value;
+  const tipe = document.getElementById("txn_tipe").value;
+  const statusSel = document.getElementById("txn_status");
+  const threshold = state.approvalThreshold || 0;
+  const jumlah = parseNumberInput(document.getElementById("txn_jumlah").value);
+  if (book === "kasUsaha" && tipe === "Keluar" && threshold > 0 && jumlah >= threshold && statusSel.value === "lunas") {
+    statusSel.value = "menunggu_persetujuan";
+  }
+}
+document.getElementById("txn_jumlah").addEventListener("input", maybeSuggestApprovalStatus);
+document.getElementById("txn_tipe").addEventListener("change", maybeSuggestApprovalStatus);
 attachNumberFormatting(document.getElementById("txn_jumlah"));
 
 document.getElementById("txnForm").addEventListener("submit", e => {
@@ -2914,6 +3098,7 @@ document.getElementById("txnForm").addEventListener("submit", e => {
   document.getElementById(tableId).addEventListener("click", e => {
     const editBtn = e.target.closest("[data-edit]");
     const delBtn = e.target.closest("[data-delete]");
+    const approveBtn = e.target.closest("[data-approve]");
     if (editBtn) {
       const book = editBtn.dataset.book;
       const t = state[book].transactions.find(x => x.id === editBtn.dataset.edit);
@@ -2922,6 +3107,14 @@ document.getElementById("txnForm").addEventListener("submit", e => {
       const book = delBtn.dataset.book;
       if (confirm("Hapus transaksi ini?")) {
         state[book].transactions = state[book].transactions.filter(x => x.id !== delBtn.dataset.delete);
+        saveState();
+        renderAll();
+      }
+    } else if (approveBtn) {
+      const book = approveBtn.dataset.book;
+      const t = state[book].transactions.find(x => x.id === approveBtn.dataset.approve);
+      if (t && confirm(`Setujui pengeluaran ${rupiah(t.jumlah)} ini? Saldo Kas Perusahaan akan langsung berkurang.`)) {
+        t.status = "lunas";
         saveState();
         renderAll();
       }
@@ -3057,14 +3250,15 @@ function syncBelanjaMaterial(p, item) {
   state.stok.forEach(s => { s.transactions = (s.transactions || []).filter(t => t.sumberBelanjaId !== item.id); });
   if (item.status !== "Dibeli") return;
   const tanggal = item.tanggal || new Date().toISOString().slice(0, 10);
+  const jumlahBelanja = (item.qty || 0) * (item.hargaSatuan || 0);
   state.kasUsaha.transactions.push({
     id: uid(),
     sumberBelanjaId: item.id,
     proyekId: p.id,
     tipe: "Keluar",
-    status: "lunas",
+    status: expenseApprovalStatus(jumlahBelanja),
     tanggal,
-    jumlah: (item.qty || 0) * (item.hargaSatuan || 0),
+    jumlah: jumlahBelanja,
     keterangan: `Belanja material: ${item.nama} (${p.nama})`,
     kategori: "Biaya Bahan",
     extra: p.nama,
@@ -3080,6 +3274,7 @@ function syncBelanjaMaterial(p, item) {
         tipe: "Masuk",
         tanggal,
         qty: item.qty || 0,
+        gudangId: item.gudangId || "",
         keterangan: `Belanja proyek ${p.nama}`
       });
     }
@@ -3101,6 +3296,9 @@ function openBelanjaModal(existing) {
   const pemasokSelect = document.getElementById("bm_pemasokId");
   pemasokSelect.innerHTML = '<option value="">Tidak dikaitkan</option>' + state.pemasok.map(pm => `<option value="${pm.id}">${escapeHtml(pm.nama)}</option>`).join("");
   pemasokSelect.value = existing ? (existing.pemasokId || "") : "";
+  const gudangSelect = document.getElementById("bm_gudangId");
+  gudangSelect.innerHTML = '<option value="">Tidak ditentukan</option>' + state.gudang.map(g => `<option value="${g.id}">${escapeHtml(g.nama)}</option>`).join("");
+  gudangSelect.value = existing ? (existing.gudangId || "") : "";
   belanjaModal.classList.add("open");
 }
 attachNumberFormatting(document.getElementById("bm_harga"));
@@ -3120,7 +3318,8 @@ document.getElementById("belanjaForm").addEventListener("submit", e => {
     tanggal: document.getElementById("bm_tanggal").value,
     status: document.getElementById("bm_status").value,
     stokId: document.getElementById("bm_stokId").value || "",
-    pemasokId: document.getElementById("bm_pemasokId").value || ""
+    pemasokId: document.getElementById("bm_pemasokId").value || "",
+    gudangId: document.getElementById("bm_gudangId").value || ""
   };
   const idx = p.belanjaMaterial.findIndex(b => b.id === id);
   if (idx >= 0) p.belanjaMaterial[idx] = item; else p.belanjaMaterial.push(item);
@@ -3190,14 +3389,15 @@ document.getElementById("subkonBayarForm").addEventListener("submit", e => {
   const subkonId = document.getElementById("skb_subkonId").value;
   const sk = (p.subkontraktor || []).find(s => s.id === subkonId);
   if (!sk) { closeModals(); return; }
+  const jumlahBayar = parseNumberInput(document.getElementById("skb_jumlah").value);
   state.kasUsaha.transactions.push({
     id: uid(),
     proyekId: p.id,
     subkonId: sk.id,
     tipe: "Keluar",
-    status: "lunas",
+    status: expenseApprovalStatus(jumlahBayar),
     tanggal: document.getElementById("skb_tanggal").value,
-    jumlah: parseNumberInput(document.getElementById("skb_jumlah").value),
+    jumlah: jumlahBayar,
     keterangan: `Pembayaran subkontraktor: ${sk.nama} (${p.nama})`,
     kategori: "Biaya Subkontraktor",
     extra: p.nama,
@@ -3227,6 +3427,104 @@ document.getElementById("pd_subkonTable").addEventListener("click", e => {
       p.subkontraktor = (p.subkontraktor || []).filter(s => s.id !== delBtn.dataset.deleteSubkon);
       saveState();
       renderAll();
+    }
+  }
+});
+
+// ----- Progress Fisik Proyek -----
+document.getElementById("pfr_addBtn").addEventListener("click", () => {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) return;
+  const tanggal = document.getElementById("pfr_tanggal").value;
+  const persen = parseFloat(document.getElementById("pfr_persen").value);
+  if (!tanggal || isNaN(persen)) { alert("Isi tanggal target dan % target terlebih dahulu."); return; }
+  if (!p.progressRencana) p.progressRencana = [];
+  p.progressRencana.push({ id: uid(), tanggal, persen: Math.max(0, Math.min(100, persen)), keterangan: document.getElementById("pfr_keterangan").value.trim() });
+  saveState();
+  document.getElementById("pfr_tanggal").value = "";
+  document.getElementById("pfr_persen").value = "";
+  document.getElementById("pfr_keterangan").value = "";
+  renderProyekDetail();
+});
+document.getElementById("pf_rencanaTable").addEventListener("click", e => {
+  const delBtn = e.target.closest("[data-delete-rencana]");
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (delBtn && p) {
+    p.progressRencana = (p.progressRencana || []).filter(r => r.id !== delBtn.dataset.deleteRencana);
+    saveState();
+    renderProyekDetail();
+  }
+});
+document.getElementById("pfa_addBtn").addEventListener("click", () => {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) return;
+  const tanggal = document.getElementById("pfa_tanggal").value;
+  const persen = parseFloat(document.getElementById("pfa_persen").value);
+  if (!tanggal || isNaN(persen)) { alert("Isi tanggal dan % realisasi terlebih dahulu."); return; }
+  if (!p.progressRealisasi) p.progressRealisasi = [];
+  p.progressRealisasi.push({ id: uid(), tanggal, persen: Math.max(0, Math.min(100, persen)), catatan: document.getElementById("pfa_catatan").value.trim() });
+  saveState();
+  document.getElementById("pfa_tanggal").value = "";
+  document.getElementById("pfa_persen").value = "";
+  document.getElementById("pfa_catatan").value = "";
+  renderProyekDetail();
+});
+document.getElementById("pf_realisasiTable").addEventListener("click", e => {
+  const delBtn = e.target.closest("[data-delete-realisasi]");
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (delBtn && p) {
+    p.progressRealisasi = (p.progressRealisasi || []).filter(r => r.id !== delBtn.dataset.deleteRealisasi);
+    saveState();
+    renderProyekDetail();
+  }
+});
+
+// ----- Dokumen Proyek (SPK/BAST) & Garansi -----
+const dokumenModal = document.getElementById("dokumenModal");
+function openDokumenModal(existing) {
+  document.getElementById("dok_id").value = existing ? existing.id : "";
+  document.getElementById("dokumenModalTitle").textContent = existing ? "Edit Dokumen" : "Tambah Dokumen";
+  document.getElementById("dok_jenis").value = existing ? existing.jenis : "SPK";
+  document.getElementById("dok_nomor").value = existing ? (existing.nomor || "") : "";
+  document.getElementById("dok_tanggalTerbit").value = existing ? (existing.tanggalTerbit || "") : new Date().toISOString().slice(0, 10);
+  document.getElementById("dok_garansiSampai").value = existing ? (existing.garansiSampai || "") : "";
+  document.getElementById("dok_catatan").value = existing ? (existing.catatan || "") : "";
+  dokumenModal.classList.add("open");
+}
+document.getElementById("dok_addBtn").addEventListener("click", () => openDokumenModal(null));
+document.getElementById("dokumenForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) { closeModals(); return; }
+  if (!p.dokumen) p.dokumen = [];
+  const id = document.getElementById("dok_id").value;
+  const dok = {
+    id: id || uid(),
+    jenis: document.getElementById("dok_jenis").value,
+    nomor: document.getElementById("dok_nomor").value.trim(),
+    tanggalTerbit: document.getElementById("dok_tanggalTerbit").value,
+    garansiSampai: document.getElementById("dok_garansiSampai").value,
+    catatan: document.getElementById("dok_catatan").value.trim()
+  };
+  const idx = p.dokumen.findIndex(d => d.id === id);
+  if (idx >= 0) p.dokumen[idx] = dok; else p.dokumen.push(dok);
+  saveState();
+  renderProyekDetail();
+  closeModals();
+});
+document.getElementById("pd_dokumenTable").addEventListener("click", e => {
+  const editBtn = e.target.closest("[data-edit-dokumen]");
+  const delBtn = e.target.closest("[data-delete-dokumen]");
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) return;
+  if (editBtn) {
+    const dok = (p.dokumen || []).find(d => d.id === editBtn.dataset.editDokumen);
+    if (dok) openDokumenModal(dok);
+  } else if (delBtn) {
+    if (confirm("Hapus dokumen ini?")) {
+      p.dokumen = (p.dokumen || []).filter(d => d.id !== delBtn.dataset.deleteDokumen);
+      saveState();
+      renderProyekDetail();
     }
   }
 });
@@ -3294,6 +3592,8 @@ document.getElementById("settingsAlamat").addEventListener("input", e => { state
 document.getElementById("settingsTelepon").addEventListener("input", e => { state.telepon = e.target.value; saveState(); });
 document.getElementById("settingsOwnerNama").addEventListener("input", e => { state.ownerNama = e.target.value; saveState(); });
 document.getElementById("settingsOwnerJabatan").addEventListener("input", e => { state.ownerJabatan = e.target.value; saveState(); });
+attachNumberFormatting(document.getElementById("settingsApprovalThreshold"));
+document.getElementById("settingsApprovalThreshold").addEventListener("input", e => { state.approvalThreshold = parseNumberInput(e.target.value); saveState(); });
 document.getElementById("exportJsonBtn").addEventListener("click", () => {
   downloadFile(`backup-keuangan-${new Date().toISOString().slice(0,10)}.json`, JSON.stringify(state, null, 2), "application/json");
 });
