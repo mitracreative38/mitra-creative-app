@@ -2844,15 +2844,36 @@ function recomputeSlipGajiChain(k) {
     running = sl.sisaSesudah;
   });
 }
-// Kalau slip gaji ini punya transaksi Kas Perusahaan yang tercatat
-// otomatis (sumberSlipId), samakan jumlahnya dengan gaji bersih slip yang
-// sudah diperbarui.
+// Slip gaji adalah sumber utama, transaksi Kas Perusahaan yang tercatat
+// otomatis dari slip ini (sumberSlipId) cuma cerminannya -- jadi setelah
+// slip diperbaiki, transaksi Kas-nya SELALU disamakan: kalau masih ada,
+// jumlahnya diperbarui; kalau sudah kadung dihapus manual dari Kas
+// Perusahaan (atau entah kenapa belum pernah tercatat), dibuat ulang.
+// "Kalau ada perbaikan di sub, pusat ikut mencatat otomatis."
 function syncSlipGajiKasTxn(k, sl) {
-  const t = state.kasUsaha.transactions.find(x => x.sumberSlipId === sl.id);
-  if (!t) return;
-  t.jumlah = slipGajiBersih(sl);
-  t.status = expenseApprovalStatus(t.jumlah);
-  mirrorKasUsahaUpsert(t);
+  const jumlah = slipGajiBersih(sl);
+  const existing = state.kasUsaha.transactions.find(x => x.sumberSlipId === sl.id);
+  if (existing) {
+    existing.jumlah = jumlah;
+    existing.status = expenseApprovalStatus(jumlah);
+    existing.keterangan = `Gaji ${k.nama} (${formatTanggal(sl.mulai)} - ${formatTanggal(sl.selesai)})`;
+    mirrorKasUsahaUpsert(existing);
+  } else {
+    const txn = {
+      id: uid(),
+      sumberSlipId: sl.id,
+      tipe: "Keluar",
+      status: expenseApprovalStatus(jumlah),
+      tanggal: sl.selesai,
+      jumlah,
+      keterangan: `Gaji ${k.nama} (${formatTanggal(sl.mulai)} - ${formatTanggal(sl.selesai)})`,
+      kategori: "Biaya Upah/Tenaga",
+      extra: k.nama,
+      catatan: "Otomatis dari slip gaji"
+    };
+    state.kasUsaha.transactions.push(txn);
+    mirrorKasUsahaUpsert(txn);
+  }
 }
 const slipGajiEditModal = document.getElementById("slipGajiEditModal");
 function openSlipGajiEditModal(sl) {
@@ -2873,9 +2894,9 @@ document.getElementById("slipGajiEditForm").addEventListener("submit", e => {
   sl.bon = parseNumberInput(document.getElementById("sge_bon").value);
   sl.potonganPinjaman = parseNumberInput(document.getElementById("sge_potonganPinjaman").value);
   recomputeSlipGajiChain(k);
+  syncSlipGajiKasTxn(k, sl);
   saveState();
   mirrorKaryawanGajiUpsert(k);
-  syncSlipGajiKasTxn(k, sl);
   renderAll();
   closeModals();
 });
