@@ -616,6 +616,56 @@ async function migrateGudangIfNeeded() {
   }
 }
 
+// ===== Fase C (percobaan): mirror modul Pemasok ke tabel relasional =====
+// state.pemasok tetap sumber utama. Beda dari modul lain: riwayat harga
+// pembelian TIDAK tersimpan di data pemasok itu sendiri, melainkan
+// dihitung on-the-fly dari Stok Material & Belanja Material Proyek (lihat
+// pemasokRiwayat()) -- jadi tidak ada apa pun untuk dicerminkan di luar
+// field dasarnya sendiri.
+function pemasokToRow(pm) {
+  return {
+    id: pm.id,
+    company_id: targetCompanyId,
+    nama: pm.nama || "",
+    kategori: pm.kategori || "",
+    telepon: pm.telepon || "",
+    alamat: pm.alamat || "",
+    catatan: pm.catatan || "",
+    updated_at: new Date().toISOString()
+  };
+}
+async function mirrorPemasokUpsert(pm) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("pemasok").upsert(pemasokToRow(pm));
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal menyimpan Pemasok ke tabel relasional: " + err.message);
+  }
+}
+async function mirrorPemasokDelete(id) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("pemasok").delete().eq("id", id).eq("company_id", targetCompanyId);
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal menghapus Pemasok di tabel relasional: " + err.message);
+  }
+}
+async function migratePemasokIfNeeded() {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { data, error } = await sb.from("pemasok").select("id").eq("company_id", targetCompanyId).limit(1);
+    if (error) throw error;
+    if ((data || []).length > 0) return;
+    if (!state.pemasok || state.pemasok.length === 0) return;
+    const { error: insertErr } = await sb.from("pemasok").insert(state.pemasok.map(pemasokToRow));
+    if (insertErr) throw insertErr;
+  } catch (err) {
+    setSyncStatus("Gagal migrasi data Pemasok ke tabel relasional: " + err.message);
+  }
+}
+
 async function handlePostLoginSync(user) {
   currentSyncUser = user;
   await resolveTeamMembership(user);
@@ -652,6 +702,7 @@ async function handlePostLoginSync(user) {
     migrateKaryawanIfNeeded();
     migrateStokIfNeeded();
     migrateGudangIfNeeded();
+    migratePemasokIfNeeded();
   }
 }
 function setSyncStatus(text) {
@@ -2861,6 +2912,7 @@ document.getElementById("pemasokForm").addEventListener("submit", e => {
   };
   if (idx >= 0) state.pemasok[idx] = pm; else state.pemasok.push(pm);
   saveState();
+  mirrorPemasokUpsert(pm);
   renderAll();
   closeModals();
 });
@@ -2877,6 +2929,7 @@ document.getElementById("pm_table").addEventListener("click", e => {
       state.pemasok = state.pemasok.filter(x => x.id !== delBtn.dataset.deletePemasok);
       if (currentPemasokId === delBtn.dataset.deletePemasok) currentPemasokId = null;
       saveState();
+      mirrorPemasokDelete(delBtn.dataset.deletePemasok);
       renderAll();
     }
   }
