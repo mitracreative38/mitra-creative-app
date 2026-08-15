@@ -1809,6 +1809,38 @@
 </div>
 
 <!-- Modal: pembayaran subkontraktor -->
+<!-- Modal: perbaiki slip gaji -->
+<div class="modal-backdrop" id="slipGajiEditModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Perbaiki Slip Gaji</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <form id="slipGajiEditForm">
+      <input type="hidden" id="sge_id">
+      <p class="muted" style="font-size:12px;margin:-4px 0 12px;">Untuk memperbaiki salah input Uang Makan/Bon/Potongan Pinjaman. Upah/gaji kotor tidak ikut berubah di sini.</p>
+      <div class="form-grid">
+        <div class="field">
+          <label>Uang Makan (Rp)</label>
+          <input type="text" inputmode="numeric" id="sge_uangMakan" placeholder="0">
+        </div>
+        <div class="field">
+          <label>Bon (Rp)</label>
+          <input type="text" inputmode="numeric" id="sge_bon" placeholder="0">
+        </div>
+        <div class="field">
+          <label>Potongan Pinjaman (Rp)</label>
+          <input type="text" inputmode="numeric" id="sge_potonganPinjaman" placeholder="0">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan Perbaikan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="subkonBayarModal">
   <div class="modal">
     <div class="modal-head">

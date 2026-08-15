@@ -2823,6 +2823,7 @@ function renderPenggajianRiwayat() {
       <td>
         <div class="row-actions">
           <button class="icon-btn" data-print-slip="${sl.id}" title="Cetak Ulang">🖨️</button>
+          <button class="icon-btn" data-edit-slip="${sl.id}" title="Perbaiki">✏️</button>
           <button class="icon-btn" data-delete-slip="${sl.id}" title="Hapus">🗑️</button>
         </div>
       </td>
@@ -2830,18 +2831,71 @@ function renderPenggajianRiwayat() {
     tbody.appendChild(tr);
   });
 }
+// Menyusun ulang sisaSebelum/sisaSesudah tiap slip berurutan sesuai
+// tanggal dibuat -- dipanggil setelah slip gaji manapun diedit atau
+// dihapus, supaya riwayat pinjaman tetap runtut dan benar (bukan cuma
+// slip yang diubah, tapi juga slip-slip sesudahnya yang ikut terpengaruh).
+function recomputeSlipGajiChain(k) {
+  const slips = (k.slipGaji || []).slice().sort((a, b) => (a.tanggalDibuat || a.mulai || "").localeCompare(b.tanggalDibuat || b.mulai || ""));
+  let running = k.pinjamanAwal || 0;
+  slips.forEach(sl => {
+    sl.sisaSebelum = running;
+    sl.sisaSesudah = running - (sl.potonganPinjaman || 0);
+    running = sl.sisaSesudah;
+  });
+}
+// Kalau slip gaji ini punya transaksi Kas Perusahaan yang tercatat
+// otomatis (sumberSlipId), samakan jumlahnya dengan gaji bersih slip yang
+// sudah diperbarui.
+function syncSlipGajiKasTxn(k, sl) {
+  const t = state.kasUsaha.transactions.find(x => x.sumberSlipId === sl.id);
+  if (!t) return;
+  t.jumlah = slipGajiBersih(sl);
+  t.status = expenseApprovalStatus(t.jumlah);
+  mirrorKasUsahaUpsert(t);
+}
+const slipGajiEditModal = document.getElementById("slipGajiEditModal");
+function openSlipGajiEditModal(sl) {
+  document.getElementById("sge_id").value = sl.id;
+  document.getElementById("sge_uangMakan").value = formatNumberInput(sl.uangMakan || 0);
+  document.getElementById("sge_bon").value = formatNumberInput(sl.bon || 0);
+  document.getElementById("sge_potonganPinjaman").value = formatNumberInput(sl.potonganPinjaman || 0);
+  slipGajiEditModal.classList.add("open");
+}
+["sge_uangMakan", "sge_bon", "sge_potonganPinjaman"].forEach(id => attachNumberFormatting(document.getElementById(id)));
+document.getElementById("slipGajiEditForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const k = currentKaryawanForPayroll();
+  if (!k) { closeModals(); return; }
+  const sl = (k.slipGaji || []).find(s => s.id === document.getElementById("sge_id").value);
+  if (!sl) { closeModals(); return; }
+  sl.uangMakan = parseNumberInput(document.getElementById("sge_uangMakan").value);
+  sl.bon = parseNumberInput(document.getElementById("sge_bon").value);
+  sl.potonganPinjaman = parseNumberInput(document.getElementById("sge_potonganPinjaman").value);
+  recomputeSlipGajiChain(k);
+  saveState();
+  mirrorKaryawanGajiUpsert(k);
+  syncSlipGajiKasTxn(k, sl);
+  renderAll();
+  closeModals();
+});
 document.getElementById("pg_riwayatTable").addEventListener("click", e => {
   const printBtn = e.target.closest("[data-print-slip]");
+  const editBtn = e.target.closest("[data-edit-slip]");
   const delBtn = e.target.closest("[data-delete-slip]");
   const k = currentKaryawanForPayroll();
   if (!k) return;
   if (printBtn) {
     const sl = k.slipGaji.find(s => s.id === printBtn.dataset.printSlip);
     if (sl) printSlipGaji(k, sl);
+  } else if (editBtn) {
+    const sl = k.slipGaji.find(s => s.id === editBtn.dataset.editSlip);
+    if (sl) openSlipGajiEditModal(sl);
   } else if (delBtn) {
     if (confirm("Hapus slip gaji ini? Sisa pinjaman akan otomatis dihitung ulang tanpa potongan dari slip ini, dan transaksi Kas Perusahaan yang tercatat otomatis dari slip ini akan ikut terhapus.")) {
       k.slipGaji = k.slipGaji.filter(s => s.id !== delBtn.dataset.deleteSlip);
       state.kasUsaha.transactions = state.kasUsaha.transactions.filter(t => t.sumberSlipId !== delBtn.dataset.deleteSlip);
+      recomputeSlipGajiChain(k);
       saveState();
       mirrorKaryawanGajiUpsert(k);
       mirrorKasUsahaDeleteBySumberSlip(delBtn.dataset.deleteSlip);
