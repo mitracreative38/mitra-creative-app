@@ -666,6 +666,150 @@ async function migratePemasokIfNeeded() {
   }
 }
 
+// ===== Fase C (percobaan): mirror modul Kas Perusahaan & Kas Pribadi ke tabel relasional =====
+// Modul paling sensitif: sesuai keputusan Owner, Admin hanya boleh MELIHAT
+// transaksi Kas Perusahaan yang mereka input SENDIRI (bukan seluruh buku),
+// supaya Admin tidak bisa menjumlahkan sendiri dan mengetahui saldo
+// perusahaan -- aturan ini sudah dikunci di RLS tabel kas_usaha_transaksi
+// sejak Fase A (created_by = auth.uid() untuk role admin). Kolom
+// "created_by" diisi dari currentSyncUser.id (siapa pun yang sedang login
+// saat menyimpan) -- state.kasUsaha sendiri tidak pernah menyimpan siapa
+// penginputnya. Kas Pribadi sepenuhnya milik Owner (RLS tidak mengizinkan
+// peran lain sama sekali), jadi tidak perlu kolom created_by.
+// state.kasUsaha / state.kasPribadi tetap sumber utama.
+function kasUsahaTxnToRow(t) {
+  return {
+    id: t.id,
+    company_id: targetCompanyId,
+    proyek_id: t.proyekId || null,
+    subkon_id: t.subkonId || null,
+    sumber_slip_id: t.sumberSlipId || null,
+    sumber_belanja_id: t.sumberBelanjaId || null,
+    tipe: t.tipe || "",
+    status: t.status || "lunas",
+    tanggal: t.tanggal || null,
+    jumlah: t.jumlah || 0,
+    keterangan: t.keterangan || "",
+    kategori: t.kategori || "",
+    extra: t.extra || "",
+    catatan: t.catatan || "",
+    created_by: (currentSyncUser && currentSyncUser.id) || targetCompanyId
+  };
+}
+async function mirrorKasUsahaUpsert(t) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("kas_usaha_transaksi").upsert(kasUsahaTxnToRow(t));
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal menyimpan transaksi Kas Perusahaan ke tabel relasional: " + err.message);
+  }
+}
+async function mirrorKasUsahaDelete(id) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("kas_usaha_transaksi").delete().eq("id", id).eq("company_id", targetCompanyId);
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal menghapus transaksi Kas Perusahaan di tabel relasional: " + err.message);
+  }
+}
+async function mirrorKasUsahaDeleteBySumberSlip(slipId) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("kas_usaha_transaksi").delete().eq("sumber_slip_id", slipId).eq("company_id", targetCompanyId);
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal menghapus transaksi Kas Perusahaan (slip gaji) di tabel relasional: " + err.message);
+  }
+}
+async function mirrorKasUsahaDeleteBySumberBelanja(belanjaId) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("kas_usaha_transaksi").delete().eq("sumber_belanja_id", belanjaId).eq("company_id", targetCompanyId);
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal menghapus transaksi Kas Perusahaan (belanja material) di tabel relasional: " + err.message);
+  }
+}
+async function mirrorSyncBelanjaMaterialKas(item) {
+  // syncBelanjaMaterial() selalu membuang transaksi Kas lama (id berbeda)
+  // lalu membuat baru dengan uid() baru kalau statusnya "Dibeli" -- jadi
+  // hapus dulu semua baris relasional lama untuk item ini, baru cerminkan
+  // baris baru (kalau ada) dari state.kasUsaha yang sudah diperbarui.
+  await mirrorKasUsahaDeleteBySumberBelanja(item.id);
+  const newTxn = state.kasUsaha.transactions.find(t => t.sumberBelanjaId === item.id);
+  if (newTxn) await mirrorKasUsahaUpsert(newTxn);
+}
+async function migrateKasUsahaIfNeeded() {
+  if (!sb || !targetCompanyId) return;
+  // Hanya Owner yang boleh menjalankan migrasi satu-kali ini -- data lama
+  // sebelum sistem tim ada tidak pernah tercatat siapa penginputnya, dan
+  // kalau kebetulan Admin yang login duluan, migrasi akan salah menandai
+  // seluruh riwayat lama sebagai input Admin itu (created_by keliru).
+  if (!currentSyncUser || currentSyncUser.id !== targetCompanyId) return;
+  try {
+    const { data, error } = await sb.from("kas_usaha_transaksi").select("id").eq("company_id", targetCompanyId).limit(1);
+    if (error) throw error;
+    if ((data || []).length > 0) return;
+    if (!state.kasUsaha.transactions || state.kasUsaha.transactions.length === 0) return;
+    const { error: insertErr } = await sb.from("kas_usaha_transaksi").insert(state.kasUsaha.transactions.map(kasUsahaTxnToRow));
+    if (insertErr) throw insertErr;
+  } catch (err) {
+    setSyncStatus("Gagal migrasi data Kas Perusahaan ke tabel relasional: " + err.message);
+  }
+}
+function kasPribadiTxnToRow(t) {
+  return {
+    id: t.id,
+    company_id: targetCompanyId,
+    tipe: t.tipe || "",
+    tanggal: t.tanggal || null,
+    jumlah: t.jumlah || 0,
+    keterangan: t.keterangan || "",
+    kategori: t.kategori || "",
+    extra: t.extra || "",
+    catatan: t.catatan || ""
+  };
+}
+async function mirrorKasPribadiUpsert(t) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("kas_pribadi_transaksi").upsert(kasPribadiTxnToRow(t));
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal menyimpan transaksi Kas Pribadi ke tabel relasional: " + err.message);
+  }
+}
+async function mirrorKasPribadiDelete(id) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("kas_pribadi_transaksi").delete().eq("id", id).eq("company_id", targetCompanyId);
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal menghapus transaksi Kas Pribadi di tabel relasional: " + err.message);
+  }
+}
+async function migrateKasPribadiIfNeeded() {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { data, error } = await sb.from("kas_pribadi_transaksi").select("id").eq("company_id", targetCompanyId).limit(1);
+    if (error) throw error;
+    if ((data || []).length > 0) return;
+    if (!state.kasPribadi.transactions || state.kasPribadi.transactions.length === 0) return;
+    const { error: insertErr } = await sb.from("kas_pribadi_transaksi").insert(state.kasPribadi.transactions.map(kasPribadiTxnToRow));
+    if (insertErr) throw insertErr;
+  } catch (err) {
+    setSyncStatus("Gagal migrasi data Kas Pribadi ke tabel relasional: " + err.message);
+  }
+}
+function mirrorKasTxnUpsert(book, t) {
+  if (book === "kasUsaha") mirrorKasUsahaUpsert(t); else mirrorKasPribadiUpsert(t);
+}
+function mirrorKasTxnDelete(book, id) {
+  if (book === "kasUsaha") mirrorKasUsahaDelete(id); else mirrorKasPribadiDelete(id);
+}
+
 async function handlePostLoginSync(user) {
   currentSyncUser = user;
   await resolveTeamMembership(user);
@@ -703,6 +847,8 @@ async function handlePostLoginSync(user) {
     migrateStokIfNeeded();
     migrateGudangIfNeeded();
     migratePemasokIfNeeded();
+    migrateKasUsahaIfNeeded();
+    migrateKasPribadiIfNeeded();
   }
 }
 function setSyncStatus(text) {
@@ -2567,6 +2713,7 @@ document.getElementById("pg_riwayatTable").addEventListener("click", e => {
       state.kasUsaha.transactions = state.kasUsaha.transactions.filter(t => t.sumberSlipId !== delBtn.dataset.deleteSlip);
       saveState();
       mirrorKaryawanGajiUpsert(k);
+      mirrorKasUsahaDeleteBySumberSlip(delBtn.dataset.deleteSlip);
       renderAll();
     }
   }
@@ -2622,6 +2769,7 @@ document.getElementById("pg_simpanCetakBtn").addEventListener("click", () => {
   });
   saveState();
   mirrorKaryawanGajiUpsert(k);
+  mirrorKasUsahaUpsert(state.kasUsaha.transactions[state.kasUsaha.transactions.length - 1]);
   renderAll();
   printSlipGaji(k, slip);
 });
@@ -4855,6 +5003,7 @@ document.getElementById("txnForm").addEventListener("submit", e => {
   const idx = arr.findIndex(t => t.id === id);
   if (idx >= 0) arr[idx] = txn; else arr.push(txn);
   saveState();
+  mirrorKasTxnUpsert(book, txn);
   renderAll();
   closeModals();
 });
@@ -4874,6 +5023,7 @@ document.getElementById("txnForm").addEventListener("submit", e => {
       if (confirm("Hapus transaksi ini?")) {
         state[book].transactions = state[book].transactions.filter(x => x.id !== delBtn.dataset.delete);
         saveState();
+        mirrorKasTxnDelete(book, delBtn.dataset.delete);
         renderAll();
       }
     } else if (approveBtn) {
@@ -4882,6 +5032,7 @@ document.getElementById("txnForm").addEventListener("submit", e => {
       if (t && confirm(`Setujui pengeluaran ${rupiah(t.jumlah)} ini? Saldo Kas Perusahaan akan langsung berkurang.`)) {
         t.status = "lunas";
         saveState();
+        mirrorKasTxnUpsert(book, t);
         renderAll();
       }
     }
@@ -4995,7 +5146,7 @@ document.getElementById("tm_addBtn").addEventListener("click", () => {
   const keterangan = document.getElementById("tm_keterangan").value.trim();
   const jumlah = parseNumberInput(document.getElementById("tm_jumlah").value);
   if (!tanggal || !keterangan || !jumlah) { alert("Isi tanggal, keterangan, dan jumlah terlebih dahulu."); return; }
-  state.kasUsaha.transactions.push({
+  const terminTxn = {
     id: uid(),
     proyekId: p.id,
     tipe: "Masuk",
@@ -5004,8 +5155,10 @@ document.getElementById("tm_addBtn").addEventListener("click", () => {
     kategori: "Pendapatan Jasa",
     extra: p.nama,
     catatan: "Termin dicatat dari Margin Proyek"
-  });
+  };
+  state.kasUsaha.transactions.push(terminTxn);
   saveState();
+  mirrorKasUsahaUpsert(terminTxn);
   document.getElementById("tm_tanggal").value = "";
   document.getElementById("tm_keterangan").value = "";
   document.getElementById("tm_jumlah").value = "";
@@ -5016,6 +5169,7 @@ document.getElementById("pd_terminTable").addEventListener("click", e => {
   if (delBtn && confirm("Hapus termin pembayaran ini? Transaksi ini juga akan terhapus dari Kas Perusahaan.")) {
     state.kasUsaha.transactions = state.kasUsaha.transactions.filter(t => t.id !== delBtn.dataset.deleteTermin);
     saveState();
+    mirrorKasUsahaDelete(delBtn.dataset.deleteTermin);
     renderAll();
   }
 });
@@ -5103,6 +5257,7 @@ document.getElementById("belanjaForm").addEventListener("submit", e => {
   saveState();
   mirrorProyekUpsert(p);
   state.stok.forEach(mirrorStokUpsert);
+  mirrorSyncBelanjaMaterialKas(item);
   renderAll();
   closeModals();
 });
@@ -5123,6 +5278,7 @@ document.getElementById("pd_belanjaTable").addEventListener("click", e => {
       saveState();
       mirrorProyekUpsert(p);
       state.stok.forEach(mirrorStokUpsert);
+      mirrorKasUsahaDeleteBySumberBelanja(bid);
       renderAll();
     }
   }
@@ -5171,7 +5327,7 @@ document.getElementById("subkonBayarForm").addEventListener("submit", e => {
   const sk = (p.subkontraktor || []).find(s => s.id === subkonId);
   if (!sk) { closeModals(); return; }
   const jumlahBayar = parseNumberInput(document.getElementById("skb_jumlah").value);
-  state.kasUsaha.transactions.push({
+  const subkonBayarTxn = {
     id: uid(),
     proyekId: p.id,
     subkonId: sk.id,
@@ -5183,8 +5339,10 @@ document.getElementById("subkonBayarForm").addEventListener("submit", e => {
     kategori: "Biaya Subkontraktor",
     extra: p.nama,
     catatan: document.getElementById("skb_catatan").value.trim() || "Otomatis dari pembayaran subkontraktor"
-  });
+  };
+  state.kasUsaha.transactions.push(subkonBayarTxn);
   saveState();
+  mirrorKasUsahaUpsert(subkonBayarTxn);
   renderAll();
   closeModals();
 });
