@@ -381,6 +381,71 @@ async function migratePenawaranIfNeeded() {
   }
 }
 
+// ===== Fase C (percobaan): mirror modul Proyek ke tabel relasional =====
+// Pola yang sama persis dengan Klien, AHSP, RAB & Penawaran -- state.proyek
+// tetap sumber utama, tabel relasional dicerminkan (mirror) secara
+// best-effort.
+function proyekToRow(p) {
+  const realisasiTerbaru = (p.progressRealisasi || []).slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""))[0];
+  return {
+    id: p.id,
+    company_id: targetCompanyId,
+    nama: p.nama || "",
+    klien_id: p.klienId || null,
+    klien: p.klien || "",
+    lokasi: p.lokasi || "",
+    nilai_kontrak: p.nilaiKontrak || 0,
+    status: p.status || "",
+    tanggal_mulai: p.tanggalMulai || null,
+    tanggal_selesai: p.tanggalSelesai || null,
+    biaya_bahan: p.biayaBahan || 0,
+    biaya_upah: p.biayaUpah || 0,
+    biaya_lain: p.biayaLain || 0,
+    karyawan_ids: p.karyawanIds || [],
+    subkontraktor: p.subkontraktor || [],
+    belanja_material: p.belanjaMaterial || [],
+    sumber_rab_id: p.sumberRabId || null,
+    sumber_penawaran_id: p.sumberPenawaranId || null,
+    progress_rencana: p.progressRencana || [],
+    progress_realisasi: p.progressRealisasi || [],
+    progress: realisasiTerbaru ? realisasiTerbaru.persen : 0,
+    dokumen: p.dokumen || [],
+    updated_at: new Date().toISOString()
+  };
+}
+async function mirrorProyekUpsert(p) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("proyek").upsert(proyekToRow(p));
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal menyimpan Proyek ke tabel relasional: " + err.message);
+  }
+}
+async function mirrorProyekDelete(id) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("proyek").delete().eq("id", id).eq("company_id", targetCompanyId);
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal menghapus Proyek di tabel relasional: " + err.message);
+  }
+}
+async function migrateProyekIfNeeded() {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { data, error } = await sb.from("proyek").select("id").eq("company_id", targetCompanyId).limit(1);
+    if (error) throw error;
+    if ((data || []).length > 0) return;
+    if (!state.proyek || state.proyek.length === 0) return;
+    const rows = state.proyek.map(proyekToRow);
+    const { error: insertErr } = await sb.from("proyek").insert(rows);
+    if (insertErr) throw insertErr;
+  } catch (err) {
+    setSyncStatus("Gagal migrasi data Proyek ke tabel relasional: " + err.message);
+  }
+}
+
 async function handlePostLoginSync(user) {
   currentSyncUser = user;
   await resolveTeamMembership(user);
@@ -413,6 +478,7 @@ async function handlePostLoginSync(user) {
     migrateAhspIfNeeded();
     migrateRabIfNeeded();
     migratePenawaranIfNeeded();
+    migrateProyekIfNeeded();
   }
 }
 function setSyncStatus(text) {
@@ -3964,6 +4030,7 @@ function createProyekFromDoc(kind, doc) {
   doc.proyekId = proj.id;
   saveState();
   if (kind === "rab") mirrorRabUpsert(doc); else mirrorPenawaranUpsert(doc);
+  mirrorProyekUpsert(proj);
   return { proj, alokasi };
 }
 function goToDoc(kind, id) {
@@ -4644,6 +4711,7 @@ document.getElementById("proyekForm").addEventListener("submit", e => {
   };
   if (idx >= 0) state.proyek[idx] = proj; else state.proyek.push(proj);
   saveState();
+  mirrorProyekUpsert(proj);
   renderAll();
   closeModals();
 });
@@ -4659,6 +4727,7 @@ document.getElementById("pr_table").addEventListener("click", e => {
   } else if (delBtn) {
     if (confirm("Hapus proyek ini? Transaksi Kas Perusahaan yang sudah terkait proyek ini tidak akan ikut terhapus.")) {
       state.proyek = state.proyek.filter(x => x.id !== delBtn.dataset.deleteProyek);
+      mirrorProyekDelete(delBtn.dataset.deleteProyek);
       if (currentProyekId === delBtn.dataset.deleteProyek) currentProyekId = null;
       saveState();
       renderAll();
@@ -4792,6 +4861,7 @@ document.getElementById("belanjaForm").addEventListener("submit", e => {
   if (idx >= 0) p.belanjaMaterial[idx] = item; else p.belanjaMaterial.push(item);
   syncBelanjaMaterial(p, item);
   saveState();
+  mirrorProyekUpsert(p);
   renderAll();
   closeModals();
 });
@@ -4810,6 +4880,7 @@ document.getElementById("pd_belanjaTable").addEventListener("click", e => {
       state.kasUsaha.transactions = state.kasUsaha.transactions.filter(t => t.sumberBelanjaId !== bid);
       state.stok.forEach(s => { s.transactions = (s.transactions || []).filter(t => t.sumberBelanjaId !== bid); });
       saveState();
+      mirrorProyekUpsert(p);
       renderAll();
     }
   }
@@ -4844,6 +4915,7 @@ document.getElementById("subkonForm").addEventListener("submit", e => {
   const idx = p.subkontraktor.findIndex(s => s.id === id);
   if (idx >= 0) p.subkontraktor[idx] = sk; else p.subkontraktor.push(sk);
   saveState();
+  mirrorProyekUpsert(p);
   renderAll();
   closeModals();
 });
@@ -4893,6 +4965,7 @@ document.getElementById("pd_subkonTable").addEventListener("click", e => {
     if (confirm("Hapus subkontraktor ini? Riwayat pembayaran yang sudah tercatat di Kas Perusahaan tidak ikut terhapus.")) {
       p.subkontraktor = (p.subkontraktor || []).filter(s => s.id !== delBtn.dataset.deleteSubkon);
       saveState();
+      mirrorProyekUpsert(p);
       renderAll();
     }
   }
@@ -4908,6 +4981,7 @@ document.getElementById("pfr_addBtn").addEventListener("click", () => {
   if (!p.progressRencana) p.progressRencana = [];
   p.progressRencana.push({ id: uid(), tanggal, persen: Math.max(0, Math.min(100, persen)), keterangan: document.getElementById("pfr_keterangan").value.trim() });
   saveState();
+  mirrorProyekUpsert(p);
   document.getElementById("pfr_tanggal").value = "";
   document.getElementById("pfr_persen").value = "";
   document.getElementById("pfr_keterangan").value = "";
@@ -4919,6 +4993,7 @@ document.getElementById("pf_rencanaTable").addEventListener("click", e => {
   if (delBtn && p) {
     p.progressRencana = (p.progressRencana || []).filter(r => r.id !== delBtn.dataset.deleteRencana);
     saveState();
+    mirrorProyekUpsert(p);
     renderProyekDetail();
   }
 });
@@ -4931,6 +5006,7 @@ document.getElementById("pfa_addBtn").addEventListener("click", () => {
   if (!p.progressRealisasi) p.progressRealisasi = [];
   p.progressRealisasi.push({ id: uid(), tanggal, persen: Math.max(0, Math.min(100, persen)), catatan: document.getElementById("pfa_catatan").value.trim() });
   saveState();
+  mirrorProyekUpsert(p);
   document.getElementById("pfa_tanggal").value = "";
   document.getElementById("pfa_persen").value = "";
   document.getElementById("pfa_catatan").value = "";
@@ -4942,6 +5018,7 @@ document.getElementById("pf_realisasiTable").addEventListener("click", e => {
   if (delBtn && p) {
     p.progressRealisasi = (p.progressRealisasi || []).filter(r => r.id !== delBtn.dataset.deleteRealisasi);
     saveState();
+    mirrorProyekUpsert(p);
     renderProyekDetail();
   }
 });
@@ -4976,6 +5053,7 @@ document.getElementById("dokumenForm").addEventListener("submit", e => {
   const idx = p.dokumen.findIndex(d => d.id === id);
   if (idx >= 0) p.dokumen[idx] = dok; else p.dokumen.push(dok);
   saveState();
+  mirrorProyekUpsert(p);
   renderProyekDetail();
   closeModals();
 });
@@ -4991,6 +5069,7 @@ document.getElementById("pd_dokumenTable").addEventListener("click", e => {
     if (confirm("Hapus dokumen ini?")) {
       p.dokumen = (p.dokumen || []).filter(d => d.id !== delBtn.dataset.deleteDokumen);
       saveState();
+      mirrorProyekUpsert(p);
       renderProyekDetail();
     }
   }
