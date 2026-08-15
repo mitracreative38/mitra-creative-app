@@ -88,15 +88,121 @@ function scheduleCloudPush() {
   clearTimeout(cloudSyncTimer);
   cloudSyncTimer = setTimeout(pushStateToCloud, 1500);
 }
+// ===== Fase D: Kas Perusahaan/Kas Pribadi/slip gaji tidak lagi dipercaya
+// dari blob app_state itu sendiri, untuk peran APA PUN termasuk Owner =====
+// state.kasUsaha.transactions, state.kasPribadi.transactions,
+// state.karyawan[].slipGaji, dan state.kasUsaha/kasPribadi.saldoAwal
+// sekarang SELALU dibangun ulang segar dari tabel relasional (yang RLS-nya
+// benar-benar membatasi) setiap kali data baru dimuat dari cloud (login &
+// pembaruan realtime) -- lihat hydrateSensitiveFields(). Dan SELALU
+// dikosongkan sebelum blob disimpan -- lihat stripSensitiveForBlob(). Blob
+// app_state jadi tidak pernah menyimpan salinan hidup dari data ini untuk
+// SIAPA PUN, baik yang diakses lewat aplikasi ini maupun lewat panggilan
+// API langsung di luar aplikasi -- jadi TIDAK PERLU mengubah kebijakan
+// akses (RLS) app_state itu sendiri sama sekali. RLS masing-masing tabel
+// relasional (kas_usaha_transaksi, kas_pribadi_transaksi, karyawan_gaji,
+// kas_saldo_awal) sudah secara alami menyaring hasilnya sesuai peran
+// pemanggil -- Owner dapat semua baris, Admin cuma baris Kas Perusahaan
+// yang dia input sendiri, dan Marketing/kas_pribadi_transaksi/
+// karyawan_gaji/kas_saldo_awal kosong untuk siapa pun selain Owner --
+// tidak perlu percabangan berdasarkan peran di sisi klien sama sekali.
+function stripSensitiveForBlob(data) {
+  const copy = Object.assign({}, data);
+  copy.kasUsaha = Object.assign({}, copy.kasUsaha, { transactions: [], saldoAwal: 0 });
+  copy.kasPribadi = Object.assign({}, copy.kasPribadi, { transactions: [], saldoAwal: 0 });
+  copy.karyawan = (copy.karyawan || []).map(k => Object.assign({}, k, { slipGaji: [] }));
+  return copy;
+}
+async function hydrateSensitiveFields(data) {
+  if (!sb || !targetCompanyId) return data;
+  try {
+    const [kasRes, kpRes, gajiRes, saldoRes] = await Promise.all([
+      sb.from("kas_usaha_transaksi").select("*").eq("company_id", targetCompanyId),
+      sb.from("kas_pribadi_transaksi").select("*").eq("company_id", targetCompanyId),
+      sb.from("karyawan_gaji").select("*").eq("company_id", targetCompanyId),
+      sb.from("kas_saldo_awal").select("*").eq("company_id", targetCompanyId)
+    ]);
+    if (!kasRes.error) {
+      data.kasUsaha = Object.assign({}, data.kasUsaha, {
+        transactions: (kasRes.data || []).map(t => ({
+          id: t.id, proyekId: t.proyek_id || "", subkonId: t.subkon_id || "",
+          sumberSlipId: t.sumber_slip_id || "", sumberBelanjaId: t.sumber_belanja_id || "",
+          tipe: t.tipe, status: t.status, tanggal: t.tanggal, jumlah: t.jumlah,
+          keterangan: t.keterangan || "", kategori: t.kategori || "", extra: t.extra || "", catatan: t.catatan || ""
+        }))
+      });
+    }
+    if (!kpRes.error) {
+      data.kasPribadi = Object.assign({}, data.kasPribadi, {
+        transactions: (kpRes.data || []).map(t => ({
+          id: t.id, tipe: t.tipe, tanggal: t.tanggal, jumlah: t.jumlah,
+          keterangan: t.keterangan || "", kategori: t.kategori || "", extra: t.extra || "", catatan: t.catatan || ""
+        }))
+      });
+    }
+    if (!gajiRes.error) {
+      const gajiMap = {};
+      (gajiRes.data || []).forEach(g => { gajiMap[g.karyawan_id] = g.slip_gaji || []; });
+      data.karyawan = (data.karyawan || []).map(k => Object.assign({}, k, { slipGaji: gajiMap[k.id] || [] }));
+    } else {
+      data.karyawan = (data.karyawan || []).map(k => Object.assign({}, k, { slipGaji: [] }));
+    }
+    if (!saldoRes.error) {
+      const saldoMap = {};
+      (saldoRes.data || []).forEach(s => { saldoMap[s.buku] = s.nilai; });
+      data.kasUsaha = Object.assign({}, data.kasUsaha, { saldoAwal: saldoMap.kasUsaha || 0 });
+      data.kasPribadi = Object.assign({}, data.kasPribadi, { saldoAwal: saldoMap.kasPribadi || 0 });
+    }
+  } catch (e) {
+    // best-effort -- kalau gagal, biarkan apa adanya (sudah kosong dari
+    // stripSensitiveForBlob sejak penyimpanan sebelumnya)
+  }
+  return data;
+}
 async function pushStateToCloud() {
   if (!sb || !currentSyncUser || !targetCompanyId) return;
   try {
-    const { error } = await sb.from("app_state").upsert({ user_id: targetCompanyId, data: state, updated_at: new Date().toISOString() });
+    const payload = stripSensitiveForBlob(state);
+    const { error } = await sb.from("app_state").upsert({ user_id: targetCompanyId, data: payload, updated_at: new Date().toISOString() });
     if (error) throw error;
     suppressRealtimeUntil = Date.now() + 3000;
     setSyncStatus(`Tersinkron ${new Date().toLocaleTimeString("id-ID")}`);
   } catch (err) {
     setSyncStatus("Gagal sinkron ke cloud: " + err.message);
+  }
+}
+// Migrasi satu-kali: pindahkan saldoAwal Kas Perusahaan/Kas Pribadi yang
+// lama tersimpan di blob ke tabel kas_saldo_awal (Owner-only), SEBELUM
+// hydrateSensitiveFields() pertama kali membaca tabel itu -- supaya
+// saldoAwal Owner yang sudah ada tidak sempat "hilang" (kebaca 0) di
+// login pertama setelah pembaruan ini. Owner-only karena tabelnya memang
+// Owner-only, dan supaya tidak salah tandai kalau kebetulan Admin yang
+// login duluan.
+async function migrateSaldoAwalIfNeeded(rawBlobData) {
+  if (!sb || !targetCompanyId) return;
+  if (!currentSyncUser || currentSyncUser.id !== targetCompanyId) return;
+  try {
+    const { data, error } = await sb.from("kas_saldo_awal").select("buku").eq("company_id", targetCompanyId).limit(1);
+    if (error) throw error;
+    if ((data || []).length > 0) return;
+    const kuSaldo = (rawBlobData && rawBlobData.kasUsaha && rawBlobData.kasUsaha.saldoAwal) || 0;
+    const kpSaldo = (rawBlobData && rawBlobData.kasPribadi && rawBlobData.kasPribadi.saldoAwal) || 0;
+    const { error: insertErr } = await sb.from("kas_saldo_awal").insert([
+      { company_id: targetCompanyId, buku: "kasUsaha", nilai: kuSaldo },
+      { company_id: targetCompanyId, buku: "kasPribadi", nilai: kpSaldo }
+    ]);
+    if (insertErr) throw insertErr;
+  } catch (err) {
+    setSyncStatus("Gagal migrasi data saldo awal ke tabel relasional: " + err.message);
+  }
+}
+async function mirrorSaldoAwalUpsert(book, nilai) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("kas_saldo_awal").upsert({ company_id: targetCompanyId, buku: book, nilai, updated_at: new Date().toISOString() }, { onConflict: "company_id,buku" });
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal menyimpan saldo awal ke tabel relasional: " + err.message);
   }
 }
 async function resolveTeamMembership(user) {
@@ -129,12 +235,13 @@ function subscribeRealtime(companyId) {
   try {
     realtimeChannel = sb
       .channel("app_state_" + companyId)
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "app_state", filter: `user_id=eq.${companyId}` }, (payload) => {
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "app_state", filter: `user_id=eq.${companyId}` }, async (payload) => {
         if (Date.now() < suppressRealtimeUntil) return;
         if (cloudSyncTimer) return;
         if (document.querySelector(".modal-backdrop.open")) return;
         if (!payload.new || !payload.new.data) return;
         state = withDefaults(payload.new.data);
+        state = await hydrateSensitiveFields(state);
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
         renderAll();
         setSyncStatus(`Diperbarui otomatis dari perangkat lain, ${new Date().toLocaleTimeString("id-ID")}`);
@@ -518,8 +625,14 @@ async function migrateKaryawanIfNeeded() {
     if (!state.karyawan || state.karyawan.length === 0) return;
     const { error: insertErr } = await sb.from("karyawan").insert(state.karyawan.map(karyawanToRow));
     if (insertErr) throw insertErr;
-    const { error: insertGajiErr } = await sb.from("karyawan_gaji").insert(state.karyawan.map(karyawanGajiToRow));
-    if (insertGajiErr) throw insertGajiErr;
+    // karyawan_gaji (slip gaji) Owner-only sesuai RLS -- kalau kebetulan
+    // Admin/Marketing yang login duluan, lewati bagian ini (bukan error)
+    // supaya tidak muncul toast gagal yang tidak perlu; data slip gaji
+    // akan termigrasi begitu Owner sendiri login.
+    if (currentSyncUser && currentSyncUser.id === targetCompanyId) {
+      const { error: insertGajiErr } = await sb.from("karyawan_gaji").insert(state.karyawan.map(karyawanGajiToRow));
+      if (insertGajiErr) throw insertGajiErr;
+    }
   } catch (err) {
     setSyncStatus("Gagal migrasi data Karyawan ke tabel relasional: " + err.message);
   }
@@ -820,16 +933,29 @@ async function handlePostLoginSync(user) {
     const { data, error } = await sb.from("app_state").select("data, updated_at").eq("user_id", targetCompanyId).maybeSingle();
     if (error) throw error;
     if (!data) {
+      state = await hydrateSensitiveFields(state);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
       await pushStateToCloud();
       setSyncStatus("Data awal berhasil diunggah ke cloud.");
       return;
     }
+    // Migrasi saldoAwal HARUS jalan sebelum hydrateSensitiveFields() di
+    // bawah membaca kas_saldo_awal -- kalau belum ada isinya (login
+    // pertama Owner setelah pembaruan Fase D), pindahkan dulu dari nilai
+    // lama yang masih ada di blob, supaya tidak sempat kebaca 0.
+    await migrateSaldoAwalIfNeeded(data.data);
     const cloudTanggal = data.updated_at ? `${formatTanggal(data.updated_at.slice(0, 10))} ${new Date(data.updated_at).toLocaleTimeString("id-ID")}` : "-";
     const pakaiCloud = confirm(`Ditemukan data yang sudah tersinkron di cloud (terakhir disimpan: ${cloudTanggal}).\n\nKlik OK untuk memakai data dari CLOUD (data di perangkat ini akan diganti dengan data cloud).\nKlik Batal untuk tetap memakai data di PERANGKAT INI (data di cloud akan ditimpa dengan data perangkat ini).`);
+    if (pakaiCloud) state = withDefaults(data.data);
+    // Fase D: apa pun jalur di atas (pakai cloud atau tetap lokal), Kas
+    // Perusahaan/Kas Pribadi/slip gaji/saldoAwal SELALU disegarkan dari
+    // tabel relasional -- state lokal yang sudah tersimpan di perangkat
+    // (misalnya dari sesi Owner sebelumnya di perangkat yang sama) tidak
+    // boleh dipercaya begitu saja untuk peran yang login sekarang.
+    state = await hydrateSensitiveFields(state);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    renderAll();
     if (pakaiCloud) {
-      state = withDefaults(data.data);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      renderAll();
       setSyncStatus("Data dari cloud berhasil dimuat ke perangkat ini.");
     } else {
       await pushStateToCloud();
@@ -2361,7 +2487,12 @@ function renderKaryawanList() {
   const aktif = all.filter(k => k.aktif !== false);
   document.getElementById("ky_totalAktif").textContent = aktif.length;
   document.getElementById("ky_totalUpahHarian").textContent = rupiah(aktif.reduce((s, k) => s + (k.upahHarian || 0), 0));
-  document.getElementById("ky_totalPinjaman").textContent = rupiah(all.reduce((s, k) => s + sisaPinjaman(k), 0));
+  // Fase D: Sisa Pinjaman turunan dari slip gaji, yang memang rahasia
+  // untuk non-Owner (state.karyawan[].slipGaji kosong untuk mereka) --
+  // sembunyikan angkanya sama sekali daripada menampilkan pinjamanAwal
+  // mentah yang bisa menyesatkan (seolah itu sisa yang sudah dihitung).
+  const canSeePinjaman = currentTeamRole === "owner";
+  document.getElementById("ky_totalPinjaman").textContent = canSeePinjaman ? rupiah(all.reduce((s, k) => s + sisaPinjaman(k), 0)) : "-";
 
   const search = (document.getElementById("ky_search").value || "").toLowerCase();
   let rows = all.slice().sort((a, b) => a.nama.localeCompare(b.nama));
@@ -2387,7 +2518,7 @@ function renderKaryawanList() {
       <td>${escapeHtml(k.jabatan || "-")}</td>
       <td>${isBulanan ? "Bulanan" : "Harian"}</td>
       <td class="num">${rateText}</td>
-      <td class="num">${rupiah(sisaPinjaman(k))}</td>
+      <td class="num">${canSeePinjaman ? rupiah(sisaPinjaman(k)) : "-"}</td>
       <td>${aktifBadge}</td>
       <td>
         <div class="row-actions">
@@ -5481,8 +5612,10 @@ document.getElementById("pd_dokumenTable").addEventListener("click", e => {
   attachNumberFormatting(input);
   input.addEventListener("change", () => {
     const book = input.dataset.book;
-    state[book].saldoAwal = parseNumberInput(input.value);
+    const nilai = parseNumberInput(input.value);
+    state[book].saldoAwal = nilai;
     saveState();
+    mirrorSaldoAwalUpsert(book, nilai);
     renderAll();
   });
 });
