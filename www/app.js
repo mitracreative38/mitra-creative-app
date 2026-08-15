@@ -144,9 +144,11 @@ async function hydrateSensitiveFields(data) {
       const gajiMap = {};
       (gajiRes.data || []).forEach(g => { gajiMap[g.karyawan_id] = g.slip_gaji || []; });
       data.karyawan = (data.karyawan || []).map(k => Object.assign({}, k, { slipGaji: gajiMap[k.id] || [] }));
-    } else {
-      data.karyawan = (data.karyawan || []).map(k => Object.assign({}, k, { slipGaji: [] }));
     }
+    // Kalau query-nya sendiri GAGAL (bukan cuma hasilnya kosong), jangan
+    // sentuh slipGaji sama sekali -- lebih aman membiarkan apa adanya
+    // daripada beresiko menganggap "gagal ambil data" sama dengan
+    // "karyawan ini memang tidak punya riwayat gaji" dan mengosongkannya.
     if (!saldoRes.error) {
       const saldoMap = {};
       (saldoRes.data || []).forEach(s => { saldoMap[s.buku] = s.nilai; });
@@ -5831,7 +5833,17 @@ async function mirrorAllToRelational() {
   (state.proyekRab || []).forEach(mirrorRabUpsert);
   (state.penawaran || []).forEach(mirrorPenawaranUpsert);
   (state.proyek || []).forEach(mirrorProyekUpsert);
-  (state.karyawan || []).forEach(k => { mirrorKaryawanUpsert(k); mirrorKaryawanGajiUpsert(k); });
+  (state.karyawan || []).forEach(k => {
+    mirrorKaryawanUpsert(k);
+    // karyawan_gaji.slip_gaji tersimpan sebagai SATU kolom array utuh
+    // (bukan baris per slip), jadi upsert-nya MENIMPA seluruhnya, bukan
+    // menggabung. Kalau file yang diimpor kebetulan tidak membawa data
+    // slip gaji karyawan ini (mis. dari salinan lain yang belum pernah
+    // dipakai untuk penggajian dia), jangan timpa riwayat asli yang
+    // sudah ada di cloud dengan array kosong -- impor cuma untuk
+    // MENAMBAH, bukan menghapus riwayat gaji yang sudah tercatat.
+    if ((k.slipGaji || []).length) mirrorKaryawanGajiUpsert(k);
+  });
   (state.stok || []).forEach(mirrorStokUpsert);
   (state.gudang || []).forEach(mirrorGudangUpsert);
   (state.pemasok || []).forEach(mirrorPemasokUpsert);
