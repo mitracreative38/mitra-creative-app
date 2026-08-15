@@ -525,6 +525,97 @@ async function migrateKaryawanIfNeeded() {
   }
 }
 
+// ===== Fase C (percobaan): mirror modul Stok ke tabel relasional =====
+// state.stok tetap sumber utama, tabel relasional dicerminkan (mirror)
+// secara best-effort. Riwayat transaksi masuk/keluar tersimpan MENYATU
+// di dalam data barang (bukan tabel sendiri), jadi dicerminkan apa
+// adanya sebagai kolom jsonb "transactions". Daftar Gudang/Lokasi Stok
+// dicerminkan terpisah ke tabel "gudang".
+function stokToRow(s) {
+  return {
+    id: s.id,
+    company_id: targetCompanyId,
+    nama: s.nama || "",
+    kategori: s.kategori || "",
+    satuan: s.satuan || "",
+    stok_awal: s.stokAwal || 0,
+    stok_minimum: s.stokMinimum || 0,
+    harga_satuan: s.hargaSatuan || 0,
+    transactions: s.transactions || [],
+    updated_at: new Date().toISOString()
+  };
+}
+async function mirrorStokUpsert(s) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("stok_material").upsert(stokToRow(s));
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal menyimpan Stok ke tabel relasional: " + err.message);
+  }
+}
+async function mirrorStokDelete(id) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("stok_material").delete().eq("id", id).eq("company_id", targetCompanyId);
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal menghapus Stok di tabel relasional: " + err.message);
+  }
+}
+async function migrateStokIfNeeded() {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { data, error } = await sb.from("stok_material").select("id").eq("company_id", targetCompanyId).limit(1);
+    if (error) throw error;
+    if ((data || []).length > 0) return;
+    if (!state.stok || state.stok.length === 0) return;
+    const { error: insertErr } = await sb.from("stok_material").insert(state.stok.map(stokToRow));
+    if (insertErr) throw insertErr;
+  } catch (err) {
+    setSyncStatus("Gagal migrasi data Stok ke tabel relasional: " + err.message);
+  }
+}
+function gudangToRow(g) {
+  return {
+    id: g.id,
+    company_id: targetCompanyId,
+    nama: g.nama || "",
+    updated_at: new Date().toISOString()
+  };
+}
+async function mirrorGudangUpsert(g) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("gudang").upsert(gudangToRow(g));
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal menyimpan Gudang ke tabel relasional: " + err.message);
+  }
+}
+async function mirrorGudangDelete(id) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("gudang").delete().eq("id", id).eq("company_id", targetCompanyId);
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal menghapus Gudang di tabel relasional: " + err.message);
+  }
+}
+async function migrateGudangIfNeeded() {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { data, error } = await sb.from("gudang").select("id").eq("company_id", targetCompanyId).limit(1);
+    if (error) throw error;
+    if ((data || []).length > 0) return;
+    if (!state.gudang || state.gudang.length === 0) return;
+    const { error: insertErr } = await sb.from("gudang").insert(state.gudang.map(gudangToRow));
+    if (insertErr) throw insertErr;
+  } catch (err) {
+    setSyncStatus("Gagal migrasi data Gudang ke tabel relasional: " + err.message);
+  }
+}
+
 async function handlePostLoginSync(user) {
   currentSyncUser = user;
   await resolveTeamMembership(user);
@@ -559,6 +650,8 @@ async function handlePostLoginSync(user) {
     migratePenawaranIfNeeded();
     migrateProyekIfNeeded();
     migrateKaryawanIfNeeded();
+    migrateStokIfNeeded();
+    migrateGudangIfNeeded();
   }
 }
 function setSyncStatus(text) {
@@ -1639,8 +1732,10 @@ document.getElementById("gudang_manageBtn").addEventListener("click", () => {
 document.getElementById("gd_addBtn").addEventListener("click", () => {
   const nama = document.getElementById("gd_nama").value.trim();
   if (!nama) { alert("Isi nama gudang/lokasi terlebih dahulu."); return; }
-  state.gudang.push({ id: uid(), nama });
+  const gudangItem = { id: uid(), nama };
+  state.gudang.push(gudangItem);
   saveState();
+  mirrorGudangUpsert(gudangItem);
   document.getElementById("gd_nama").value = "";
   renderGudangManagerTable();
   renderAll();
@@ -1651,6 +1746,7 @@ document.getElementById("gd_table").addEventListener("click", e => {
     if (confirm("Hapus gudang/lokasi ini? Transaksi stok yang sudah tercatat tidak ikut terhapus, hanya kaitannya yang hilang.")) {
       state.gudang = state.gudang.filter(g => g.id !== delBtn.dataset.deleteGudang);
       saveState();
+      mirrorGudangDelete(delBtn.dataset.deleteGudang);
       renderGudangManagerTable();
       renderAll();
     }
@@ -1909,6 +2005,7 @@ document.getElementById("stok_table").addEventListener("click", e => {
     if (confirm("Hapus barang ini beserta seluruh riwayatnya?")) {
       state.stok = state.stok.filter(x => x.id !== delBtn.dataset.deleteStok);
       saveState();
+      mirrorStokDelete(delBtn.dataset.deleteStok);
       renderStokList();
     }
   }
@@ -1947,6 +2044,7 @@ document.getElementById("stokForm").addEventListener("submit", e => {
   };
   if (idx >= 0) state.stok[idx] = item; else state.stok.push(item);
   saveState();
+  mirrorStokUpsert(item);
   renderAll();
   closeModals();
 });
@@ -1989,6 +2087,7 @@ document.getElementById("stokTxnForm").addEventListener("submit", e => {
   const idx = item.transactions.findIndex(t => t.id === id);
   if (idx >= 0) item.transactions[idx] = txn; else item.transactions.push(txn);
   saveState();
+  mirrorStokUpsert(item);
   renderStokRiwayat();
   closeModals();
 });
@@ -2004,6 +2103,7 @@ document.getElementById("stok_txnTable").addEventListener("click", e => {
     if (confirm("Hapus transaksi ini?")) {
       item.transactions = item.transactions.filter(x => x.id !== delBtn.dataset.deleteStoktxn);
       saveState();
+      mirrorStokUpsert(item);
       renderStokRiwayat();
     }
   }
@@ -2017,6 +2117,7 @@ document.getElementById("stok_txnTable").addEventListener("click", e => {
     if (id === "stok_infoHarga") item.hargaSatuan = parseNumberInput(input.value);
     else item.stokMinimum = parseNumberInput(input.value);
     saveState();
+    mirrorStokUpsert(item);
     renderStokRiwayat();
   });
 });
@@ -4948,6 +5049,7 @@ document.getElementById("belanjaForm").addEventListener("submit", e => {
   syncBelanjaMaterial(p, item);
   saveState();
   mirrorProyekUpsert(p);
+  state.stok.forEach(mirrorStokUpsert);
   renderAll();
   closeModals();
 });
@@ -4967,6 +5069,7 @@ document.getElementById("pd_belanjaTable").addEventListener("click", e => {
       state.stok.forEach(s => { s.transactions = (s.transactions || []).filter(t => t.sumberBelanjaId !== bid); });
       saveState();
       mirrorProyekUpsert(p);
+      state.stok.forEach(mirrorStokUpsert);
       renderAll();
     }
   }
