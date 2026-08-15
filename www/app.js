@@ -204,9 +204,61 @@ async function migrateKlienIfNeeded() {
     const rows = state.klien.map(klienToRow);
     const { error: insertErr } = await sb.from("klien").insert(rows);
     if (insertErr) throw insertErr;
-    setSyncStatus(`Data ${rows.length} klien berhasil dipindah ke tabel relasional baru.`);
   } catch (err) {
     setSyncStatus("Gagal migrasi data klien ke tabel relasional: " + err.message);
+  }
+}
+
+// ===== Fase C (percobaan): mirror modul AHSP ke tabel relasional =====
+// Pola yang sama persis dengan Klien di atas -- state.ahsp tetap sumber
+// utama, tabel relasional dicerminkan (mirror) secara best-effort.
+function ahspToRow(a) {
+  return {
+    id: a.id,
+    company_id: targetCompanyId,
+    kategori: a.kategori || "",
+    kode: a.kode || "",
+    uraian: a.uraian || "",
+    satuan: a.satuan || "",
+    mode: a.mode || "",
+    harga_manual: a.hargaManual || 0,
+    overhead: a.overhead || 0,
+    referensi: a.referensi || "",
+    komponen: a.komponen || [],
+    riwayat_harga: a.riwayatHarga || [],
+    updated_at: new Date().toISOString()
+  };
+}
+async function mirrorAhspUpsert(a) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("ahsp").upsert(ahspToRow(a));
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal menyimpan AHSP ke tabel relasional: " + err.message);
+  }
+}
+async function mirrorAhspDelete(id) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("ahsp").delete().eq("id", id).eq("company_id", targetCompanyId);
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal menghapus AHSP di tabel relasional: " + err.message);
+  }
+}
+async function migrateAhspIfNeeded() {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { data, error } = await sb.from("ahsp").select("id").eq("company_id", targetCompanyId).limit(1);
+    if (error) throw error;
+    if ((data || []).length > 0) return;
+    if (!state.ahsp || state.ahsp.length === 0) return;
+    const rows = state.ahsp.map(ahspToRow);
+    const { error: insertErr } = await sb.from("ahsp").insert(rows);
+    if (insertErr) throw insertErr;
+  } catch (err) {
+    setSyncStatus("Gagal migrasi data AHSP ke tabel relasional: " + err.message);
   }
 }
 
@@ -239,6 +291,7 @@ async function handlePostLoginSync(user) {
     setSyncStatus("Gagal memeriksa data cloud: " + err.message);
   } finally {
     migrateKlienIfNeeded();
+    migrateAhspIfNeeded();
   }
 }
 function setSyncStatus(text) {
@@ -2817,6 +2870,7 @@ document.getElementById("ahspForm").addEventListener("submit", e => {
   }
   if (idx >= 0) state.ahsp[idx] = item; else state.ahsp.push(item);
   saveState();
+  mirrorAhspUpsert(item);
   renderAll();
   closeModals();
 });
@@ -2844,6 +2898,7 @@ document.getElementById("ah_table").addEventListener("click", e => {
   } else if (delBtn) {
     if (confirm("Hapus item AHSP ini?")) {
       state.ahsp = state.ahsp.filter(x => x.id !== delBtn.dataset.deleteAhsp);
+      mirrorAhspDelete(delBtn.dataset.deleteAhsp);
       saveState();
       renderAll();
     }
@@ -3013,7 +3068,7 @@ document.getElementById("ahi_confirmBtn").addEventListener("click", () => {
   const toImport = ahImportRows.filter(r => r.checked && (r.uraian || "").trim());
   if (!toImport.length) { alert("Tidak ada baris yang dicentang untuk diimpor."); return; }
   toImport.forEach(r => {
-    state.ahsp.push({
+    const item = {
       id: uid(),
       kategori: r.kategori || KATEGORI_PEKERJAAN[0],
       kode: r.kode || "",
@@ -3025,7 +3080,9 @@ document.getElementById("ahi_confirmBtn").addEventListener("click", () => {
       referensi: "",
       komponen: [],
       riwayatHarga: []
-    });
+    };
+    state.ahsp.push(item);
+    mirrorAhspUpsert(item);
   });
   saveState();
   renderAll();
@@ -3092,7 +3149,7 @@ document.getElementById("ahtpl_confirmBtn").addEventListener("click", () => {
   checked.forEach(kode => {
     const tpl = AHSP_TEMPLATES.find(t => t.kode === kode);
     if (!tpl || state.ahsp.some(a => a.kode === tpl.kode)) return;
-    state.ahsp.push({
+    const item = {
       id: uid(),
       kategori: tpl.kategori,
       kode: tpl.kode,
@@ -3104,7 +3161,9 @@ document.getElementById("ahtpl_confirmBtn").addEventListener("click", () => {
       referensi: tpl.referensi,
       komponen: resolveTemplateKomponen(tpl),
       riwayatHarga: []
-    });
+    };
+    state.ahsp.push(item);
+    mirrorAhspUpsert(item);
     added++;
   });
   saveState();
