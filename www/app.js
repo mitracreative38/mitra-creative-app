@@ -446,6 +446,85 @@ async function migrateProyekIfNeeded() {
   }
 }
 
+// ===== Fase C (percobaan): mirror modul Karyawan ke tabel relasional =====
+// Beda dari modul lain: dipecah jadi 2 tabel. "karyawan" berisi data
+// dasar + absensi (aman dilihat Admin, sudah divisualkan sejak PR peran
+// tim). "karyawan_gaji" berisi riwayat slip gaji (Owner saja -- sesuai
+// subtab "Penggajian & Slip Gaji" yang memang sudah disembunyikan dari
+// Admin). state.karyawan tetap sumber utama.
+function karyawanToRow(k) {
+  return {
+    id: k.id,
+    company_id: targetCompanyId,
+    nama: k.nama || "",
+    jabatan: k.jabatan || "",
+    tipe_gaji: k.tipeGaji || "",
+    aktif: k.aktif !== false,
+    upah_harian: k.upahHarian || 0,
+    tarif_lembur: k.tarifLembur || 0,
+    uang_makan_harian: k.uangMakanHarian || 0,
+    gaji_bulanan: k.gajiBulanan || 0,
+    target_bulanan: k.targetBulanan || 0,
+    persen_bonus: k.persenBonus || 0,
+    pinjaman_awal: k.pinjamanAwal || 0,
+    absensi: k.absensi || [],
+    updated_at: new Date().toISOString()
+  };
+}
+function karyawanGajiToRow(k) {
+  return {
+    id: k.id,
+    company_id: targetCompanyId,
+    karyawan_id: k.id,
+    slip_gaji: k.slipGaji || [],
+    updated_at: new Date().toISOString()
+  };
+}
+async function mirrorKaryawanUpsert(k) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("karyawan").upsert(karyawanToRow(k));
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal menyimpan Karyawan ke tabel relasional: " + err.message);
+  }
+}
+async function mirrorKaryawanGajiUpsert(k) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("karyawan_gaji").upsert(karyawanGajiToRow(k));
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal menyimpan slip gaji ke tabel relasional: " + err.message);
+  }
+}
+async function mirrorKaryawanDelete(id) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error: e1 } = await sb.from("karyawan").delete().eq("id", id).eq("company_id", targetCompanyId);
+    if (e1) throw e1;
+    const { error: e2 } = await sb.from("karyawan_gaji").delete().eq("id", id).eq("company_id", targetCompanyId);
+    if (e2) throw e2;
+  } catch (err) {
+    setSyncStatus("Gagal menghapus Karyawan di tabel relasional: " + err.message);
+  }
+}
+async function migrateKaryawanIfNeeded() {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { data, error } = await sb.from("karyawan").select("id").eq("company_id", targetCompanyId).limit(1);
+    if (error) throw error;
+    if ((data || []).length > 0) return;
+    if (!state.karyawan || state.karyawan.length === 0) return;
+    const { error: insertErr } = await sb.from("karyawan").insert(state.karyawan.map(karyawanToRow));
+    if (insertErr) throw insertErr;
+    const { error: insertGajiErr } = await sb.from("karyawan_gaji").insert(state.karyawan.map(karyawanGajiToRow));
+    if (insertGajiErr) throw insertGajiErr;
+  } catch (err) {
+    setSyncStatus("Gagal migrasi data Karyawan ke tabel relasional: " + err.message);
+  }
+}
+
 async function handlePostLoginSync(user) {
   currentSyncUser = user;
   await resolveTeamMembership(user);
@@ -479,6 +558,7 @@ async function handlePostLoginSync(user) {
     migrateRabIfNeeded();
     migratePenawaranIfNeeded();
     migrateProyekIfNeeded();
+    migrateKaryawanIfNeeded();
   }
 }
 function setSyncStatus(text) {
@@ -2031,6 +2111,7 @@ document.getElementById("ky_table").addEventListener("click", e => {
   } else if (delBtn) {
     if (confirm("Hapus karyawan ini beserta seluruh riwayat absensi & slip gajinya?")) {
       state.karyawan = state.karyawan.filter(x => x.id !== delBtn.dataset.deleteKaryawan);
+      mirrorKaryawanDelete(delBtn.dataset.deleteKaryawan);
       saveState();
       renderAll();
     }
@@ -2094,6 +2175,7 @@ document.getElementById("karyawanForm").addEventListener("submit", e => {
   };
   if (idx >= 0) state.karyawan[idx] = k; else state.karyawan.push(k);
   saveState();
+  mirrorKaryawanUpsert(k);
   renderAll();
   closeModals();
 });
@@ -2146,6 +2228,7 @@ document.getElementById("ab_table").addEventListener("click", e => {
       if (!rec) { rec = { id: uid(), tanggal, hadir: true, jamLembur: 0 }; k.absensi.push(rec); }
       rec.lokasi = { lat: pos.coords.latitude, lng: pos.coords.longitude, akurasi: pos.coords.accuracy, waktu: new Date().toISOString() };
       saveState();
+      mirrorKaryawanUpsert(k);
       renderAbsensiPanel();
     },
     err => {
@@ -2171,6 +2254,7 @@ document.getElementById("ab_saveBtn").addEventListener("click", () => {
     const idx = k.absensi.findIndex(a => a.tanggal === tanggal);
     const rec = { ...(idx >= 0 ? k.absensi[idx] : {}), id: idx >= 0 ? k.absensi[idx].id : uid(), tanggal, hadir, jamLembur };
     if (idx >= 0) k.absensi[idx] = rec; else k.absensi.push(rec);
+    mirrorKaryawanUpsert(k);
     count++;
   });
   saveState();
@@ -2330,6 +2414,7 @@ document.getElementById("pg_riwayatTable").addEventListener("click", e => {
       k.slipGaji = k.slipGaji.filter(s => s.id !== delBtn.dataset.deleteSlip);
       state.kasUsaha.transactions = state.kasUsaha.transactions.filter(t => t.sumberSlipId !== delBtn.dataset.deleteSlip);
       saveState();
+      mirrorKaryawanGajiUpsert(k);
       renderAll();
     }
   }
@@ -2384,6 +2469,7 @@ document.getElementById("pg_simpanCetakBtn").addEventListener("click", () => {
     catatan: "Otomatis dari slip gaji"
   });
   saveState();
+  mirrorKaryawanGajiUpsert(k);
   renderAll();
   printSlipGaji(k, slip);
 });
