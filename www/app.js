@@ -5741,11 +5741,35 @@ document.getElementById("settingsApprovalThreshold").addEventListener("input", e
 document.getElementById("exportJsonBtn").addEventListener("click", () => {
   downloadFile(`backup-keuangan-${new Date().toISOString().slice(0,10)}.json`, JSON.stringify(state, null, 2), "application/json");
 });
+// Impor Backup mengganti seluruh state lokal sekaligus, jadi
+// migrateXIfNeeded() (yang cuma jalan sekali, dan berhenti kalau tabel
+// relasionalnya sudah pernah terisi apa pun) tidak akan otomatis
+// mencerminkan data yang baru diimpor. mirrorAllToRelational() melakukan
+// hal yang sama seperti mirrorXUpsert() di setiap titik mutasi normal,
+// tapi untuk SELURUH isi state sekaligus setelah impor -- upsert per item,
+// jadi aman digabung (merge) dengan data yang sudah ada di cloud, tidak
+// menimpa/menghapus apa pun yang tidak ada di file yang diimpor.
+async function mirrorAllToRelational() {
+  if (!sb || !targetCompanyId) return;
+  (state.klien || []).forEach(mirrorKlienUpsert);
+  (state.ahsp || []).forEach(mirrorAhspUpsert);
+  (state.proyekRab || []).forEach(mirrorRabUpsert);
+  (state.penawaran || []).forEach(mirrorPenawaranUpsert);
+  (state.proyek || []).forEach(mirrorProyekUpsert);
+  (state.karyawan || []).forEach(k => { mirrorKaryawanUpsert(k); mirrorKaryawanGajiUpsert(k); });
+  (state.stok || []).forEach(mirrorStokUpsert);
+  (state.gudang || []).forEach(mirrorGudangUpsert);
+  (state.pemasok || []).forEach(mirrorPemasokUpsert);
+  (state.kasUsaha.transactions || []).forEach(mirrorKasUsahaUpsert);
+  (state.kasPribadi.transactions || []).forEach(mirrorKasPribadiUpsert);
+  await mirrorSaldoAwalUpsert("kasUsaha", state.kasUsaha.saldoAwal || 0);
+  await mirrorSaldoAwalUpsert("kasPribadi", state.kasPribadi.saldoAwal || 0);
+}
 document.getElementById("importJsonInput").addEventListener("change", e => {
   const file = e.target.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = () => {
+  reader.onload = async () => {
     try {
       const imported = JSON.parse(reader.result);
       if (!imported.kasUsaha || !imported.kasPribadi || !imported.proyek) throw new Error("format tidak sesuai");
@@ -5754,6 +5778,9 @@ document.getElementById("importJsonInput").addEventListener("change", e => {
       currentPwId = null;
       currentStokId = null;
       saveState();
+      await mirrorAllToRelational();
+      state = await hydrateSensitiveFields(state);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
       renderAll();
       alert("Data berhasil diimpor.");
     } catch (err) {
