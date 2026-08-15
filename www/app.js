@@ -318,6 +318,69 @@ async function migrateRabIfNeeded() {
   }
 }
 
+// ===== Fase C (percobaan): mirror modul Penawaran ke tabel relasional =====
+// Pola yang sama persis dengan Klien, AHSP & RAB -- state.penawaran tetap
+// sumber utama, tabel relasional dicerminkan (mirror) secara best-effort.
+function penawaranToRow(p) {
+  return {
+    id: p.id,
+    company_id: targetCompanyId,
+    nomor: p.nomor || "",
+    klien_id: p.klienId || null,
+    kepada: p.kepada || "",
+    alamat_klien: p.alamatKlien || "",
+    perihal: p.perihal || "",
+    kategori: p.kategori || "",
+    status: p.status || "",
+    tanggal: p.tanggal || null,
+    diskon: p.diskon || 0,
+    ppn: p.ppn || 0,
+    pph: p.pph || 0,
+    syarat: p.syarat || "",
+    penutup: p.penutup || "",
+    ttd_nama: p.ttdNama || "",
+    ttd_jabatan: p.ttdJabatan || "",
+    proyek_id: p.proyekId || null,
+    revisi_dari_id: p.revisiDariId || null,
+    revisi_ke: p.revisiKe || 0,
+    items: p.items || [],
+    total: penawaranTotals(p).total,
+    updated_at: new Date().toISOString()
+  };
+}
+async function mirrorPenawaranUpsert(p) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("penawaran").upsert(penawaranToRow(p));
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal menyimpan Penawaran ke tabel relasional: " + err.message);
+  }
+}
+async function mirrorPenawaranDelete(id) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("penawaran").delete().eq("id", id).eq("company_id", targetCompanyId);
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal menghapus Penawaran di tabel relasional: " + err.message);
+  }
+}
+async function migratePenawaranIfNeeded() {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { data, error } = await sb.from("penawaran").select("id").eq("company_id", targetCompanyId).limit(1);
+    if (error) throw error;
+    if ((data || []).length > 0) return;
+    if (!state.penawaran || state.penawaran.length === 0) return;
+    const rows = state.penawaran.map(penawaranToRow);
+    const { error: insertErr } = await sb.from("penawaran").insert(rows);
+    if (insertErr) throw insertErr;
+  } catch (err) {
+    setSyncStatus("Gagal migrasi data Penawaran ke tabel relasional: " + err.message);
+  }
+}
+
 async function handlePostLoginSync(user) {
   currentSyncUser = user;
   await resolveTeamMembership(user);
@@ -349,6 +412,7 @@ async function handlePostLoginSync(user) {
     migrateKlienIfNeeded();
     migrateAhspIfNeeded();
     migrateRabIfNeeded();
+    migratePenawaranIfNeeded();
   }
 }
 function setSyncStatus(text) {
@@ -1299,6 +1363,7 @@ document.getElementById("kld_toPwBtn").addEventListener("click", () => {
   };
   state.penawaran.push(pw);
   saveState();
+  mirrorPenawaranUpsert(pw);
   goToDoc("pw", pw.id);
 });
 
@@ -3292,7 +3357,7 @@ document.getElementById("itemForm").addEventListener("submit", e => {
   const idx = doc.items.findIndex(x => x.id === item.id);
   if (idx >= 0) doc.items[idx] = item; else doc.items.push(item);
   saveState();
-  if (itemModalCtx.kind === "rab") { mirrorRabUpsert(doc); renderRabEditor(); } else { renderPwEditor(); }
+  if (itemModalCtx.kind === "rab") { mirrorRabUpsert(doc); renderRabEditor(); } else { mirrorPenawaranUpsert(doc); renderPwEditor(); }
   closeModals();
 });
 
@@ -3841,6 +3906,7 @@ document.getElementById("rab_toPenawaranBtn").addEventListener("click", () => {
   const pw = createPenawaranFromRab(rab);
   state.penawaran.push(pw);
   saveState();
+  mirrorPenawaranUpsert(pw);
   showPage("penawaran");
   showPwEditor(pw.id);
 });
@@ -3897,7 +3963,7 @@ function createProyekFromDoc(kind, doc) {
   state.proyek.push(proj);
   doc.proyekId = proj.id;
   saveState();
-  if (kind === "rab") mirrorRabUpsert(doc);
+  if (kind === "rab") mirrorRabUpsert(doc); else mirrorPenawaranUpsert(doc);
   return { proj, alokasi };
 }
 function goToDoc(kind, id) {
@@ -4063,6 +4129,7 @@ document.getElementById("pw_addBtn").addEventListener("click", () => {
   };
   state.penawaran.push(pw);
   saveState();
+  mirrorPenawaranUpsert(pw);
   showPwEditor(pw.id);
 });
 document.getElementById("pw_backBtn").addEventListener("click", showPwList);
@@ -4080,6 +4147,7 @@ document.getElementById("pw_table").addEventListener("click", e => {
       : "Hapus penawaran ini?";
     if (confirm(msg)) {
       state.penawaran = state.penawaran.filter(p => p.id !== delBtn.dataset.deletePw);
+      mirrorPenawaranDelete(delBtn.dataset.deletePw);
       saveState();
       renderPwList();
     }
@@ -4091,19 +4159,20 @@ document.getElementById("pw_table").addEventListener("click", e => {
     if (!pw) return;
     pw[id.replace("pw_", "")] = document.getElementById(id).value;
     saveState();
+    mirrorPenawaranUpsert(pw);
   });
 });
 document.getElementById("pw_klienId").addEventListener("change", () => {
   const pw = state.penawaran.find(p => p.id === currentPwId);
-  if (pw) { pw.klienId = document.getElementById("pw_klienId").value || ""; saveState(); }
+  if (pw) { pw.klienId = document.getElementById("pw_klienId").value || ""; saveState(); mirrorPenawaranUpsert(pw); }
 });
 document.getElementById("pw_tanggal").addEventListener("change", () => {
   const pw = state.penawaran.find(p => p.id === currentPwId);
-  if (pw) { pw.tanggal = document.getElementById("pw_tanggal").value; saveState(); }
+  if (pw) { pw.tanggal = document.getElementById("pw_tanggal").value; saveState(); mirrorPenawaranUpsert(pw); }
 });
 document.getElementById("pw_kategori").addEventListener("change", () => {
   const pw = state.penawaran.find(p => p.id === currentPwId);
-  if (pw) { pw.kategori = document.getElementById("pw_kategori").value; saveState(); }
+  if (pw) { pw.kategori = document.getElementById("pw_kategori").value; saveState(); mirrorPenawaranUpsert(pw); }
 });
 document.getElementById("pw_status").addEventListener("change", () => {
   const pw = state.penawaran.find(p => p.id === currentPwId);
@@ -4124,10 +4193,12 @@ document.getElementById("pw_status").addEventListener("change", () => {
           klien.tahap = "Deal/SPK";
           if (!klien.riwayatKontak) klien.riwayatKontak = [];
           klien.riwayatKontak.push({ id: uid(), tanggal: new Date().toISOString().slice(0, 10), catatan: `Penawaran ${pw.nomor} disetujui — tahap otomatis diubah ke Deal/SPK` });
+          mirrorKlienUpsert(klien);
         }
         if (needProyek) {
           const { proj } = createProyekFromDoc("pw", pw);
           saveState();
+          mirrorPenawaranUpsert(pw);
           renderAll();
           showPage("proyek");
           showProyekDetail(proj.id);
@@ -4138,19 +4209,20 @@ document.getElementById("pw_status").addEventListener("change", () => {
     }
   }
   saveState();
+  mirrorPenawaranUpsert(pw);
   renderAll();
 });
 document.getElementById("pw_diskon").addEventListener("input", () => {
   const pw = state.penawaran.find(p => p.id === currentPwId);
-  if (pw) { pw.diskon = parseFloat(document.getElementById("pw_diskon").value) || 0; saveState(); refreshPwTotals(); }
+  if (pw) { pw.diskon = parseFloat(document.getElementById("pw_diskon").value) || 0; saveState(); mirrorPenawaranUpsert(pw); refreshPwTotals(); }
 });
 document.getElementById("pw_ppn").addEventListener("input", () => {
   const pw = state.penawaran.find(p => p.id === currentPwId);
-  if (pw) { pw.ppn = parseFloat(document.getElementById("pw_ppn").value) || 0; saveState(); refreshPwTotals(); }
+  if (pw) { pw.ppn = parseFloat(document.getElementById("pw_ppn").value) || 0; saveState(); mirrorPenawaranUpsert(pw); refreshPwTotals(); }
 });
 document.getElementById("pw_pph").addEventListener("input", () => {
   const pw = state.penawaran.find(p => p.id === currentPwId);
-  if (pw) { pw.pph = parseFloat(document.getElementById("pw_pph").value) || 0; saveState(); refreshPwTotals(); }
+  if (pw) { pw.pph = parseFloat(document.getElementById("pw_pph").value) || 0; saveState(); mirrorPenawaranUpsert(pw); refreshPwTotals(); }
 });
 document.getElementById("pw_importRab").addEventListener("change", () => {
   const sel = document.getElementById("pw_importRab");
@@ -4162,6 +4234,7 @@ document.getElementById("pw_importRab").addEventListener("change", () => {
   if (!pw.perihal) pw.perihal = rab.nama;
   if (!pw.kepada) pw.kepada = rab.klien;
   saveState();
+  mirrorPenawaranUpsert(pw);
   renderPwEditor();
   sel.value = "";
 });
@@ -4178,6 +4251,7 @@ document.getElementById("pw_itemsTable").addEventListener("click", e => {
     if (confirm("Hapus item ini?")) {
       pw.items = pw.items.filter(x => x.id !== delBtn.dataset.deleteItem);
       saveState();
+      mirrorPenawaranUpsert(pw);
       renderPwEditor();
     }
   }
@@ -4282,6 +4356,7 @@ document.getElementById("pw_duplicateBtn").addEventListener("click", () => {
   };
   state.penawaran.push(revisi);
   saveState();
+  mirrorPenawaranUpsert(revisi);
   showPwEditor(revisi.id);
 });
 document.getElementById("pw_revisiNote").addEventListener("click", e => {
