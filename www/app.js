@@ -5818,6 +5818,49 @@ document.getElementById("settingsApprovalThreshold").addEventListener("input", e
 document.getElementById("exportJsonBtn").addEventListener("click", () => {
   downloadFile(`backup-keuangan-${new Date().toISOString().slice(0,10)}.json`, JSON.stringify(state, null, 2), "application/json");
 });
+// Selain slip gaji, beberapa field lain juga tersimpan sebagai satu kolom
+// array utuh yang MENUMPUK dari waktu ke waktu dan TIDAK punya tombol hapus
+// di UI (jadi seharusnya tidak pernah menyusut secara wajar): absensi
+// karyawan & riwayat perubahan harga AHSP. Kalau file yang diimpor ternyata
+// salinan lama yang belum sempat mencatat sebagian riwayat itu, gabungkan
+// (union berdasarkan id) dengan data yang ada di state SEBELUM impor,
+// supaya tidak ada yang hilang. Dokumen Proyek (SPK/BAST) dan riwayat
+// transaksi Stok BISA dihapus manual oleh pengguna lewat UI, jadi tidak
+// aman digabung begitu saja (bisa "menghidupkan lagi" entri yang memang
+// sengaja dihapus) -- untuk keduanya dipakai aturan yang sama seperti slip
+// gaji: pertahankan data lama HANYA kalau versi yang diimpor kosong sama
+// sekali untuk proyek/barang itu.
+function mergeArrById(lama, baru) {
+  const map = new Map();
+  (lama || []).forEach(item => { if (item && item.id) map.set(item.id, item); });
+  (baru || []).forEach(item => { if (item && item.id) map.set(item.id, item); });
+  return Array.from(map.values());
+}
+function preserveIfEmpty(lama, baru) {
+  return (baru || []).length ? baru : (lama || []);
+}
+function preserveHistoryFieldsOnImport(sebelum, sesudah) {
+  const karyawanLama = new Map((sebelum.karyawan || []).map(k => [k.id, k]));
+  (sesudah.karyawan || []).forEach(k => {
+    const old = karyawanLama.get(k.id);
+    if (old) k.absensi = mergeArrById(old.absensi, k.absensi);
+  });
+  const ahspLama = new Map((sebelum.ahsp || []).map(a => [a.id, a]));
+  (sesudah.ahsp || []).forEach(a => {
+    const old = ahspLama.get(a.id);
+    if (old) a.riwayatHarga = mergeArrById(old.riwayatHarga, a.riwayatHarga);
+  });
+  const proyekLama = new Map((sebelum.proyek || []).map(p => [p.id, p]));
+  (sesudah.proyek || []).forEach(p => {
+    const old = proyekLama.get(p.id);
+    if (old) p.dokumen = preserveIfEmpty(old.dokumen, p.dokumen);
+  });
+  const stokLama = new Map((sebelum.stok || []).map(s => [s.id, s]));
+  (sesudah.stok || []).forEach(s => {
+    const old = stokLama.get(s.id);
+    if (old) s.transactions = preserveIfEmpty(old.transactions, s.transactions);
+  });
+}
 // Impor Backup mengganti seluruh state lokal sekaligus, jadi
 // migrateXIfNeeded() (yang cuma jalan sekali, dan berhenti kalau tabel
 // relasionalnya sudah pernah terisi apa pun) tidak akan otomatis
@@ -5860,12 +5903,14 @@ document.getElementById("importJsonInput").addEventListener("change", e => {
     try {
       const imported = JSON.parse(reader.result);
       if (!imported.kasUsaha || !imported.kasPribadi || !imported.proyek) throw new Error("format tidak sesuai");
+      const sebelumImpor = state;
       state = withDefaults(imported);
+      preserveHistoryFieldsOnImport(sebelumImpor, state);
       currentRabId = null;
       currentPwId = null;
       currentStokId = null;
-      saveState();
       await mirrorAllToRelational();
+      saveState();
       state = await hydrateSensitiveFields(state);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
       renderAll();
