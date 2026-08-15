@@ -148,6 +148,68 @@ function unsubscribeRealtime() {
   }
   realtimeChannel = null;
 }
+
+// ===== Fase C (percobaan): mirror modul Klien ke tabel relasional =====
+// Selama masa transisi, state.klien (di memori + blob app_state) tetap
+// jadi sumber data utama yang dibaca semua bagian aplikasi -- supaya nol
+// risiko ke perilaku yang sudah ada. Setiap kali klien ditambah/diubah/
+// dihapus, perubahan yang sama juga "dicerminkan" (mirror) ke tabel
+// relasional klien secara best-effort (gagal diam-diam, tidak memblokir
+// pemakaian aplikasi), sebagai persiapan Fase D nanti ketika tabel
+// relasional ini yang jadi sumber utama.
+function klienToRow(k) {
+  return {
+    id: k.id,
+    company_id: targetCompanyId,
+    nama: k.nama || "",
+    kontak_nama: k.kontakNama || "",
+    telepon: k.telepon || "",
+    email: k.email || "",
+    sumber: k.sumber || "",
+    alamat: k.alamat || "",
+    tahap: k.tahap || "",
+    tahap_sejak: k.tahapSejak || null,
+    follow_up_berikutnya: k.followUpTanggal || null,
+    catatan: k.catatan || "",
+    kontak_list: k.kontakList || [],
+    riwayat_kontak: k.riwayatKontak || [],
+    updated_at: new Date().toISOString()
+  };
+}
+async function mirrorKlienUpsert(k) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("klien").upsert(klienToRow(k));
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal menyimpan klien ke tabel relasional: " + err.message);
+  }
+}
+async function mirrorKlienDelete(id) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("klien").delete().eq("id", id).eq("company_id", targetCompanyId);
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal menghapus klien di tabel relasional: " + err.message);
+  }
+}
+async function migrateKlienIfNeeded() {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { data, error } = await sb.from("klien").select("id").eq("company_id", targetCompanyId).limit(1);
+    if (error) throw error;
+    if ((data || []).length > 0) return;
+    if (!state.klien || state.klien.length === 0) return;
+    const rows = state.klien.map(klienToRow);
+    const { error: insertErr } = await sb.from("klien").insert(rows);
+    if (insertErr) throw insertErr;
+    setSyncStatus(`Data ${rows.length} klien berhasil dipindah ke tabel relasional baru.`);
+  } catch (err) {
+    setSyncStatus("Gagal migrasi data klien ke tabel relasional: " + err.message);
+  }
+}
+
 async function handlePostLoginSync(user) {
   currentSyncUser = user;
   await resolveTeamMembership(user);
@@ -175,6 +237,8 @@ async function handlePostLoginSync(user) {
     }
   } catch (err) {
     setSyncStatus("Gagal memeriksa data cloud: " + err.message);
+  } finally {
+    migrateKlienIfNeeded();
   }
 }
 function setSyncStatus(text) {
@@ -1007,6 +1071,7 @@ document.getElementById("klienForm").addEventListener("submit", e => {
   };
   if (idx >= 0) state.klien[idx] = k; else state.klien.push(k);
   saveState();
+  mirrorKlienUpsert(k);
   renderAll();
   closeModals();
 });
@@ -1021,6 +1086,7 @@ document.getElementById("kl_table").addEventListener("click", e => {
   } else if (delBtn) {
     if (confirm("Hapus klien ini? Proyek/Penawaran yang sudah dikaitkan tidak akan ikut terhapus, hanya kaitannya yang hilang.")) {
       state.klien = state.klien.filter(x => x.id !== delBtn.dataset.deleteKlien);
+      mirrorKlienDelete(delBtn.dataset.deleteKlien);
       if (currentKlienId === delBtn.dataset.deleteKlien) currentKlienId = null;
       saveState();
       renderAll();
@@ -1051,6 +1117,7 @@ document.getElementById("pic_addBtn").addEventListener("click", () => {
   if (!k.kontakList) k.kontakList = [];
   k.kontakList.push({ id: uid(), tipe, area: tipe === "Area" ? area : "", nama, jabatan, whatsapp });
   saveState();
+  mirrorKlienUpsert(k);
   document.getElementById("pic_area").value = "";
   document.getElementById("pic_nama").value = "";
   document.getElementById("pic_jabatan").value = "";
@@ -1063,6 +1130,7 @@ document.getElementById("kld_picTable").addEventListener("click", e => {
   if (delBtn && k) {
     k.kontakList = (k.kontakList || []).filter(p => p.id !== delBtn.dataset.deletePic);
     saveState();
+    mirrorKlienUpsert(k);
     renderKlienDetail();
   }
 });
@@ -1075,6 +1143,7 @@ document.getElementById("rk_addBtn").addEventListener("click", () => {
   if (!k.riwayatKontak) k.riwayatKontak = [];
   k.riwayatKontak.push({ id: uid(), tanggal, catatan });
   saveState();
+  mirrorKlienUpsert(k);
   document.getElementById("rk_tanggal").value = "";
   document.getElementById("rk_catatan").value = "";
   renderKlienDetail();
@@ -1085,6 +1154,7 @@ document.getElementById("kld_kontakTable").addEventListener("click", e => {
   if (delBtn && k) {
     k.riwayatKontak = (k.riwayatKontak || []).filter(r => r.id !== delBtn.dataset.deleteKontak);
     saveState();
+    mirrorKlienUpsert(k);
     renderKlienDetail();
   }
 });
