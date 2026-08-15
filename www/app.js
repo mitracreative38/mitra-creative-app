@@ -262,6 +262,62 @@ async function migrateAhspIfNeeded() {
   }
 }
 
+// ===== Fase C (percobaan): mirror modul RAB ke tabel relasional =====
+// Pola yang sama persis dengan Klien & AHSP -- state.proyekRab tetap
+// sumber utama, tabel relasional dicerminkan (mirror) secara best-effort.
+function rabToRow(r) {
+  return {
+    id: r.id,
+    company_id: targetCompanyId,
+    nomor: r.nomor || "",
+    klien_id: r.klienId || null,
+    klien: r.klien || "",
+    nama_proyek: r.nama || "",
+    lokasi: r.lokasi || "",
+    kategori: r.kategori || "",
+    tanggal: r.tanggal || null,
+    ppn: r.ppn || 0,
+    pph: r.pph || 0,
+    biaya_lain: r.biayaLain || 0,
+    proyek_id: r.proyekId || null,
+    items: r.items || [],
+    total: rabTotals(r).total,
+    updated_at: new Date().toISOString()
+  };
+}
+async function mirrorRabUpsert(r) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("rab").upsert(rabToRow(r));
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal menyimpan RAB ke tabel relasional: " + err.message);
+  }
+}
+async function mirrorRabDelete(id) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("rab").delete().eq("id", id).eq("company_id", targetCompanyId);
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal menghapus RAB di tabel relasional: " + err.message);
+  }
+}
+async function migrateRabIfNeeded() {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { data, error } = await sb.from("rab").select("id").eq("company_id", targetCompanyId).limit(1);
+    if (error) throw error;
+    if ((data || []).length > 0) return;
+    if (!state.proyekRab || state.proyekRab.length === 0) return;
+    const rows = state.proyekRab.map(rabToRow);
+    const { error: insertErr } = await sb.from("rab").insert(rows);
+    if (insertErr) throw insertErr;
+  } catch (err) {
+    setSyncStatus("Gagal migrasi data RAB ke tabel relasional: " + err.message);
+  }
+}
+
 async function handlePostLoginSync(user) {
   currentSyncUser = user;
   await resolveTeamMembership(user);
@@ -292,6 +348,7 @@ async function handlePostLoginSync(user) {
   } finally {
     migrateKlienIfNeeded();
     migrateAhspIfNeeded();
+    migrateRabIfNeeded();
   }
 }
 function setSyncStatus(text) {
@@ -1228,6 +1285,7 @@ document.getElementById("kld_toRabBtn").addEventListener("click", () => {
   const rab = { id: uid(), nomor: nextRabNomor(), nama: k.nama, klien: k.nama, klienId: k.id, lokasi: k.alamat || "", kategori: KATEGORI_PEKERJAAN[0], tanggal: new Date().toISOString().slice(0, 10), ppn: 0, pph: 0.5, biayaLain: 0, items: [] };
   state.proyekRab.push(rab);
   saveState();
+  mirrorRabUpsert(rab);
   goToDoc("rab", rab.id);
 });
 document.getElementById("kld_toPwBtn").addEventListener("click", () => {
@@ -3234,7 +3292,7 @@ document.getElementById("itemForm").addEventListener("submit", e => {
   const idx = doc.items.findIndex(x => x.id === item.id);
   if (idx >= 0) doc.items[idx] = item; else doc.items.push(item);
   saveState();
-  if (itemModalCtx.kind === "rab") renderRabEditor(); else renderPwEditor();
+  if (itemModalCtx.kind === "rab") { mirrorRabUpsert(doc); renderRabEditor(); } else { renderPwEditor(); }
   closeModals();
 });
 
@@ -3692,6 +3750,7 @@ document.getElementById("rab_addBtn").addEventListener("click", () => {
   const rab = { id: uid(), nomor: nextRabNomor(), nama: "", klien: "", klienId: "", lokasi: "", kategori: KATEGORI_PEKERJAAN[0], tanggal: new Date().toISOString().slice(0, 10), ppn: 0, pph: 0.5, biayaLain: 0, items: [] };
   state.proyekRab.push(rab);
   saveState();
+  mirrorRabUpsert(rab);
   showRabEditor(rab.id);
 });
 document.getElementById("rab_backBtn").addEventListener("click", showRabList);
@@ -3709,6 +3768,7 @@ document.getElementById("rab_table").addEventListener("click", e => {
       : "Hapus RAB ini?";
     if (confirm(msg)) {
       state.proyekRab = state.proyekRab.filter(r => r.id !== delBtn.dataset.deleteRab);
+      mirrorRabDelete(delBtn.dataset.deleteRab);
       saveState();
       renderRabList();
     }
@@ -3720,32 +3780,33 @@ document.getElementById("rab_table").addEventListener("click", e => {
     if (!rab) return;
     rab[id.replace("rab_", "")] = document.getElementById(id).value;
     saveState();
+    mirrorRabUpsert(rab);
   });
 });
 document.getElementById("rab_klienId").addEventListener("change", () => {
   const rab = state.proyekRab.find(r => r.id === currentRabId);
-  if (rab) { rab.klienId = document.getElementById("rab_klienId").value || ""; saveState(); }
+  if (rab) { rab.klienId = document.getElementById("rab_klienId").value || ""; saveState(); mirrorRabUpsert(rab); }
 });
 document.getElementById("rab_kategori").addEventListener("change", () => {
   const rab = state.proyekRab.find(r => r.id === currentRabId);
-  if (rab) { rab.kategori = document.getElementById("rab_kategori").value; saveState(); }
+  if (rab) { rab.kategori = document.getElementById("rab_kategori").value; saveState(); mirrorRabUpsert(rab); }
 });
 document.getElementById("rab_tanggal").addEventListener("change", () => {
   const rab = state.proyekRab.find(r => r.id === currentRabId);
-  if (rab) { rab.tanggal = document.getElementById("rab_tanggal").value; saveState(); }
+  if (rab) { rab.tanggal = document.getElementById("rab_tanggal").value; saveState(); mirrorRabUpsert(rab); }
 });
 document.getElementById("rab_ppn").addEventListener("input", () => {
   const rab = state.proyekRab.find(r => r.id === currentRabId);
-  if (rab) { rab.ppn = parseFloat(document.getElementById("rab_ppn").value) || 0; saveState(); refreshRabTotals(); }
+  if (rab) { rab.ppn = parseFloat(document.getElementById("rab_ppn").value) || 0; saveState(); mirrorRabUpsert(rab); refreshRabTotals(); }
 });
 document.getElementById("rab_pph").addEventListener("input", () => {
   const rab = state.proyekRab.find(r => r.id === currentRabId);
-  if (rab) { rab.pph = parseFloat(document.getElementById("rab_pph").value) || 0; saveState(); refreshRabTotals(); }
+  if (rab) { rab.pph = parseFloat(document.getElementById("rab_pph").value) || 0; saveState(); mirrorRabUpsert(rab); refreshRabTotals(); }
 });
 attachNumberFormatting(document.getElementById("rab_biayaLain"));
 document.getElementById("rab_biayaLain").addEventListener("input", () => {
   const rab = state.proyekRab.find(r => r.id === currentRabId);
-  if (rab) { rab.biayaLain = parseNumberInput(document.getElementById("rab_biayaLain").value); saveState(); refreshRabTotals(); }
+  if (rab) { rab.biayaLain = parseNumberInput(document.getElementById("rab_biayaLain").value); saveState(); mirrorRabUpsert(rab); refreshRabTotals(); }
 });
 document.getElementById("rab_addItemBtn").addEventListener("click", () => openItemModal({ kind: "rab", docId: currentRabId }, null));
 document.getElementById("rab_itemsTable").addEventListener("click", e => {
@@ -3760,6 +3821,7 @@ document.getElementById("rab_itemsTable").addEventListener("click", e => {
     if (confirm("Hapus item ini?")) {
       rab.items = rab.items.filter(x => x.id !== delBtn.dataset.deleteItem);
       saveState();
+      mirrorRabUpsert(rab);
       renderRabEditor();
     }
   }
@@ -3835,6 +3897,7 @@ function createProyekFromDoc(kind, doc) {
   state.proyek.push(proj);
   doc.proyekId = proj.id;
   saveState();
+  if (kind === "rab") mirrorRabUpsert(doc);
   return { proj, alokasi };
 }
 function goToDoc(kind, id) {
