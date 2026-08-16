@@ -3908,19 +3908,6 @@ const LOGO_SVG = `<svg viewBox="0 0 64 64" width="52" height="52" xmlns="http://
   <path d="M4 8 L20 8 L20 40 Q20 48 26 48 Q32 48 32 40 L32 8 L48 8 L48 40 Q48 56 32 56 Q16 56 16 40 Z" fill="url(#lgGrad)"/>
   <path d="M20 8 L20 32 Q20 40 26 40 Q28 40 28 34 L28 8 Z" fill="#f7c948" opacity="0.9"/>
 </svg>`;
-// Logo Mata Resolusi -- mata garis hitam (bukan gradasi merah/kuning
-// seperti Mitra Creative) dengan "pupil" roda-warna 4 kuadran, sengaja
-// jauh beda gaya dari LOGO_SVG di atas supaya kop suratnya tidak
-// tertukar sekilas.
-const MATA_RESOLUSI_LOGO_SVG = `<svg viewBox="0 0 64 64" width="46" height="46" xmlns="http://www.w3.org/2000/svg">
-  <path d="M2 32 Q 20 6 32 32 Q 20 58 2 32 Z" fill="none" stroke="#111" stroke-width="4.5"/>
-  <path d="M62 32 Q 44 6 32 32 Q 44 58 62 32 Z" fill="none" stroke="#111" stroke-width="4.5"/>
-  <circle cx="32" cy="32" r="11" fill="#fff" stroke="#111" stroke-width="2"/>
-  <path d="M32 22 A10 10 0 0 1 42 32 L32 32 Z" fill="#e0333f"/>
-  <path d="M42 32 A10 10 0 0 1 32 42 L32 32 Z" fill="#2f8fd1"/>
-  <path d="M32 42 A10 10 0 0 1 22 32 L32 32 Z" fill="#2fa84f"/>
-  <path d="M22 32 A10 10 0 0 1 32 22 L32 32 Z" fill="#f2b705"/>
-</svg>`;
 
 // ===== Rendering: AHSP =====
 function renderAhsp() {
@@ -5980,11 +5967,9 @@ document.getElementById("pw_itemsTable").addEventListener("click", e => {
 
 // ===== Cetak Penawaran (letterhead print) =====
 function buildPenawaranPrintHtml(pw) {
+  if (pw.brand === "mataresolusi") return buildMataResolusiPenawaranHtml(pw);
   const { subtotal, diskonValue, ppnValue, pphValue, total } = penawaranTotals(pw);
-  const isMr = pw.brand === "mataresolusi";
-  const profil = isMr
-    ? MATA_RESOLUSI_INFO
-    : { company: state.company, alamat: state.alamat || COMPANY_ADDRESS, telepon: state.telepon || COMPANY_PHONE, ownerNama: state.ownerNama, ownerJabatan: state.ownerJabatan };
+  const profil = { company: state.company, alamat: state.alamat || COMPANY_ADDRESS, telepon: state.telepon || COMPANY_PHONE, ownerNama: state.ownerNama, ownerJabatan: state.ownerJabatan };
   const itemsRows = pw.items.map((it, i) => `
     <tr>
       <td class="c">${i + 1}</td>
@@ -5997,15 +5982,15 @@ function buildPenawaranPrintHtml(pw) {
   `).join("") || `<tr><td colspan="6" class="c">Belum ada item</td></tr>`;
 
   return `
-    <div class="letterhead${isMr ? " letterhead-mataresolusi" : ""}">
-      <div class="letterhead-logo">${isMr ? MATA_RESOLUSI_LOGO_SVG : LOGO_SVG}</div>
+    <div class="letterhead">
+      <div class="letterhead-logo">${LOGO_SVG}</div>
       <div class="letterhead-text">
-        <div class="lh-name">${escapeHtml(profil.company || (isMr ? "mata.resolusi" : "CV. Mitra Creative"))}</div>
-        ${isMr ? "" : `<div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>`}
+        <div class="lh-name">${escapeHtml(profil.company || "CV. Mitra Creative")}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
         <div class="lh-address">${escapeHtml(profil.alamat)} - ${escapeHtml(profil.telepon)}</div>
       </div>
     </div>
-    <div class="letterhead-rule${isMr ? " letterhead-rule-mataresolusi" : ""}"></div>
+    <div class="letterhead-rule"></div>
 
     <div class="doc-meta">
       <table class="meta-table">
@@ -6046,10 +6031,102 @@ function buildPenawaranPrintHtml(pw) {
     <p class="doc-p">${escapeHtml(pw.penutup || "")}</p>
 
     <div class="doc-signature">
-      Hormat kami,<br>${escapeHtml(profil.company || (isMr ? "mata.resolusi" : "CV. Mitra Creative"))}
+      Hormat kami,<br>${escapeHtml(profil.company || "CV. Mitra Creative")}
       <div class="sign-space"></div>
       <strong>${escapeHtml(pw.ttdNama || profil.ownerNama)}</strong><br>
       ${escapeHtml(pw.ttdJabatan || profil.ownerJabatan)}
+    </div>
+  `;
+}
+// Template Mata Resolusi -- SENGAJA bukan reskin warna dari template Mitra
+// Creative di atas, tapi tata letak yang benar-benar beda: banner logo
+// asli, garis pelangi 4 warna, kotak judul hitam "PENAWARAN HARGA
+// PEKERJAAN / QUOTATION", grid meta 2x2 (Kepada/Tanggal/Pekerjaan/Lokasi),
+// tabel item berkepala gelap. Meniru PERSIS dokumen penawaran Mata
+// Resolusi sungguhan yang sudah pernah dipakai Owner (bukan cuma "gaya
+// mirip"), supaya hasil aplikasi identik dengan yang biasa mereka kirim
+// manual. Dipakai juga oleh server/lib/print.js (duplikasi persis, karena
+// kode server tidak bisa import dari sini -- lihat catatan di sana).
+function buildMataResolusiPenawaranHtml(pw) {
+  const { subtotal, diskonValue, ppnValue, pphValue, total } = penawaranTotals(pw);
+  const profil = MATA_RESOLUSI_INFO;
+  const itemsRows = pw.items.map((it, i) => `
+    <tr>
+      <td class="c">${i + 1}</td>
+      <td>${escapeHtml(it.uraian)}<div class="mr-item-sub">${it.volume} ${escapeHtml(it.satuan)} &times; ${rupiah(it.hargaSatuan)}</div></td>
+      <td class="r">${rupiah((it.volume || 0) * (it.hargaSatuan || 0))}</td>
+    </tr>
+  `).join("") || `<tr><td colspan="3" class="c">Belum ada item</td></tr>`;
+  const showTtdImg = (pw.ttdNama || profil.ownerNama) === MATA_RESOLUSI_INFO.ownerNama;
+
+  return `
+    <div class="mr-doc">
+      <img class="mr-banner" src="${MATA_RESOLUSI_BANNER_DATA_URI}" alt="mata.resolusi">
+      <div class="mr-stripe">
+        <span style="background:#D7263D;"></span><span style="background:#F3B61F;"></span>
+        <span style="background:#15A9A1;"></span><span style="background:#5B3FD3;"></span>
+      </div>
+
+      <div class="mr-title-bar">
+        <div class="mr-title-main">PENAWARAN HARGA PEKERJAAN</div>
+        <div class="mr-title-sub">QUOTATION</div>
+      </div>
+
+      <div class="mr-meta-grid">
+        <div class="mr-meta-cell">
+          <div class="mr-meta-label">Kepada</div>
+          <div class="mr-meta-value">${escapeHtml(pw.kepada || "-")}</div>
+        </div>
+        <div class="mr-meta-cell">
+          <div class="mr-meta-label">Tanggal</div>
+          <div class="mr-meta-value">Semarang, ${formatTanggal(pw.tanggal)}</div>
+        </div>
+        <div class="mr-meta-cell">
+          <div class="mr-meta-label">Pekerjaan</div>
+          <div class="mr-meta-value">${escapeHtml(pw.perihal || "-")}</div>
+        </div>
+        <div class="mr-meta-cell">
+          <div class="mr-meta-label">Lokasi</div>
+          <div class="mr-meta-value">${escapeHtml(pw.alamatKlien || "-")}</div>
+        </div>
+      </div>
+
+      <p class="mr-p">Dengan hormat,<br>
+      Bersama ini kami sampaikan penawaran harga untuk pekerjaan <strong>${escapeHtml(pw.perihal || "-")}</strong> di ${escapeHtml(pw.kepada || "-")}, dengan rincian sebagai berikut:</p>
+
+      <div class="mr-section-label">RINCIAN PEKERJAAN &amp; SPESIFIKASI</div>
+      <table class="mr-table">
+        <thead><tr><th class="c">No.</th><th>Uraian Pekerjaan / Spesifikasi</th><th class="r">Nilai</th></tr></thead>
+        <tbody>${itemsRows}</tbody>
+      </table>
+
+      <table class="mr-summary">
+        ${pw.diskon ? `<tr><td>Diskon (${pw.diskon}%)</td><td class="r">- ${rupiah(diskonValue)}</td></tr>` : ""}
+        ${pw.ppn ? `<tr><td>PPN (${pw.ppn}%)</td><td class="r">${rupiah(ppnValue)}</td></tr>` : ""}
+        <tr class="mr-total-row"><td>TOTAL HARGA PEKERJAAN</td><td class="r">${rupiah(total)}</td></tr>
+      </table>
+
+      <div class="mr-catatan">
+        <strong>CATATAN:</strong> Harga di atas belum termasuk PPN dan PPh.
+        ${pw.pph ? `<br>*Sudah termasuk PPh Final (${pw.pph}%) sebesar ${rupiah(pphValue)} sesuai Syarat &amp; Ketentuan di bawah.` : ""}
+      </div>
+
+      ${pw.syarat ? `
+      <div class="mr-syarat">
+        <strong>Syarat &amp; Ketentuan:</strong>
+        <div class="mr-syarat-text">${pw.syarat.split("\n").map(l => `<div>${escapeHtml(l)}</div>`).join("")}</div>
+      </div>
+      ` : ""}
+
+      <p class="mr-p mr-closing">${escapeHtml(pw.penutup || "Demikian surat penawaran harga ini kami sampaikan. Atas perhatian dan kerja samanya, kami ucapkan terima kasih.")}</p>
+
+      <div class="mr-signature">
+        Hormat kami,
+        ${showTtdImg ? `<img class="ttd-img" src="${MATA_RESOLUSI_TTD_DATA_URI}" alt="tanda tangan">` : `<div class="sign-space"></div>`}
+        <strong>${escapeHtml(pw.ttdNama || profil.ownerNama)}</strong><br>
+        ${escapeHtml(pw.ttdJabatan || profil.ownerJabatan)}<br>
+        ${escapeHtml(profil.telepon)}
+      </div>
     </div>
   `;
 }
