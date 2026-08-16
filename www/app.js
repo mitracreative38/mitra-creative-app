@@ -327,7 +327,7 @@ const ACTIVITY_MODULE_LABELS = {
   proyek: "Proyek", karyawan: "Karyawan", karyawanGaji: "Slip Gaji",
   stok: "Stok Material", gudang: "Gudang", pemasok: "Pemasok",
   kasUsaha: "Kas Perusahaan", kasPribadi: "Kas Pribadi",
-  companyProfile: "Profil Perusahaan"
+  companyProfile: "Profil Perusahaan", system: "Sistem"
 };
 function activityEntityLabel(module, obj) {
   if (!obj) return "";
@@ -420,6 +420,37 @@ function flushAndDiscardSnapshot(module, id) {
   const key = module + ":" + id;
   flushActivityQueue(module, id);
   pendingActivity.delete(key);
+}
+// Import Backup menimpa banyak modul sekaligus lewat mirrorAllToRelational()
+// -- fungsi itu SENGAJA tidak mencatat 1 baris log per record (akan
+// menghasilkan ratusan baris untuk 1 aksi impor). Sebagai gantinya, 1 baris
+// ringkasan dicatat di sini supaya Owner tetap tahu aksi bervolume besar ini
+// pernah terjadi, siapa pelakunya, dan berapa banyak yang terdampak per modul.
+async function logBulkImportActivity(counts) {
+  if (!sb || !targetCompanyId || !currentSyncUser) return;
+  try {
+    const parts = Object.entries(counts).filter(([, n]) => n > 0).map(([k, n]) => `${n} ${k}`);
+    // Bentuk diff dipin ke {from,to} yang sama seperti log per-record lain
+    // supaya modal detail Aktivitas Tim (yang mengasumsikan bentuk itu)
+    // bisa merender baris ini tanpa cabang kode khusus.
+    const diff = {};
+    Object.entries(counts).forEach(([k, n]) => { diff[k] = { from: null, to: n }; });
+    const row = {
+      company_id: targetCompanyId,
+      actor_id: currentSyncUser.id,
+      actor_email: currentSyncUser.email || "",
+      actor_role: currentTeamRole,
+      module: "system",
+      action: "update",
+      record_id: "import_backup",
+      summary: `Import Backup JSON (menimpa data): ${parts.join(", ") || "tidak ada data"}`,
+      diff
+    };
+    const { error } = await sb.from("activity_log").insert(row);
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal mencatat aktivitas: " + err.message);
+  }
 }
 
 // ===== Fase C (percobaan): mirror modul Klien ke tabel relasional =====
@@ -6845,6 +6876,11 @@ document.getElementById("settingsOwnerJabatan").addEventListener("input", e => {
 attachNumberFormatting(document.getElementById("settingsApprovalThreshold"));
 document.getElementById("settingsApprovalThreshold").addEventListener("input", e => { state.approvalThreshold = parseNumberInput(e.target.value); saveState(); mirrorCompanyProfileUpsert(); });
 document.getElementById("exportJsonBtn").addEventListener("click", () => {
+  // Panel "Data" ini sudah disembunyikan lewat CSS untuk non-Owner
+  // (applyRoleAccess), tapi itu cuma tampilan -- guard di sini memastikan
+  // klik yang dipaksa lewat console/DevTools tetap ditolak di kode, bukan
+  // cuma tersembunyi di layar.
+  if (currentTeamRole !== "owner") { alert("Hanya Owner yang bisa export backup."); return; }
   downloadFile(`backup-keuangan-${new Date().toISOString().slice(0,10)}.json`, JSON.stringify(state, null, 2), "application/json");
 });
 
@@ -7064,6 +7100,11 @@ async function mirrorAllToRelational() {
   await mirrorSaldoAwalUpsert("kasPribadi", state.kasPribadi.saldoAwal || 0);
 }
 document.getElementById("importJsonInput").addEventListener("change", e => {
+  if (currentTeamRole !== "owner") {
+    alert("Hanya Owner yang bisa import backup.");
+    e.target.value = "";
+    return;
+  }
   const file = e.target.files[0];
   if (!file) return;
   const reader = new FileReader();
@@ -7078,6 +7119,19 @@ document.getElementById("importJsonInput").addEventListener("change", e => {
       currentPwId = null;
       currentStokId = null;
       await mirrorAllToRelational();
+      logBulkImportActivity({
+        klien: (state.klien || []).length,
+        ahsp: (state.ahsp || []).length,
+        rab: (state.proyekRab || []).length,
+        penawaran: (state.penawaran || []).length,
+        proyek: (state.proyek || []).length,
+        karyawan: (state.karyawan || []).length,
+        stok: (state.stok || []).length,
+        gudang: (state.gudang || []).length,
+        pemasok: (state.pemasok || []).length,
+        kasUsahaTransaksi: (state.kasUsaha.transactions || []).length,
+        kasPribadiTransaksi: (state.kasPribadi.transactions || []).length
+      });
       saveState();
       state = await hydrateSensitiveFields(state);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -7091,6 +7145,7 @@ document.getElementById("importJsonInput").addEventListener("change", e => {
   reader.readAsText(file);
 });
 document.getElementById("resetDataBtn").addEventListener("click", () => {
+  if (currentTeamRole !== "owner") { alert("Hanya Owner yang bisa reset semua data."); return; }
   if (confirm("Yakin ingin menghapus SEMUA data dan mengembalikan ke data awal? Tindakan ini tidak bisa dibatalkan. Sebaiknya Export Backup dulu.")) {
     localStorage.removeItem(STORAGE_KEY);
     state = loadState();
