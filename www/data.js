@@ -229,6 +229,101 @@ const AHSP_TEMPLATES = [
       { jenis: "Bahan", uraian: "LED Module per Huruf (estimasi)", satuan: "titik", koefisien: 0.3, harga: 8000 },
       { jenis: "Upah", uraian: "Tukang Finishing", satuan: "OH", koefisien: 0.05 }
     ] },
+  { kode: "TPL-ADV-06", kategori: "Advertising", uraian: "Cetak Spanduk Flexi China 280gsm", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar cetak digital 2026 (blog.harvestprinting.co.id, pandawa24jam.com, mitragraphia.com) — grade ekonomis untuk promosi jangka pendek",
+    komponen: [
+      { jenis: "Bahan", uraian: "Bahan Flexi China 280gsm (Cetak Digital)", satuan: "m2", koefisien: 1, harga: 16000 },
+      { jenis: "Bahan", uraian: "Mata Itik/Eyelet & Tali", satuan: "m2", koefisien: 1, harga: 2000 },
+      { jenis: "Upah", uraian: "Finishing & Pasang Mata Itik", satuan: "OH", koefisien: 0.02 }
+    ] },
+  { kode: "TPL-ADV-07", kategori: "Advertising", uraian: "Cetak Spanduk Flexi Korea 440gsm", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar cetak digital 2026 (blog.harvestprinting.co.id, pandawa24jam.com) — grade lebih tebal & tahan lama dari Flexi China",
+    komponen: [
+      { jenis: "Bahan", uraian: "Bahan Flexi Korea 440gsm (Cetak Digital)", satuan: "m2", koefisien: 1, harga: 50000 },
+      { jenis: "Bahan", uraian: "Mata Itik/Eyelet & Tali", satuan: "m2", koefisien: 1, harga: 2000 },
+      { jenis: "Upah", uraian: "Finishing & Pasang Mata Itik", satuan: "OH", koefisien: 0.02 }
+    ] },
+  { kode: "TPL-ADV-08", kategori: "Advertising", uraian: "Cetak Spanduk Flexi Backlite (untuk Neon Box)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar (blog.harvestprinting.co.id, pranataprinting.com) — bahan tembus cahaya untuk neon box/lightbox, jauh lebih mahal dari frontlite biasa",
+    komponen: [
+      { jenis: "Bahan", uraian: "Bahan Flexi Backlite", satuan: "m2", koefisien: 1, harga: 90000 },
+      { jenis: "Upah", uraian: "Finishing & Pasang", satuan: "OH", koefisien: 0.03 }
+    ] },
+  { kode: "TPL-ADV-09", kategori: "Advertising", uraian: "Cutting Sticker Vinyl Lokal", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar 2026 (quickprint.co.id, hsemeipack.co.id, cuttingstickerupdate.com)",
+    komponen: [
+      { jenis: "Bahan", uraian: "Vinyl Cutting Sticker Lokal", satuan: "m2", koefisien: 1, harga: 75000 },
+      { jenis: "Upah", uraian: "Tukang Cutting & Pasang", satuan: "OH", koefisien: 0.05 }
+    ] },
+  { kode: "TPL-ADV-10", kategori: "Advertising", uraian: "Cutting Sticker Vinyl Import (Ritrama/Oracal)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar 2026 (quickprint.co.id, suburindografika.com) — bahan import lebih tahan cuaca & warna lebih awet dari vinyl lokal",
+    komponen: [
+      { jenis: "Bahan", uraian: "Vinyl Cutting Sticker Import", satuan: "m2", koefisien: 1, harga: 100000 },
+      { jenis: "Upah", uraian: "Tukang Cutting & Pasang", satuan: "OH", koefisien: 0.05 }
+    ] },
+  { kode: "TPL-ADV-11", kategori: "Advertising", uraian: "Sticker One Way Vision (Kaca)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar 2026 (suburindografika.com, jadeprint.id) — untuk branding kaca etalase/mobil, tembus pandang dari sisi dalam",
+    komponen: [
+      { jenis: "Bahan", uraian: "Bahan One Way Vision Perforated", satuan: "m2", koefisien: 1, harga: 85000 },
+      { jenis: "Upah", uraian: "Tukang Cutting & Pasang", satuan: "OH", koefisien: 0.05 }
+    ] },
+  { kode: "TPL-ADV-12", kategori: "Advertising", uraian: "X-Banner Lengkap 60x160 (Cetak + Kaki Standing)", satuan: "unit", overhead: 10,
+    referensi: "Estimasi riset harga pasar 2026 (suburindografika.com, primagraphia.co.id, revoprintonline.com) — ukuran standar 60x160cm, ukuran lain menyesuaikan",
+    komponen: [
+      { jenis: "Bahan", uraian: "Cetak Flexi Korea 60x160", satuan: "unit", koefisien: 1, harga: 55000 },
+      { jenis: "Bahan", uraian: "Kaki Standing X-Banner", satuan: "unit", koefisien: 1, harga: 45000 },
+      { jenis: "Upah", uraian: "Finishing & Pasang", satuan: "OH", koefisien: 0.02 }
+    ] },
+  { kode: "TPL-ADV-13", kategori: "Advertising", uraian: "Roll Up Banner Lengkap 60x160/85x200 (Cetak + Kaki Standing)", satuan: "unit", overhead: 10,
+    referensi: "Estimasi riset harga pasar 2026 (primagraphia.co.id, revoprintonline.com, bantengprint.com) — sudah termasuk kaki standing aluminium 1 set",
+    komponen: [
+      { jenis: "Bahan", uraian: "Cetak Photopaper/Flexi Roll Up", satuan: "unit", koefisien: 1, harga: 100000 },
+      { jenis: "Bahan", uraian: "Kaki Standing Roll Up Aluminium", satuan: "unit", koefisien: 1, harga: 150000 },
+      { jenis: "Upah", uraian: "Finishing & Pasang", satuan: "OH", koefisien: 0.02 }
+    ] },
+  { kode: "TPL-ADV-14", kategori: "Advertising", uraian: "Umbul-umbul Kain (Cetak Digital + Tiang)", satuan: "unit", overhead: 10,
+    referensi: "Estimasi riset harga pasar 2026 (muliaprint.com) — ukuran standar ±0.75x3m, bahan kain TC/Satin",
+    komponen: [
+      { jenis: "Bahan", uraian: "Kain TC/Satin (±0.75x3m)", satuan: "unit", koefisien: 1, harga: 60000 },
+      { jenis: "Bahan", uraian: "Tiang Bambu/Fiber", satuan: "unit", koefisien: 1, harga: 40000 },
+      { jenis: "Upah", uraian: "Jahit & Finishing", satuan: "OH", koefisien: 0.05 }
+    ] },
+  { kode: "TPL-ADV-15", kategori: "Advertising", uraian: "Konstruksi Tiang T Reklame (Tiang Pipa + Pondasi Beton)", satuan: "unit", overhead: 12,
+    referensi: "Estimasi riset harga pasar konstruksi reklame 2026 (mbizmarket.co.id, billboard.mikkaintermedia.co.id, deta.co.id) — tiang tunggal + papan atas standar, belum termasuk izin/pajak reklame",
+    komponen: [
+      { jenis: "Bahan", uraian: "Pipa Besi Tiang dia. 4-6\"", satuan: "m1", koefisien: 6, harga: 220000 },
+      { jenis: "Bahan", uraian: "Besi Siku/Hollow Rangka Papan", satuan: "kg", koefisien: 40, harga: 18000 },
+      { jenis: "Bahan", uraian: "Semen, Pasir, Kerikil Pondasi", satuan: "paket", koefisien: 1, harga: 750000 },
+      { jenis: "Bahan", uraian: "Cat & Menie Anti Karat", satuan: "paket", koefisien: 1, harga: 150000 },
+      { jenis: "Upah", uraian: "Tukang Las/Konstruksi", satuan: "OH", koefisien: 4 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 6 }
+    ] },
+  { kode: "TPL-ADV-16", kategori: "Advertising", uraian: "Rangka Baja Papan Billboard (Panel + Rangka)", satuan: "m2", overhead: 12,
+    referensi: "Estimasi riset harga pasar konstruksi billboard 2026 (mbizmarket.co.id, deta.co.id, sinergimedia.co.id) — untuk papan billboard skala besar di atas tiang/struktur yang sudah ada",
+    komponen: [
+      { jenis: "Bahan", uraian: "Besi Hollow/Siku Rangka", satuan: "kg", koefisien: 12, harga: 18000 },
+      { jenis: "Bahan", uraian: "Plat Aluminium/Seng Panel", satuan: "m2", koefisien: 1, harga: 85000 },
+      { jenis: "Bahan", uraian: "Cat & Menie", satuan: "m2", koefisien: 1, harga: 15000 },
+      { jenis: "Upah", uraian: "Tukang Las", satuan: "OH", koefisien: 0.15 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.2 }
+    ] },
+  { kode: "TPL-ADV-17", kategori: "Advertising", uraian: "Huruf Timbul Stainless Steel (per cm tinggi huruf)", satuan: "cm", overhead: 10,
+    referensi: "Estimasi riset harga pasar 2026 (sinarlaserindonesia.com, specialishuruftimbul.com, demaadv.co.id) — harga dasar potong+bentuk per cm tinggi huruf, finishing mirror/hairline disesuaikan",
+    komponen: [
+      { jenis: "Bahan", uraian: "Plat Stainless Steel 0.8-1.2mm", satuan: "cm", koefisien: 1, harga: 9000 },
+      { jenis: "Bahan", uraian: "Cat Duco/Finishing", satuan: "cm", koefisien: 1, harga: 1000 },
+      { jenis: "Upah", uraian: "Tukang Finishing", satuan: "OH", koefisien: 0.03 }
+    ] },
+  { kode: "TPL-ADV-18", kategori: "Advertising", uraian: "Jasa Desain Grafis Reklame/Signage", satuan: "paket", overhead: 10,
+    referensi: "Estimasi riset harga pasar jasa desain freelance 2026 (sribu.com, fastwork.id, jasadesain.co.id) — harga jasa memakai upah internal Mitra Creative, bukan tarif freelancer eksternal",
+    komponen: [
+      { jenis: "Upah", uraian: "Desainer Grafis", satuan: "OH", koefisien: 1 }
+    ] },
+  { kode: "TPL-ADV-19", kategori: "Advertising", uraian: "Jasa Visualisasi 3D / Mockup Reklame", satuan: "paket", overhead: 10,
+    referensi: "Estimasi riset harga pasar jasa desain 3D freelance 2026 (sribu.com, fastwork.id) — dipakai untuk presentasi ke klien sebelum produksi fisik",
+    komponen: [
+      { jenis: "Upah", uraian: "Desainer 3D", satuan: "OH", koefisien: 1.5 }
+    ] },
   { kode: "TPL-BJ-03", kategori: "Konstruksi Baja", uraian: "Pemasangan Dinding ACP + Rangka Hollow", satuan: "m2", overhead: 10,
     referensi: "Estimasi riset harga pasar (alcoseven.co.id, pasangaluminiumkaca.com, 99.co)",
     komponen: [
