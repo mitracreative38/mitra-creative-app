@@ -68,6 +68,10 @@ let state = loadState();
 // rendering or normal use of the app. =====
 const SUPABASE_URL = "https://iapcwaowvscftjfcdutm.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_Hlr2FaEP0WH0EWg9ECO2-A_qvAYcoKs";
+// Server backend Node.js (lihat server/) yang menangani cetak PDF,
+// pengingat WA/email terjadwal, dan payment gateway -- terpisah dari
+// GitHub Pages yang cuma bisa menyajikan file statis.
+const PDF_SERVER_URL = "https://mitra-creative-app-production.up.railway.app";
 let sb = null;
 try {
   if (typeof supabase !== "undefined") sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -4997,6 +5001,43 @@ document.getElementById("pw_printBtn").addEventListener("click", () => {
   document.getElementById("printArea").innerHTML = buildPenawaranPrintHtml(pw);
   document.body.classList.add("printing-quote");
   window.print();
+});
+document.getElementById("pw_pdfBtn").addEventListener("click", async () => {
+  const pw = state.penawaran.find(p => p.id === currentPwId);
+  if (!pw) return;
+  if (!sb || !currentSyncUser) {
+    alert("Unduh PDF butuh login cloud (Pengaturan > Sinkronisasi Cloud) supaya server bisa mengambil data ini dengan aman.");
+    return;
+  }
+  const btn = document.getElementById("pw_pdfBtn");
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Membuat PDF...";
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) throw new Error("Sesi login sudah habis, silakan login ulang.");
+    const res = await fetch(`${PDF_SERVER_URL}/api/pdf/penawaran/${pw.id}`, {
+      headers: { Authorization: `Bearer ${session.access_token}` }
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `Server membalas status ${res.status}`);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Penawaran-${(pw.nomor || pw.id).replace(/[\\/]/g, "-")}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    alert("Gagal membuat PDF: " + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
 });
 document.getElementById("pw_toProyekBtn").addEventListener("click", () => {
   const pw = state.penawaran.find(p => p.id === currentPwId);
