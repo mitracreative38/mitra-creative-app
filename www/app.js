@@ -56,6 +56,13 @@ function withDefaults(s) {
 }
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  // Fase 0.4: subscribeRealtime() sekarang mendengarkan SEMUA tabel
+  // relasional, yang masing-masing ditulis SEGERA oleh mirrorXUpsert
+  // (tidak didebounce seperti pushStateToCloud ke blob) -- tanpa ini,
+  // setiap penyimpanan lokal akan memicu event Realtime miliknya sendiri
+  // dalam hitungan ratusan milidetik dan menyebabkan reload penuh yang
+  // tidak perlu di tengah pengeditan.
+  suppressRealtimeUntil = Date.now() + 3000;
   scheduleCloudPush();
 }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
@@ -236,23 +243,44 @@ async function resolveTeamMembership(user) {
     targetCompanyId = user.id;
   }
 }
+// Fase 0.4: dengarkan SEMUA tabel relasional (bukan lagi cuma app_state)
+// -- masing-masing dari 9 modul non-sensitif + company_profile + 4 tabel
+// sensitif sekarang jadi sumber kebenaran untuk jalur baca, jadi
+// perubahan di tabel manapun harus memicu pemuatan ulang. Alih-alih
+// mempercayai payload mentah tiap event (rawan, dan beresiko kalau RLS
+// Realtime entah bagaimana tidak seketat RLS query biasa), tiap event
+// cuma jadi sinyal "ada yang berubah" yang di-debounce lalu memanggil
+// ulang buildStateFromRelational() -- sederhana, aman, dan skala data/
+// pengguna aplikasi ini kecil sehingga reload penuh yang didebounce
+// jauh lebih dari cukup dibanding reducer per-tabel yang rumit.
+const REALTIME_RELATIONAL_TABLES = [
+  "company_profile", "klien", "ahsp", "rab", "penawaran", "proyek", "karyawan",
+  "stok_material", "gudang", "pemasok",
+  "kas_usaha_transaksi", "kas_pribadi_transaksi", "karyawan_gaji", "kas_saldo_awal"
+];
+let realtimeReloadTimer = null;
 function subscribeRealtime(companyId) {
   if (!sb || realtimeChannel || typeof sb.channel !== "function") return;
   try {
-    realtimeChannel = sb
-      .channel("app_state_" + companyId)
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "app_state", filter: `user_id=eq.${companyId}` }, async (payload) => {
-        if (Date.now() < suppressRealtimeUntil) return;
-        if (cloudSyncTimer) return;
-        if (document.querySelector(".modal-backdrop.open")) return;
-        if (!payload.new || !payload.new.data) return;
-        state = withDefaults(payload.new.data);
-        state = await hydrateSensitiveFields(state);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-        renderAll();
-        setSyncStatus(`Diperbarui otomatis dari perangkat lain, ${new Date().toLocaleTimeString("id-ID")}`);
-      })
-      .subscribe();
+    let channel = sb.channel("app_state_" + companyId);
+    const onTableChange = () => {
+      if (Date.now() < suppressRealtimeUntil) return;
+      if (cloudSyncTimer) return;
+      if (document.querySelector(".modal-backdrop.open")) return;
+      clearTimeout(realtimeReloadTimer);
+      realtimeReloadTimer = setTimeout(async () => {
+        try {
+          state = await buildStateFromRelational(companyId);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+          renderAll();
+          setSyncStatus(`Diperbarui otomatis dari perangkat lain, ${new Date().toLocaleTimeString("id-ID")}`);
+        } catch (e) { /* best-effort -- biarkan state apa adanya kalau gagal */ }
+      }, 800);
+    };
+    REALTIME_RELATIONAL_TABLES.forEach(table => {
+      channel = channel.on("postgres_changes", { event: "*", schema: "public", table, filter: `company_id=eq.${companyId}` }, onTableChange);
+    });
+    realtimeChannel = channel.subscribe();
   } catch (e) { realtimeChannel = null; }
 }
 function unsubscribeRealtime() {
@@ -785,6 +813,50 @@ async function migratePemasokIfNeeded() {
   }
 }
 
+// ===== Fase 0.4: mirror profil perusahaan ke tabel relasional =====
+// Satu-satunya bagian data yang sampai sekarang cuma ada di blob app_state
+// dan belum pernah dicerminkan ke tabel manapun -- 8 field skalar ini
+// (nama/alamat/telepon perusahaan, nama/jabatan Owner, batas approval,
+// dan 2 penomoran urut RAB/Penawaran) dibutuhkan supaya buildStateFromRelational()
+// bisa memuat SELURUH state dari tabel relasional, tanpa perlu membaca
+// blob sama sekali. Beda dari mirror modul lain: cuma 1 baris per
+// perusahaan (bukan array), jadi upsert-nya selalu menimpa baris yang sama.
+function companyProfileToRow() {
+  return {
+    company_id: targetCompanyId,
+    company: state.company || "",
+    alamat: state.alamat || "",
+    telepon: state.telepon || "",
+    owner_nama: state.ownerNama || "",
+    owner_jabatan: state.ownerJabatan || "",
+    approval_threshold: state.approvalThreshold || 0,
+    penawaran_counter: state.penawaranCounter || 0,
+    rab_counter: state.rabCounter || 0,
+    updated_at: new Date().toISOString()
+  };
+}
+async function mirrorCompanyProfileUpsert() {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("company_profile").upsert(companyProfileToRow());
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal menyimpan profil perusahaan ke tabel relasional: " + err.message);
+  }
+}
+async function migrateCompanyProfileIfNeeded() {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { data, error } = await sb.from("company_profile").select("company_id").eq("company_id", targetCompanyId).maybeSingle();
+    if (error) throw error;
+    if (data) return;
+    const { error: insertErr } = await sb.from("company_profile").insert(companyProfileToRow());
+    if (insertErr) throw insertErr;
+  } catch (err) {
+    setSyncStatus("Gagal migrasi profil perusahaan ke tabel relasional: " + err.message);
+  }
+}
+
 // ===== Fase C (percobaan): mirror modul Kas Perusahaan & Kas Pribadi ke tabel relasional =====
 // Modul paling sensitif: sesuai keputusan Owner, Admin hanya boleh MELIHAT
 // transaksi Kas Perusahaan yang mereka input SENDIRI (bukan seluruh buku),
@@ -929,6 +1001,174 @@ function mirrorKasTxnDelete(book, id) {
   if (book === "kasUsaha") mirrorKasUsahaDelete(id); else mirrorKasPribadiDelete(id);
 }
 
+// ===== Fase 0.4 (Tahap 1): bangun ulang seluruh `state` dari tabel
+// relasional, bukan dari blob app_state -- supaya RLS per-tabel yang
+// sudah benar sejak Fase A/C (mis. Marketing tidak boleh akses
+// proyek/karyawan/stok/gudang/pemasok) benar-benar ditegakkan di jalur
+// baca, bukan cuma disembunyikan di UI. Setiap rowToX() adalah kebalikan
+// persis dari XToRow() yang sudah ada di atas. Jalur TULIS (mirrorXUpsert,
+// pushStateToCloud ke blob) sama sekali tidak berubah -- blob tetap
+// tertulis sebagai cadangan bayangan / jalan mundur.
+function rowToKlien(r) {
+  return {
+    id: r.id, nama: r.nama || "", kontakNama: r.kontak_nama || "", telepon: r.telepon || "",
+    email: r.email || "", sumber: r.sumber || "", alamat: r.alamat || "", tahap: r.tahap || "",
+    tahapSejak: r.tahap_sejak || "", followUpTanggal: r.follow_up_berikutnya || "",
+    catatan: r.catatan || "", kontakList: r.kontak_list || [], riwayatKontak: r.riwayat_kontak || []
+  };
+}
+function rowToAhsp(r) {
+  return {
+    id: r.id, kategori: r.kategori || "", kode: r.kode || "", uraian: r.uraian || "",
+    satuan: r.satuan || "", mode: r.mode || "", hargaManual: r.harga_manual || 0,
+    overhead: r.overhead || 0, referensi: r.referensi || "", komponen: r.komponen || [],
+    riwayatHarga: r.riwayat_harga || []
+  };
+}
+function rowToRab(r) {
+  return {
+    id: r.id, nomor: r.nomor || "", klienId: r.klien_id || "", klien: r.klien || "",
+    nama: r.nama_proyek || "", lokasi: r.lokasi || "", kategori: r.kategori || "",
+    tanggal: r.tanggal || "", ppn: r.ppn || 0, pph: r.pph || 0, biayaLain: r.biaya_lain || 0,
+    proyekId: r.proyek_id || "", items: r.items || []
+  };
+}
+function rowToPenawaran(r) {
+  return {
+    id: r.id, nomor: r.nomor || "", klienId: r.klien_id || "", kepada: r.kepada || "",
+    alamatKlien: r.alamat_klien || "", perihal: r.perihal || "", kategori: r.kategori || "",
+    status: r.status || "", tanggal: r.tanggal || "", diskon: r.diskon || 0, ppn: r.ppn || 0,
+    pph: r.pph || 0, syarat: r.syarat || "", penutup: r.penutup || "", ttdNama: r.ttd_nama || "",
+    ttdJabatan: r.ttd_jabatan || "", proyekId: r.proyek_id || "", revisiDariId: r.revisi_dari_id || "",
+    revisiKe: r.revisi_ke || 0, items: r.items || []
+  };
+}
+function rowToProyek(r) {
+  return {
+    id: r.id, nama: r.nama || "", klienId: r.klien_id || "", klien: r.klien || "",
+    lokasi: r.lokasi || "", nilaiKontrak: r.nilai_kontrak || 0, status: r.status || "",
+    tanggalMulai: r.tanggal_mulai || "", tanggalSelesai: r.tanggal_selesai || "",
+    biayaBahan: r.biaya_bahan || 0, biayaUpah: r.biaya_upah || 0, biayaLain: r.biaya_lain || 0,
+    karyawanIds: r.karyawan_ids || [], subkontraktor: r.subkontraktor || [],
+    belanjaMaterial: r.belanja_material || [], sumberRabId: r.sumber_rab_id || "",
+    sumberPenawaranId: r.sumber_penawaran_id || "", progressRencana: r.progress_rencana || [],
+    progressRealisasi: r.progress_realisasi || [], dokumen: r.dokumen || []
+  };
+}
+function rowToKaryawan(r) {
+  return {
+    id: r.id, nama: r.nama || "", jabatan: r.jabatan || "", tipeGaji: r.tipe_gaji || "",
+    aktif: r.aktif !== false, upahHarian: r.upah_harian || 0, tarifLembur: r.tarif_lembur || 0,
+    uangMakanHarian: r.uang_makan_harian || 0, gajiBulanan: r.gaji_bulanan || 0,
+    targetBulanan: r.target_bulanan || 0, persenBonus: r.persen_bonus || 0,
+    pinjamanAwal: r.pinjaman_awal || 0, absensi: r.absensi || [],
+    slipGaji: [] // diisi belakangan oleh hydrateSensitiveFields()
+  };
+}
+function rowToStok(r) {
+  return {
+    id: r.id, nama: r.nama || "", kategori: r.kategori || "", satuan: r.satuan || "",
+    stokAwal: r.stok_awal || 0, stokMinimum: r.stok_minimum || 0, hargaSatuan: r.harga_satuan || 0,
+    transactions: r.transactions || []
+  };
+}
+function rowToGudang(r) { return { id: r.id, nama: r.nama || "" }; }
+function rowToPemasok(r) {
+  return {
+    id: r.id, nama: r.nama || "", kategori: r.kategori || "", telepon: r.telepon || "",
+    alamat: r.alamat || "", catatan: r.catatan || ""
+  };
+}
+async function buildStateFromRelational(companyId) {
+  // company_profile diambil terpisah dengan try/catch sendiri -- ini
+  // tabel yang PALING BARU (Fase 0.4), jadi selama jeda deploy sudah
+  // jalan tapi SQL-nya belum dijalankan Owner, tabel ini belum ada sama
+  // sekali. Kalau gagal, field profil cukup kosong sementara -- modul
+  // lain (yang tabelnya sudah ada sejak Fase A/C) tetap harus tetap jalan
+  // normal, tidak boleh ikut gagal gara-gara ini.
+  let profileRow = null;
+  try {
+    const { data, error } = await sb.from("company_profile").select("*").eq("company_id", companyId).maybeSingle();
+    if (!error) profileRow = data;
+  } catch (e) { /* tabel belum ada -- biarkan profileRow null */ }
+
+  let klienRows = [], ahspRows = [], rabRows = [], penawaranRows = [], proyekRows = [],
+    karyawanRows = [], stokRows = [], gudangRows = [], pemasokRows = [];
+  try {
+    const [klienRes, ahspRes, rabRes, penawaranRes, proyekRes, karyawanRes, stokRes, gudangRes, pemasokRes] = await Promise.all([
+      sb.from("klien").select("*").eq("company_id", companyId),
+      sb.from("ahsp").select("*").eq("company_id", companyId),
+      sb.from("rab").select("*").eq("company_id", companyId),
+      sb.from("penawaran").select("*").eq("company_id", companyId),
+      sb.from("proyek").select("*").eq("company_id", companyId),
+      sb.from("karyawan").select("*").eq("company_id", companyId),
+      sb.from("stok_material").select("*").eq("company_id", companyId),
+      sb.from("gudang").select("*").eq("company_id", companyId),
+      sb.from("pemasok").select("*").eq("company_id", companyId)
+    ]);
+    klienRows = klienRes.error ? [] : (klienRes.data || []);
+    ahspRows = ahspRes.error ? [] : (ahspRes.data || []);
+    rabRows = rabRes.error ? [] : (rabRes.data || []);
+    penawaranRows = penawaranRes.error ? [] : (penawaranRes.data || []);
+    proyekRows = proyekRes.error ? [] : (proyekRes.data || []);
+    karyawanRows = karyawanRes.error ? [] : (karyawanRes.data || []);
+    stokRows = stokRes.error ? [] : (stokRes.data || []);
+    gudangRows = gudangRes.error ? [] : (gudangRes.data || []);
+    pemasokRows = pemasokRes.error ? [] : (pemasokRes.data || []);
+  } catch (e) { /* biarkan semua kosong -- jaring pengaman di bawah akan pakai blob */ }
+
+  let built = {
+    company: (profileRow && profileRow.company) || "",
+    alamat: (profileRow && profileRow.alamat) || "",
+    telepon: (profileRow && profileRow.telepon) || "",
+    ownerNama: (profileRow && profileRow.owner_nama) || "",
+    ownerJabatan: (profileRow && profileRow.owner_jabatan) || "",
+    approvalThreshold: (profileRow && profileRow.approval_threshold) || 0,
+    penawaranCounter: (profileRow && profileRow.penawaran_counter) || 0,
+    rabCounter: (profileRow && profileRow.rab_counter) || 0,
+    klien: klienRows.map(rowToKlien),
+    ahsp: ahspRows.map(rowToAhsp),
+    proyekRab: rabRows.map(rowToRab),
+    penawaran: penawaranRows.map(rowToPenawaran),
+    proyek: proyekRows.map(rowToProyek),
+    karyawan: karyawanRows.map(rowToKaryawan),
+    stok: stokRows.map(rowToStok),
+    gudang: gudangRows.map(rowToGudang),
+    pemasok: pemasokRows.map(rowToPemasok),
+    kasUsaha: { transactions: [], saldoAwal: 0 },
+    kasPribadi: { transactions: [], saldoAwal: 0 }
+  };
+
+  // Jaring pengaman: kalau SEMUA 9 modul relasional kosong total untuk
+  // company ini (indikasi tabel belum ter-backfill, mis. jeda deploy
+  // sebelum migrateXIfNeeded sempat jalan) SEMENTARA blob app_state masih
+  // punya isi, jangan percaya hasil relasional -- pakai isi blob untuk
+  // pemuatan kali ini saja, dan jadwalkan penulisan ulang ke tabel
+  // relasional di latar belakang supaya pemuatan berikutnya sudah benar.
+  const totallyEmpty = !built.klien.length && !built.ahsp.length && !built.proyekRab.length &&
+    !built.penawaran.length && !built.proyek.length && !built.karyawan.length &&
+    !built.stok.length && !built.gudang.length && !built.pemasok.length;
+  if (totallyEmpty) {
+    try {
+      const { data: blobRow } = await sb.from("app_state").select("data").eq("user_id", companyId).maybeSingle();
+      if (blobRow && blobRow.data) {
+        built = withDefaults(JSON.parse(JSON.stringify(blobRow.data)));
+        // Ditunda beberapa detik: handlePostLoginSync menimpa variabel
+        // global `state` dengan hasil fungsi ini SEGERA setelah promise-nya
+        // selesai (langkah sinkron berikutnya) -- jeda ini cuma jaga-jaga
+        // supaya mirrorAllToRelational() (yang membaca `state` global,
+        // bukan `built` lokal ini) tidak sempat jalan sebelum penggantian
+        // itu terjadi.
+        setTimeout(() => { mirrorAllToRelational().catch(() => {}); }, 3000);
+      }
+    } catch (e) { /* blob juga gagal diambil -- lanjut dengan hasil relasional kosong apa adanya */ }
+  }
+
+  built = withDefaults(built);
+  built = await hydrateSensitiveFields(built);
+  return built;
+}
+
 async function handlePostLoginSync(user) {
   currentSyncUser = user;
   await resolveTeamMembership(user);
@@ -952,13 +1192,21 @@ async function handlePostLoginSync(user) {
     await migrateSaldoAwalIfNeeded(data.data);
     const cloudTanggal = data.updated_at ? `${formatTanggal(data.updated_at.slice(0, 10))} ${new Date(data.updated_at).toLocaleTimeString("id-ID")}` : "-";
     const pakaiCloud = confirm(`Ditemukan data yang sudah tersinkron di cloud (terakhir disimpan: ${cloudTanggal}).\n\nKlik OK untuk memakai data dari CLOUD (data di perangkat ini akan diganti dengan data cloud).\nKlik Batal untuk tetap memakai data di PERANGKAT INI (data di cloud akan ditimpa dengan data perangkat ini).`);
-    if (pakaiCloud) state = withDefaults(data.data);
-    // Fase D: apa pun jalur di atas (pakai cloud atau tetap lokal), Kas
-    // Perusahaan/Kas Pribadi/slip gaji/saldoAwal SELALU disegarkan dari
-    // tabel relasional -- state lokal yang sudah tersimpan di perangkat
-    // (misalnya dari sesi Owner sebelumnya di perangkat yang sama) tidak
-    // boleh dipercaya begitu saja untuk peran yang login sekarang.
-    state = await hydrateSensitiveFields(state);
+    if (pakaiCloud) {
+      // Fase 0.4: "data cloud" sekarang dibangun dari tabel relasional
+      // (yang RLS-nya sudah benar per peran), bukan dari blob app_state
+      // lagi -- buildStateFromRelational() sudah termasuk memanggil
+      // hydrateSensitiveFields() di dalamnya, jadi tidak perlu dipanggil
+      // ulang di bawah untuk jalur ini.
+      state = await buildStateFromRelational(targetCompanyId);
+    } else {
+      // Fase D: state lokal yang sudah tersimpan di perangkat (misalnya
+      // dari sesi Owner sebelumnya di perangkat yang sama) tidak boleh
+      // dipercaya begitu saja untuk peran yang login sekarang -- Kas
+      // Perusahaan/Kas Pribadi/slip gaji/saldoAwal SELALU disegarkan dari
+      // tabel relasional.
+      state = await hydrateSensitiveFields(state);
+    }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     renderAll();
     if (pakaiCloud) {
@@ -970,6 +1218,7 @@ async function handlePostLoginSync(user) {
   } catch (err) {
     setSyncStatus("Gagal memeriksa data cloud: " + err.message);
   } finally {
+    migrateCompanyProfileIfNeeded();
     migrateKlienIfNeeded();
     migrateAhspIfNeeded();
     migrateRabIfNeeded();
@@ -3377,12 +3626,14 @@ function penawaranTotals(pw) {
 const ROMAWI_BULAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
 function nextPenawaranNomor() {
   state.penawaranCounter = (state.penawaranCounter || 0) + 1;
+  mirrorCompanyProfileUpsert();
   const n = String(state.penawaranCounter).padStart(3, "0");
   const d = new Date();
   return `${n}/MC-PH/${ROMAWI_BULAN[d.getMonth()]}/${d.getFullYear()}`;
 }
 function nextRabNomor() {
   state.rabCounter = (state.rabCounter || 0) + 1;
+  mirrorCompanyProfileUpsert();
   const n = String(state.rabCounter).padStart(3, "0");
   const d = new Date();
   return `${n}/MC-RAB/${ROMAWI_BULAN[d.getMonth()]}/${d.getFullYear()}`;
@@ -6313,15 +6564,16 @@ document.getElementById("kp_printBtn").addEventListener("click", () => {
 document.getElementById("settingsCompanyName").addEventListener("input", e => {
   state.company = e.target.value;
   saveState();
+  mirrorCompanyProfileUpsert();
   document.getElementById("companyNameLabel").textContent = state.company || "Perusahaan Saya";
   document.title = `${state.company || "Laporan Keuangan"} — Laporan Keuangan`;
 });
-document.getElementById("settingsAlamat").addEventListener("input", e => { state.alamat = e.target.value; saveState(); });
-document.getElementById("settingsTelepon").addEventListener("input", e => { state.telepon = e.target.value; saveState(); });
-document.getElementById("settingsOwnerNama").addEventListener("input", e => { state.ownerNama = e.target.value; saveState(); });
-document.getElementById("settingsOwnerJabatan").addEventListener("input", e => { state.ownerJabatan = e.target.value; saveState(); });
+document.getElementById("settingsAlamat").addEventListener("input", e => { state.alamat = e.target.value; saveState(); mirrorCompanyProfileUpsert(); });
+document.getElementById("settingsTelepon").addEventListener("input", e => { state.telepon = e.target.value; saveState(); mirrorCompanyProfileUpsert(); });
+document.getElementById("settingsOwnerNama").addEventListener("input", e => { state.ownerNama = e.target.value; saveState(); mirrorCompanyProfileUpsert(); });
+document.getElementById("settingsOwnerJabatan").addEventListener("input", e => { state.ownerJabatan = e.target.value; saveState(); mirrorCompanyProfileUpsert(); });
 attachNumberFormatting(document.getElementById("settingsApprovalThreshold"));
-document.getElementById("settingsApprovalThreshold").addEventListener("input", e => { state.approvalThreshold = parseNumberInput(e.target.value); saveState(); });
+document.getElementById("settingsApprovalThreshold").addEventListener("input", e => { state.approvalThreshold = parseNumberInput(e.target.value); saveState(); mirrorCompanyProfileUpsert(); });
 document.getElementById("exportJsonBtn").addEventListener("click", () => {
   downloadFile(`backup-keuangan-${new Date().toISOString().slice(0,10)}.json`, JSON.stringify(state, null, 2), "application/json");
 });
@@ -6419,6 +6671,7 @@ function preserveHistoryFieldsOnImport(sebelum, sesudah) {
 // menimpa/menghapus apa pun yang tidak ada di file yang diimpor.
 async function mirrorAllToRelational() {
   if (!sb || !targetCompanyId) return;
+  await mirrorCompanyProfileUpsert();
   (state.klien || []).forEach(mirrorKlienUpsert);
   (state.ahsp || []).forEach(mirrorAhspUpsert);
   (state.proyekRab || []).forEach(mirrorRabUpsert);
