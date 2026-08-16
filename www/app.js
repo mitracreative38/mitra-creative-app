@@ -3732,6 +3732,7 @@ document.getElementById("ah_printBtn").addEventListener("click", () => {
   document.body.classList.add("printing-quote");
   window.print();
 });
+document.getElementById("ah_syncUpahBtn").addEventListener("click", syncAllUpahHarga);
 
 // ===== Modal: AHSP item =====
 const ahspModal = document.getElementById("ahspModal");
@@ -3741,6 +3742,59 @@ function maxUpahHarianMitra() {
   const aktif = state.karyawan.filter(k => k.aktif !== false);
   const list = aktif.length ? aktif : state.karyawan;
   return list.reduce((max, k) => Math.max(max, k.upahHarian || 0), 0);
+}
+// Sinkronkan SEMUA komponen Upah di seluruh daftar AHSP (bukan cuma satu
+// item yang sedang dibuka di modal edit, seperti tombol "Refresh Harga"
+// yang sudah ada) ke harga terkini. Komponen yang sudah punya sumber
+// (mis. terhubung ke karyawan tertentu, atau ke "Upah Tertinggi Mitra")
+// disegarkan ke nilai sumbernya saat ini -- pilihan sumber yang sudah ada
+// dihormati, tidak dipaksa jadi maxupah. Komponen Upah lama yang harganya
+// masih diketik manual (tanpa sumber sama sekali -- umumnya item bawaan
+// SIP-01/ADV-03/dll dari sebelum fitur penautan sumber harga ada) baru
+// ditautkan ke "Upah Tertinggi Mitra +20%" sesuai permintaan eksplisit.
+// Item mode "manual" (harga borongan gabungan, tanpa rincian Bahan/Upah)
+// dilewati -- tidak ada baris Upah tersendiri untuk disinkronkan di sana.
+function syncAllUpahHarga() {
+  const maxUpah = Math.round(maxUpahHarianMitra() * 1.2);
+  if (!maxUpah) {
+    alert("Belum ada data upah harian karyawan aktif. Isi upah harian di menu Karyawan & Gaji dulu sebelum menyinkronkan harga upah AHSP.");
+    return;
+  }
+  let itemBerubah = 0;
+  let komponenBerubah = 0;
+  state.ahsp.forEach(a => {
+    if (a.mode !== "detail" || !Array.isArray(a.komponen)) return;
+    let changed = false;
+    a.komponen.forEach(k => {
+      if (k.jenis !== "Upah") return;
+      let hargaBaru;
+      if (k.sumberTipe && k.sumberId) {
+        const src = sumberHargaLookup(k.sumberTipe, k.sumberId);
+        if (!src) return;
+        hargaBaru = src.harga;
+      } else {
+        hargaBaru = maxUpah;
+        k.sumberTipe = "maxupah";
+        k.sumberId = "auto";
+      }
+      if (k.harga !== hargaBaru) {
+        k.harga = hargaBaru;
+        changed = true;
+        komponenBerubah++;
+      }
+    });
+    if (changed) {
+      itemBerubah++;
+      mirrorAhspUpsert(a);
+    }
+  });
+  if (itemBerubah) {
+    saveState();
+    renderAhsp();
+  }
+  alert(itemBerubah
+    ? `${komponenBerubah} komponen Upah di ${itemBerubah} item AHSP disinkronkan.\nUpah tanpa sumber tertentu memakai "Upah Tertinggi Mitra +20%" = ${rupiah(maxUpah)}/OH.\n\nCatatan: item mode "Manual" (harga borongan gabungan, mis. Neon Box/Baliho bawaan) tidak punya rincian Upah tersendiri, jadi dilewati -- cek & sesuaikan manual kalau perlu.`
+    : "Semua komponen Upah yang punya rincian sudah sesuai dengan sumber harga terkini -- tidak ada yang perlu diubah.");
 }
 function sumberOptionsForJenis(jenis) {
   if (jenis === "Upah") {
