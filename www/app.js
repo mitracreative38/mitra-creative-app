@@ -4129,6 +4129,27 @@ function findBestAhspMatch(text) {
   return bestScore >= 0.34 ? best : null;
 }
 
+// Pencarian deterministik (substring, bukan skor fuzzy) dipakai khusus oleh
+// wizard Estimasi Dimensi di bawah -- dicoba dulu terhadap kalimat kunci
+// yang SUDAH diverifikasi manual cocok ke wording resmi AHSP Kepmen PU
+// (lihat matchHints tiap sub-item). Ditulis terpisah dari findBestAhspMatch
+// (skor overlap token, dipakai BOQ import) karena untuk kalimat pendek
+// seperti "Bekisting sloof" skor overlap-nya sering jatuh di bawah ambang
+// 0.34 walau pasangannya sebenarnya jelas benar -- dan sebaliknya bisa
+// salah pasang ke item yang mirip tapi beda (mis. "titik saklar" sempat
+// ke-match ke "Instalasi Lampu"). Item yang TIDAK dikasih matchHints
+// (misalnya beton sloof/kolom/balok -- mutu/gradenya harus pilihan
+// pengguna sendiri) sengaja dibiarkan tidak ter-link otomatis sama sekali,
+// supaya tidak diam-diam menebak harga yang bisa jauh salah.
+function matchAhspByHint(mustIncludeAll) {
+  if (!mustIncludeAll || !mustIncludeAll.length) return null;
+  const needles = mustIncludeAll.map(s => s.toLowerCase());
+  return state.ahsp.find(a => {
+    const u = (a.uraian || "").toLowerCase();
+    return needles.every(n => u.includes(n));
+  }) || null;
+}
+
 // ===== Estimasi Cepat dari Dimensi (RAB) =====
 // Kalkulator volume otomatis per jenis pekerjaan rumah, dari input dimensi
 // bangunan. Rumus geometri konstruksi standar (trapesium pondasi, volume
@@ -4149,9 +4170,9 @@ const ESTIMASI_KATEGORI = [
     compute(v) {
       const lebarGalian = v.lebarBawah + 0.3; // ruang kerja tambahan kiri-kanan
       return [
-        { uraian: "Galian tanah pondasi", satuan: "m3", volume: round3(v.panjang * lebarGalian * v.kedalamanGalian) },
-        { uraian: "Urugan pasir bawah pondasi", satuan: "m3", volume: round3(v.panjang * v.lebarBawah * v.tebalUrugPasir) },
-        { uraian: "Pasangan pondasi batu kali", satuan: "m3", volume: round3(v.panjang * ((v.lebarAtas + v.lebarBawah) / 2) * v.tinggiPasangan) }
+        { uraian: "Galian tanah pondasi", satuan: "m3", volume: round3(v.panjang * lebarGalian * v.kedalamanGalian), matchHints: ["penggalian", "tanah biasa", "sedalam 0 s.d. 1 m", "manual"] },
+        { uraian: "Urugan pasir bawah pondasi", satuan: "m3", volume: round3(v.panjang * v.lebarBawah * v.tebalUrugPasir), matchHints: ["urukan pasir uruk", "tanpa pemadatan", "manual"] },
+        { uraian: "Pasangan pondasi batu kali", satuan: "m3", volume: round3(v.panjang * ((v.lebarAtas + v.lebarBawah) / 2) * v.tinggiPasangan), matchHints: ["pondasi batu belah", "manual"] }
       ];
     }
   },
@@ -4165,9 +4186,9 @@ const ESTIMASI_KATEGORI = [
     compute(v) {
       const volBeton = round3(v.panjang * v.lebar * v.tinggi);
       return [
-        { uraian: "Beton sloof", satuan: "m3", volume: volBeton },
-        { uraian: "Bekisting sloof", satuan: "m2", volume: round3(2 * (v.lebar + v.tinggi) * v.panjang) },
-        { uraian: "Pembesian sloof", satuan: "kg", volume: round3(volBeton * v.koefBesi) }
+        { uraian: "Beton sloof", satuan: "m3", volume: volBeton }, // mutu/grade beton harus pilihan sendiri, sengaja tidak di-auto-link
+        { uraian: "Bekisting sloof", satuan: "m2", volume: round3(2 * (v.lebar + v.tinggi) * v.panjang), matchHints: ["bekisting untuk sloof"] },
+        { uraian: "Pembesian sloof", satuan: "kg", volume: round3(volBeton * v.koefBesi), matchHints: ["penulangan kolom, balok, ring balok, dan sloof"] }
       ];
     }
   },
@@ -4183,8 +4204,8 @@ const ESTIMASI_KATEGORI = [
       const volBeton = round3(v.jumlah * v.lebar * v.tebal * v.tinggi);
       return [
         { uraian: "Beton kolom", satuan: "m3", volume: volBeton },
-        { uraian: "Bekisting kolom", satuan: "m2", volume: round3(v.jumlah * 2 * (v.lebar + v.tebal) * v.tinggi) },
-        { uraian: "Pembesian kolom", satuan: "kg", volume: round3(volBeton * v.koefBesi) }
+        { uraian: "Bekisting kolom", satuan: "m2", volume: round3(v.jumlah * 2 * (v.lebar + v.tebal) * v.tinggi), matchHints: ["bekisting untuk kolom"] },
+        { uraian: "Pembesian kolom", satuan: "kg", volume: round3(volBeton * v.koefBesi), matchHints: ["penulangan kolom, balok, ring balok, dan sloof"] }
       ];
     }
   },
@@ -4199,8 +4220,8 @@ const ESTIMASI_KATEGORI = [
       const volBeton = round3(v.panjang * v.lebar * v.tinggi);
       return [
         { uraian: "Beton balok", satuan: "m3", volume: volBeton },
-        { uraian: "Bekisting balok", satuan: "m2", volume: round3((2 * v.tinggi + v.lebar) * v.panjang) },
-        { uraian: "Pembesian balok", satuan: "kg", volume: round3(volBeton * v.koefBesi) }
+        { uraian: "Bekisting balok", satuan: "m2", volume: round3((2 * v.tinggi + v.lebar) * v.panjang), matchHints: ["bekisting untuk balok"] },
+        { uraian: "Pembesian balok", satuan: "kg", volume: round3(volBeton * v.koefBesi), matchHints: ["penulangan kolom, balok, ring balok, dan sloof"] }
       ];
     }
   },
@@ -4215,8 +4236,8 @@ const ESTIMASI_KATEGORI = [
       const volBeton = round3(v.panjang * v.lebar * v.tebal);
       return [
         { uraian: "Beton pelat lantai/dak", satuan: "m3", volume: volBeton },
-        { uraian: "Bekisting pelat", satuan: "m2", volume: round3(v.panjang * v.lebar) },
-        { uraian: "Pembesian pelat", satuan: "kg", volume: round3(volBeton * v.koefBesi) }
+        { uraian: "Bekisting pelat", satuan: "m2", volume: round3(v.panjang * v.lebar) }, // tidak ada item resmi "bekisting pelat" cor-di-tempat di dataset
+        { uraian: "Pembesian pelat", satuan: "kg", volume: round3(volBeton * v.koefBesi), matchHints: ["penulangan slab", "manual"] }
       ];
     }
   },
@@ -4230,9 +4251,10 @@ const ESTIMASI_KATEGORI = [
     compute(v) {
       const luasDinding = Math.max(0, round3(v.panjang * v.tinggi - v.luasBukaan));
       return [
-        { uraian: "Pasangan dinding bata/batako", satuan: "m2", volume: luasDinding },
-        { uraian: "Plesteran dinding", satuan: "m2", volume: round3(luasDinding * v.sisiPlester) },
-        { uraian: "Acian dinding", satuan: "m2", volume: round3(luasDinding * v.sisiPlester) }
+        // Default dicocokkan ke dinding 1/2 bata (paling umum untuk rumah tinggal) -- kalau proyek pakai 1 bata penuh, koreksi manual setelah ditambahkan.
+        { uraian: "Pasangan dinding bata/batako", satuan: "m2", volume: luasDinding, matchHints: ["dinding bata merah tebal 1/2 batu"] },
+        { uraian: "Plesteran dinding", satuan: "m2", volume: round3(luasDinding * v.sisiPlester), matchHints: ["plesteran 1sp : 3pp tebal 15 mm"] },
+        { uraian: "Acian dinding", satuan: "m2", volume: round3(luasDinding * v.sisiPlester), matchHints: ["pemasangan 1 m2 acian"] }
       ];
     }
   },
@@ -4244,8 +4266,8 @@ const ESTIMASI_KATEGORI = [
     compute(v) {
       const luasEfektif = round3(v.luasDenah / Math.cos(v.sudut * Math.PI / 180));
       return [
-        { uraian: "Penutup atap", satuan: "m2", volume: luasEfektif },
-        { uraian: "Rangka atap (kuda-kuda, reng, usuk)", satuan: "m2", volume: luasEfektif }
+        { uraian: "Penutup atap", satuan: "m2", volume: luasEfektif }, // jenis penutup (genteng/spandek/dst) terlalu bervariasi harganya, sengaja tidak ditebak
+        { uraian: "Rangka atap (kuda-kuda, reng, usuk)", satuan: "m2", volume: luasEfektif, matchHints: ["rangka atap genteng beton, kayu kelas ii"] }
       ];
     }
   },
@@ -4257,7 +4279,7 @@ const ESTIMASI_KATEGORI = [
     ],
     compute(v) {
       return [
-        { uraian: "Pemasangan keramik lantai", satuan: "m2", volume: Math.max(0, round3(v.panjang * v.lebar - v.dikurangi)) }
+        { uraian: "Pemasangan keramik lantai", satuan: "m2", volume: Math.max(0, round3(v.panjang * v.lebar - v.dikurangi)), matchHints: ["lantai keramik uk. 40x40 cm"] }
       ];
     }
   },
@@ -4268,7 +4290,7 @@ const ESTIMASI_KATEGORI = [
     ],
     compute(v) {
       return [
-        { uraian: "Pemasangan plafon", satuan: "m2", volume: round3(v.panjang * v.lebar) }
+        { uraian: "Pemasangan plafon", satuan: "m2", volume: round3(v.panjang * v.lebar), matchHints: ["plafon papan gypsum tebal 9 mm"] }
       ];
     }
   },
@@ -4281,10 +4303,10 @@ const ESTIMASI_KATEGORI = [
     ],
     compute(v) {
       return [
-        { uraian: "Instalasi titik lampu", satuan: "titik", volume: v.titikLampu },
-        { uraian: "Instalasi titik stop kontak", satuan: "titik", volume: v.titikStopKontak },
-        { uraian: "Instalasi titik saklar", satuan: "titik", volume: v.titikSaklar },
-        { uraian: "Pemasangan panel/MCB", satuan: "unit", volume: v.titikPanel }
+        { uraian: "Instalasi titik lampu", satuan: "titik", volume: v.titikLampu, matchHints: ["titik instalasi lampu"] },
+        { uraian: "Instalasi titik stop kontak", satuan: "titik", volume: v.titikStopKontak, matchHints: ["titik instalasi stop kontak"] },
+        { uraian: "Instalasi titik saklar", satuan: "titik", volume: v.titikSaklar, matchHints: ["saklar tunggal"] },
+        { uraian: "Pemasangan panel/MCB", satuan: "unit", volume: v.titikPanel, matchHints: ["mcb box"] }
       ];
     }
   },
@@ -4295,8 +4317,9 @@ const ESTIMASI_KATEGORI = [
     ],
     compute(v) {
       return [
-        { uraian: "Pemasangan pipa air bersih", satuan: "m", volume: v.panjangPipa },
-        { uraian: "Instalasi titik air (kran/closet/wastafel)", satuan: "titik", volume: v.titikAir }
+        // Default dicocokkan ke pipa PVC AW dia. 1/2" -- kalau jalur utama pakai diameter lain, koreksi manual.
+        { uraian: "Pemasangan pipa air bersih", satuan: "m", volume: v.panjangPipa, matchHints: ["pipa pvc aw, dia. 1/2\""] },
+        { uraian: "Instalasi titik air (kran/closet/wastafel)", satuan: "titik", volume: v.titikAir } // gabungan 3 jenis fixture beda harga, sengaja tidak ditebak
       ];
     }
   },
@@ -4309,9 +4332,9 @@ const ESTIMASI_KATEGORI = [
     ],
     compute(v) {
       return [
-        { uraian: "Galian septic tank", satuan: "m3", volume: round3(v.panjang * v.lebar * v.kedalaman) },
-        { uraian: "Pasangan dinding bata septic tank", satuan: "m2", volume: round3(2 * (v.panjang + v.lebar) * v.kedalaman) },
-        { uraian: "Beton plat tutup septic tank", satuan: "m3", volume: round3(v.panjang * v.lebar * v.tebalTutup) }
+        { uraian: "Galian septic tank", satuan: "m3", volume: round3(v.panjang * v.lebar * v.kedalaman), matchHints: ["penggalian", "tanah biasa", "sedalam 0 s.d. 1 m", "manual"] },
+        { uraian: "Pasangan dinding bata septic tank", satuan: "m2", volume: round3(2 * (v.panjang + v.lebar) * v.kedalaman), matchHints: ["dinding bata merah tebal 1 batu campuran"] },
+        { uraian: "Beton plat tutup septic tank", satuan: "m3", volume: round3(v.panjang * v.lebar * v.tebalTutup) } // mutu beton harus pilihan sendiri
       ];
     }
   },
@@ -4367,7 +4390,7 @@ document.getElementById("est_hitungBtn").addEventListener("click", () => {
   });
   const results = kat.compute(v).filter(r => r.volume > 0);
   estimasiPreviewItems = results.map(r => {
-    const match = findBestAhspMatch(r.uraian);
+    const match = r.matchHints ? matchAhspByHint(r.matchHints) : null;
     return { ...r, ahspId: match ? match.id : "", hargaSatuan: match ? ahspHarga(match) : 0, kelompok: kat.kelompok };
   });
   const tbody = document.querySelector("#est_previewTable tbody");
