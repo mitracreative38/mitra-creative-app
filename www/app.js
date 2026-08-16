@@ -1296,12 +1296,39 @@ function daysBetweenIso(fromIso, toIso) {
   const b = new Date(toIso + "T00:00:00");
   return Math.round((b - a) / 86400000);
 }
-function waLink(nomor) {
+function waLink(nomor, text) {
   let digits = (nomor || "").replace(/[^0-9]/g, "");
   if (!digits) return "";
   if (digits.startsWith("0")) digits = "62" + digits.slice(1);
   else if (!digits.startsWith("62")) digits = "62" + digits;
-  return `https://wa.me/${digits}`;
+  const base = `https://wa.me/${digits}`;
+  return text ? `${base}?text=${encodeURIComponent(text)}` : base;
+}
+function buildInviteMessage(email, role) {
+  const namaPeran = ROLE_LABELS[role] || role;
+  const loginUrl = window.location.origin + window.location.pathname;
+  return `Halo! Anda diundang bergabung sebagai *${namaPeran}* di aplikasi Laporan Keuangan CV Mitra Creative.\n\nCara login:\n1. Buka ${loginUrl}\n2. Buka menu Pengaturan > Akun & Sinkronisasi Cloud\n3. Masuk dengan email ini: ${email}\n4. Masukkan kode OTP yang dikirim ke email tersebut\n\nTerima kasih.`;
+}
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+async function sendInviteInstruction(email, role, whatsapp) {
+  const pesan = buildInviteMessage(email, role);
+  const link = waLink(whatsapp, pesan);
+  if (link) {
+    window.open(link, "_blank");
+    showTeamMsg(`Instruksi login untuk ${email} dibuka di WhatsApp. Silakan kirim pesannya.`);
+    return;
+  }
+  const ok = await copyToClipboard(pesan);
+  showTeamMsg(ok
+    ? `Teks instruksi login untuk ${email} sudah disalin ke clipboard. Silakan kirim lewat email/chat lain.`
+    : `Berhasil diundang. Minta ${email} login lewat halaman Pengaturan > Akun & Sinkronisasi Cloud di perangkat mereka dengan email yang sama.`);
 }
 function currentMonthKey() {
   const d = new Date();
@@ -6869,7 +6896,10 @@ async function renderTeamMembers() {
         <td>${escapeHtml(r.member_email)}</td>
         <td>${escapeHtml(ROLE_LABELS[r.role] || r.role)}</td>
         <td>${r.status === "active" ? "Aktif" : "Menunggu login pertama"}</td>
-        <td><button class="btn-ghost" data-remove-team="${r.id}">Hapus</button></td>
+        <td>
+          <button class="btn-ghost" data-send-instruksi="${r.id}" data-email="${escapeHtml(r.member_email)}" data-role="${escapeHtml(r.role)}" data-wa="${escapeHtml(r.member_whatsapp || "")}">💬 Kirim Instruksi</button>
+          <button class="btn-ghost" data-remove-team="${r.id}">Hapus</button>
+        </td>
       </tr>
     `).join("") : `<tr><td colspan="4" class="muted">Belum ada anggota tim yang diundang.</td></tr>`;
     tbody.querySelectorAll("[data-remove-team]").forEach(btn => {
@@ -6880,6 +6910,11 @@ async function renderTeamMembers() {
         renderTeamMembers();
       });
     });
+    tbody.querySelectorAll("[data-send-instruksi]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        sendInviteInstruction(btn.dataset.email, btn.dataset.role, btn.dataset.wa);
+      });
+    });
   } catch (err) {
     showTeamMsg("Gagal memuat daftar anggota tim: " + err.message);
   }
@@ -6887,14 +6922,19 @@ async function renderTeamMembers() {
 document.getElementById("team_inviteBtn").addEventListener("click", async () => {
   if (!sb || !currentSyncUser) return;
   const email = document.getElementById("team_newEmail").value.trim().toLowerCase();
+  const whatsapp = document.getElementById("team_newWhatsapp").value.trim();
   const role = document.getElementById("team_newRole").value;
   if (!email) { showTeamMsg("Isi email anggota yang mau diundang."); return; }
   showTeamMsg("Mengundang...");
-  const { error } = await sb.from("team_members").insert({ owner_id: currentSyncUser.id, member_email: email, role, status: "pending" });
+  let { error } = await sb.from("team_members").insert({ owner_id: currentSyncUser.id, member_email: email, member_whatsapp: whatsapp || null, role, status: "pending" });
+  if (error && /member_whatsapp|schema cache/i.test(error.message)) {
+    ({ error } = await sb.from("team_members").insert({ owner_id: currentSyncUser.id, member_email: email, role, status: "pending" }));
+  }
   if (error) { showTeamMsg("Gagal mengundang: " + error.message); return; }
   document.getElementById("team_newEmail").value = "";
-  showTeamMsg(`Berhasil diundang. Minta ${email} login lewat halaman Pengaturan > Akun & Sinkronisasi Cloud di perangkat mereka dengan email yang sama.`);
+  document.getElementById("team_newWhatsapp").value = "";
   renderTeamMembers();
+  await sendInviteInstruction(email, role, whatsapp);
 });
 
 // ===== Print =====
