@@ -2136,7 +2136,8 @@
       <h3>Template AHSP Standar</h3>
       <button class="modal-close" data-close-modal>&times;</button>
     </div>
-    <p class="muted" style="font-size:12px;">Estimasi awal dari riset harga pasar (advertising, konstruksi, sipil, interior, eksterior, CCTV, AC, dst) — <strong>bukan angka resmi Perwali/PUPR</strong>, silakan cek &amp; koreksi setelah diimpor. Komponen Upah otomatis dihitung dari upah harian tertinggi karyawan aktif Anda + 20%, dan komponen Bahan otomatis tersambung ke Stok Material kalau namanya cocok.</p>
+    <p class="muted" style="font-size:12px;">Berisi 2 sumber: estimasi riset harga pasar (advertising, CCTV, AC, dst — bukan angka resmi Perwali/PUPR), dan dataset resmi AHSP Bidang Cipta Karya (Kepmen PU No. 47/KPTS/M/2026, ribuan item per kategori pekerjaan). Komponen Upah <strong>selalu</strong> otomatis dihitung dari upah harian tertinggi karyawan aktif Anda + 20% (bukan upah resmi pemerintah), dan komponen Bahan/Alat otomatis tersambung ke Stok Material/Alat Anda kalau namanya cocok, atau memakai harga referensi sebagai default.</p>
+    <input type="text" id="ahtpl_search" placeholder="Cari nama pekerjaan, kode, atau kategori... (ketik min. 2 huruf)" style="width:100%; margin-bottom:10px;">
     <div id="ahtpl_list"></div>
     <div class="modal-actions">
       <button type="button" class="btn-ghost" data-close-modal>Batal</button>
@@ -2435,6 +2436,7 @@
 <!-- Supabase client for optional cloud sync — app works fully offline/local if this fails to load -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="data.js"></script>
+<script src="data_ahsp_resmi.js"></script>
 <script src="app.js"></script>
 <!-- Native-shell glue (status bar, splash screen, Android back button) — no-op outside the mobile app -->
 <script src="mobile-init.bundle.js"></script>
