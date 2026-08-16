@@ -3901,10 +3901,29 @@ function resolveTemplateKomponen(tpl) {
     return { jenis: k.jenis, uraian: k.uraian, satuan: k.satuan, koefisien: k.koefisien, harga: k.harga || 0, sumberTipe: "", sumberId: "" };
   });
 }
-// Gabungan template riset pasar (AHSP_TEMPLATES, data.js) + dataset resmi
-// AHSP Bidang Cipta Karya (AHSP_TEMPLATES_RESMI, data_ahsp_resmi.js, ~1.940
-// item). Dihitung sekali karena kedua array tidak berubah saat runtime.
-const ALL_AHSP_TEMPLATES = AHSP_TEMPLATES.concat(typeof AHSP_TEMPLATES_RESMI !== "undefined" ? AHSP_TEMPLATES_RESMI : []);
+// Gabungan template riset pasar (AHSP_TEMPLATES, data.js, selalu tersedia) +
+// dataset resmi AHSP Bidang Cipta Karya (AHSP_TEMPLATES_RESMI, ~1.940 item,
+// ~1.7MB). File data_ahsp_resmi.js SENGAJA tidak dimuat lewat <script> tag
+// di index.html -- terlalu besar untuk dimuat di setiap buka aplikasi,
+// padahal cuma dipakai saat modal Template Standar dibuka. Dimuat dinamis
+// oleh loadAhspResmiDataset() saat benar-benar dibutuhkan.
+let ALL_AHSP_TEMPLATES = AHSP_TEMPLATES.slice();
+let ahspResmiLoadPromise = null;
+function loadAhspResmiDataset() {
+  if (typeof AHSP_TEMPLATES_RESMI !== "undefined") return Promise.resolve();
+  if (ahspResmiLoadPromise) return ahspResmiLoadPromise;
+  ahspResmiLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "data_ahsp_resmi.js";
+    script.onload = () => {
+      ALL_AHSP_TEMPLATES = AHSP_TEMPLATES.concat(typeof AHSP_TEMPLATES_RESMI !== "undefined" ? AHSP_TEMPLATES_RESMI : []);
+      resolve();
+    };
+    script.onerror = () => { ahspResmiLoadPromise = null; reject(new Error("Gagal memuat dataset AHSP resmi")); };
+    document.head.appendChild(script);
+  });
+  return ahspResmiLoadPromise;
+}
 const ahspTemplateModal = document.getElementById("ahspTemplateModal");
 // Kategori yang sedang dibuka pengguna saat menjelajah tanpa kata kunci
 // pencarian (modal tidak me-render ~1.940 item sekaligus di awal -- terlalu
@@ -3994,11 +4013,18 @@ function renderAhTemplateList(query) {
     });
   });
 }
-document.getElementById("ah_templateBtn").addEventListener("click", () => {
+document.getElementById("ah_templateBtn").addEventListener("click", async () => {
   ahtplExpandedKategori = new Set();
   document.getElementById("ahtpl_search").value = "";
-  renderAhTemplateList();
   ahspTemplateModal.classList.add("open");
+  const alreadyLoaded = typeof AHSP_TEMPLATES_RESMI !== "undefined";
+  if (!alreadyLoaded) document.getElementById("ahtpl_list").innerHTML = '<p class="muted">Memuat dataset AHSP resmi...</p>';
+  try {
+    await loadAhspResmiDataset();
+  } catch (err) {
+    alert("Gagal memuat dataset AHSP resmi (cek koneksi internet). Template riset pasar tetap bisa dipakai.");
+  }
+  renderAhTemplateList();
 });
 document.getElementById("ahtpl_search").addEventListener("input", (e) => {
   renderAhTemplateList(e.target.value);
