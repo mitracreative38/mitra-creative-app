@@ -508,6 +508,44 @@ const AHSP_TEMPLATES = [
       { jenis: "Bahan", uraian: "Plamir Tembok", satuan: "kg", koefisien: 0.1, harga: 15000 },
       { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.028 },
       { jenis: "Upah", uraian: "Tukang Cat", satuan: "OH", koefisien: 0.042 }
+    ] },
+  // ===== Event Organizer (rincian) =====
+  // EO-01/02/03 (SEED_AHSP) cuma harga borongan gabungan per paket, tanpa
+  // rincian Bahan/Upah -- beda dari kategori lain, jasa EO praktis tidak
+  // ada di dataset resmi AHSP_TEMPLATES_RESMI sama sekali (0 hasil untuk
+  // "tenda", "panggung", "sound system", "dekorasi"), jadi item rincian di
+  // bawah murni riset harga pasar sewa event, bukan dari standar PUPR.
+  { kode: "TPL-EO-04", kategori: "Event Organizer", uraian: "Sewa & Pasang Tenda Sarnavil per m2 (rincian)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar sewa tenda 2026 (tendaintanali.com, amidekorasi.com, nusatent.com)",
+    komponen: [
+      { jenis: "Bahan", uraian: "Sewa Tenda Sarnavil", satuan: "m2", koefisien: 1, harga: 35000 },
+      { jenis: "Bahan", uraian: "Sewa Kursi Chitose", satuan: "unit", koefisien: 0.5, harga: 5000 },
+      { jenis: "Upah", uraian: "Tukang Pasang Tenda", satuan: "OH", koefisien: 0.05 }
+    ] },
+  { kode: "TPL-EO-05", kategori: "Event Organizer", uraian: "Dekorasi Panggung + Backdrop Flexi per m2 (rincian)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar dekorasi event 2026 (kingsign.id, backdropevent.id, firstbackdrop.com)",
+    komponen: [
+      { jenis: "Bahan", uraian: "Rangka Panggung/Backdrop", satuan: "m2", koefisien: 1, harga: 100000 },
+      { jenis: "Bahan", uraian: "Bahan Flexi Cetak Backdrop", satuan: "m2", koefisien: 1, harga: 90000 },
+      { jenis: "Upah", uraian: "Tukang Dekorasi", satuan: "OH", koefisien: 0.1 }
+    ] },
+  { kode: "TPL-EO-06", kategori: "Event Organizer", uraian: "Sewa Sound System Basic (2 Speaker + Operator) per Hari", satuan: "hari", overhead: 10,
+    referensi: "Estimasi riset harga pasar sewa sound system 2026 (naremax.com, eventnesia.id, dbeventequipment.com) — paket basic, belum termasuk transportasi",
+    komponen: [
+      { jenis: "Bahan", uraian: "Sewa Sound System Basic", satuan: "paket", koefisien: 1, harga: 900000 },
+      { jenis: "Upah", uraian: "Operator Sound", satuan: "OH", koefisien: 1 }
+    ] },
+  { kode: "TPL-EO-07", kategori: "Event Organizer", uraian: "Sewa Sound System Menengah (Line Array Kecil) per Hari", satuan: "hari", overhead: 10,
+    referensi: "Estimasi riset harga pasar sewa sound system 2026 (naremax.com, eventnesia.id) — untuk kapasitas ratusan orang, belum termasuk transportasi",
+    komponen: [
+      { jenis: "Bahan", uraian: "Sewa Sound System Menengah (Line Array)", satuan: "paket", koefisien: 1, harga: 8000000 },
+      { jenis: "Upah", uraian: "Operator Sound", satuan: "OH", koefisien: 1 }
+    ] },
+  { kode: "TPL-EO-08", kategori: "Event Organizer", uraian: "Sewa Lighting Panggung (Par LED + Moving Head) per Hari", satuan: "hari", overhead: 10,
+    referensi: "Estimasi riset harga pasar sewa lighting event 2026 (dbeventequipment.com, eventnesia.id) — kebutuhan umum menyertai sewa sound system/panggung",
+    komponen: [
+      { jenis: "Bahan", uraian: "Sewa Lighting Set (Par LED + Moving Head)", satuan: "paket", koefisien: 1, harga: 3000000 },
+      { jenis: "Upah", uraian: "Operator Lighting", satuan: "OH", koefisien: 1 }
     ] }
 ];
 
