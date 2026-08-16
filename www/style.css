@@ -459,8 +459,8 @@ body.printing-quote #printArea {
 .pwmc-syarat-num { flex: none; width: 20px; height: 20px; border-radius: 50%; background: #f2b31a; color: #fff; font-size: 10px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
 .pwmc-syarat-text { font-size: 11px; color: #666a70; line-height: 1.5; padding-top: 2px; }
 
-.pwmc-signature { font-size: 12.5px; margin-top: 22px; text-align: center; }
-.pwmc-signature .ttd-img { display: block; height: 62px; width: auto; margin: 2px auto -8px; }
+.pwmc-signature { font-size: 12.5px; margin-top: 22px; text-align: left; }
+.pwmc-signature .ttd-img { display: block; height: 62px; width: auto; margin: 2px 0 -8px; }
 
 .doc-meta { display: flex; justify-content: space-between; align-items: flex-start; font-size: 12.5px; margin-bottom: 14px; gap: 20px; }
 .meta-table td { padding: 1px 4px 1px 0; vertical-align: top; }
