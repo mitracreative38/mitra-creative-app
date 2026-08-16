@@ -1,10 +1,9 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const { execSync } = require("child_process");
 const { createClient } = require("@supabase/supabase-js");
-const puppeteer = require("puppeteer-core");
 const { buildPenawaranPrintHtml, wrapPrintPage } = require("./lib/print");
+const { getBrowser } = require("./lib/browser");
 
 const PORT = process.env.PORT || 3000;
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -16,15 +15,6 @@ const SUPABASE_ANON_KEY = "sb_publishable_Hlr2FaEP0WH0EWg9ECO2-A_qvAYcoKs";
 // Alamat stylesheet ASLI aplikasi -- dipakai supaya PDF yang dihasilkan
 // selalu identik dengan tampilan cetak di aplikasi, tanpa duplikasi CSS.
 const APP_STYLE_URL = (process.env.APP_STYLE_URL || "https://mitracreative38.github.io/mitra-creative-app/style.css");
-// Lokasi executable Chromium yang dipakai Puppeteer untuk merender PDF.
-// Tidak pakai Chromium bawaan puppeteer (yang biasa didownload otomatis)
-// supaya build lebih ringan & cepat -- pakai yang di-install lewat
-// nixpacks.toml (nixPkgs "chromium") di server ini. Path Chromium hasil
-// install Nix punya hash acak (tidak bisa ditebak/di-hardcode di awal),
-// tapi Nixpacks menaruhnya di PATH, jadi bisa dicari otomatis lewat
-// `which chromium` saat server start -- tidak perlu Owner mengisi env var
-// tambahan secara manual. PUPPETEER_EXECUTABLE_PATH tetap bisa diisi
-// manual untuk override (dipakai juga untuk pengembangan lokal).
 // Situs statis (GitHub Pages) yang boleh memanggil server ini. Bisa diisi
 // beberapa origin dipisah koma lewat env var, untuk dev lokal + produksi.
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGIN || "https://mitracreative38.github.io")
@@ -66,40 +56,6 @@ function supabaseAsCaller(accessToken) {
     global: { headers: { Authorization: `Bearer ${accessToken}` } },
     auth: { persistSession: false }
   });
-}
-
-// Kalau env var PUPPETEER_EXECUTABLE_PATH tidak diisi manual, cari
-// Chromium yang di-install nixpacks.toml lewat PATH (`which`) -- ini yang
-// dipakai di Railway secara default, tanpa Owner perlu mengisi env var
-// tambahan secara manual.
-let resolvedChromiumPath = null;
-function resolveChromiumPath() {
-  if (PUPPETEER_EXECUTABLE_PATH) return PUPPETEER_EXECUTABLE_PATH;
-  if (resolvedChromiumPath) return resolvedChromiumPath;
-  for (const bin of ["chromium", "chromium-browser", "google-chrome-stable"]) {
-    try {
-      resolvedChromiumPath = execSync(`which ${bin}`, { encoding: "utf8" }).trim();
-      if (resolvedChromiumPath) return resolvedChromiumPath;
-    } catch (e) { /* coba nama berikutnya */ }
-  }
-  return null;
-}
-
-let browserPromise = null;
-async function getBrowser() {
-  const executablePath = resolveChromiumPath();
-  if (!executablePath) {
-    throw new Error("Chromium tidak ditemukan di server ini -- pastikan nixpacks.toml (nixPkgs \"chromium\") sudah ter-deploy, atau isi env var PUPPETEER_EXECUTABLE_PATH manual. Lihat server/README.md.");
-  }
-  if (!browserPromise) {
-    browserPromise = puppeteer.launch({
-      executablePath,
-      // Wajib di kontainer Linux tanpa user namespace (Railway dst.) --
-      // tanpa ini Chromium gagal start dengan error sandbox.
-      args: ["--no-sandbox", "--disable-setuid-sandbox"]
-    }).catch(err => { browserPromise = null; throw err; });
-  }
-  return browserPromise;
 }
 
 app.get("/api/pdf/penawaran/:id", async (req, res) => {
