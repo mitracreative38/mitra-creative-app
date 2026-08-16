@@ -3901,47 +3901,114 @@ function resolveTemplateKomponen(tpl) {
     return { jenis: k.jenis, uraian: k.uraian, satuan: k.satuan, koefisien: k.koefisien, harga: k.harga || 0, sumberTipe: "", sumberId: "" };
   });
 }
+// Gabungan template riset pasar (AHSP_TEMPLATES, data.js) + dataset resmi
+// AHSP Bidang Cipta Karya (AHSP_TEMPLATES_RESMI, data_ahsp_resmi.js, ~1.940
+// item). Dihitung sekali karena kedua array tidak berubah saat runtime.
+const ALL_AHSP_TEMPLATES = AHSP_TEMPLATES.concat(typeof AHSP_TEMPLATES_RESMI !== "undefined" ? AHSP_TEMPLATES_RESMI : []);
 const ahspTemplateModal = document.getElementById("ahspTemplateModal");
-function renderAhTemplateList() {
+// Kategori yang sedang dibuka pengguna saat menjelajah tanpa kata kunci
+// pencarian (modal tidak me-render ~1.940 item sekaligus di awal -- terlalu
+// berat & tidak berguna -- hanya ringkasan kategori sampai diklik atau dicari).
+let ahtplExpandedKategori = new Set();
+const AHTPL_SEARCH_LIMIT = 300;
+
+function renderAhTemplateGroup(items, sudahAda) {
+  return `
+    <div class="checklist" style="flex-direction:column; align-items:stretch; max-height:none;">
+      ${items.map(tpl => {
+        const resolved = resolveTemplateKomponen(tpl);
+        const estHarga = ahspHarga({ mode: "detail", komponen: resolved, overhead: tpl.overhead });
+        const sudah = sudahAda.has(tpl.kode);
+        return `
+          <label style="align-items:flex-start; padding:6px 0; border-bottom:1px solid var(--border);">
+            <input type="checkbox" class="ahtpl-check" value="${escapeHtml(tpl.kode)}" ${sudah ? "disabled" : ""} style="margin-top:3px;">
+            <span>
+              <strong>${escapeHtml(tpl.uraian)}</strong> (${escapeHtml(tpl.satuan)}) — est. ${rupiah(estHarga)}${sudah ? ' <em>(sudah ada di daftar AHSP)</em>' : ""}<br>
+              <span class="muted" style="font-size:11px;">${escapeHtml(tpl.referensi)}</span>
+            </span>
+          </label>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function renderAhTemplateList(query) {
+  query = (query || "").trim().toLowerCase();
+  const sudahAda = new Set(state.ahsp.map(a => a.kode).filter(Boolean));
   const byKategori = {};
-  AHSP_TEMPLATES.forEach(tpl => {
+  ALL_AHSP_TEMPLATES.forEach(tpl => {
     if (!byKategori[tpl.kategori]) byKategori[tpl.kategori] = [];
     byKategori[tpl.kategori].push(tpl);
   });
-  const sudahAda = new Set(state.ahsp.map(a => a.kode).filter(Boolean));
-  const html = Object.keys(byKategori).sort().map(kategori => `
-    <div style="margin-bottom:14px;">
-      <div class="muted" style="font-weight:600; margin-bottom:6px;">${escapeHtml(kategori)}</div>
-      <div class="checklist" style="flex-direction:column; align-items:stretch; max-height:none;">
-        ${byKategori[kategori].map(tpl => {
-          const resolved = resolveTemplateKomponen(tpl);
-          const estHarga = ahspHarga({ mode: "detail", komponen: resolved, overhead: tpl.overhead });
-          const sudah = sudahAda.has(tpl.kode);
-          return `
-            <label style="align-items:flex-start; padding:6px 0; border-bottom:1px solid var(--border);">
-              <input type="checkbox" class="ahtpl-check" value="${escapeHtml(tpl.kode)}" ${sudah ? "disabled" : ""} style="margin-top:3px;">
-              <span>
-                <strong>${escapeHtml(tpl.uraian)}</strong> (${escapeHtml(tpl.satuan)}) — est. ${rupiah(estHarga)}${sudah ? ' <em>(sudah ada di daftar AHSP)</em>' : ""}<br>
-                <span class="muted" style="font-size:11px;">${escapeHtml(tpl.referensi)}</span>
-              </span>
-            </label>
-          `;
-        }).join("")}
+  const kategoriNames = Object.keys(byKategori).sort();
+
+  if (query.length >= 2) {
+    let matched = ALL_AHSP_TEMPLATES.filter(tpl =>
+      tpl.uraian.toLowerCase().includes(query) ||
+      tpl.kode.toLowerCase().includes(query) ||
+      tpl.kategori.toLowerCase().includes(query)
+    );
+    const totalMatch = matched.length;
+    const truncated = totalMatch > AHTPL_SEARCH_LIMIT;
+    if (truncated) matched = matched.slice(0, AHTPL_SEARCH_LIMIT);
+    const byKategoriMatch = {};
+    matched.forEach(tpl => {
+      if (!byKategoriMatch[tpl.kategori]) byKategoriMatch[tpl.kategori] = [];
+      byKategoriMatch[tpl.kategori].push(tpl);
+    });
+    const html = Object.keys(byKategoriMatch).sort().map(kategori => `
+      <div style="margin-bottom:14px;">
+        <div class="muted" style="font-weight:600; margin-bottom:6px;">${escapeHtml(kategori)}</div>
+        ${renderAhTemplateGroup(byKategoriMatch[kategori], sudahAda)}
       </div>
-    </div>
-  `).join("");
+    `).join("");
+    const notice = truncated
+      ? `<p class="muted" style="font-size:12px;">Menampilkan ${AHTPL_SEARCH_LIMIT} dari ${totalMatch} hasil — persempit kata kunci pencarian untuk melihat sisanya.</p>`
+      : `<p class="muted" style="font-size:12px;">${totalMatch} hasil ditemukan.</p>`;
+    document.getElementById("ahtpl_list").innerHTML = notice + (html || '<p class="muted">Tidak ada template yang cocok.</p>');
+    return;
+  }
+
+  const html = kategoriNames.map(kategori => {
+    const items = byKategori[kategori];
+    const expanded = ahtplExpandedKategori.has(kategori);
+    return `
+      <div style="margin-bottom:10px;">
+        <div class="ahtpl-kategori-toggle muted" data-kategori="${escapeHtml(kategori)}" style="font-weight:600; margin-bottom:6px; cursor:pointer; display:flex; align-items:center; gap:6px;">
+          <span>${expanded ? "▾" : "▸"}</span>
+          <span>${escapeHtml(kategori)}</span>
+          <span style="font-weight:400;">(${items.length} item)</span>
+        </div>
+        ${expanded ? renderAhTemplateGroup(items, sudahAda) : ""}
+      </div>
+    `;
+  }).join("");
   document.getElementById("ahtpl_list").innerHTML = html || '<p class="muted">Tidak ada template tersedia.</p>';
+  document.querySelectorAll(".ahtpl-kategori-toggle").forEach(el => {
+    el.addEventListener("click", () => {
+      const kategori = el.dataset.kategori;
+      if (ahtplExpandedKategori.has(kategori)) ahtplExpandedKategori.delete(kategori);
+      else ahtplExpandedKategori.add(kategori);
+      renderAhTemplateList(document.getElementById("ahtpl_search").value);
+    });
+  });
 }
 document.getElementById("ah_templateBtn").addEventListener("click", () => {
+  ahtplExpandedKategori = new Set();
+  document.getElementById("ahtpl_search").value = "";
   renderAhTemplateList();
   ahspTemplateModal.classList.add("open");
+});
+document.getElementById("ahtpl_search").addEventListener("input", (e) => {
+  renderAhTemplateList(e.target.value);
 });
 document.getElementById("ahtpl_confirmBtn").addEventListener("click", () => {
   const checked = Array.from(document.querySelectorAll(".ahtpl-check:checked")).map(el => el.value);
   if (!checked.length) { alert("Pilih minimal satu item template untuk ditambahkan."); return; }
   let added = 0;
   checked.forEach(kode => {
-    const tpl = AHSP_TEMPLATES.find(t => t.kode === kode);
+    const tpl = ALL_AHSP_TEMPLATES.find(t => t.kode === kode);
     if (!tpl || state.ahsp.some(a => a.kode === tpl.kode)) return;
     const item = {
       id: uid(),
