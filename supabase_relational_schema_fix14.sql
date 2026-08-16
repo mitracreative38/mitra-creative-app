@@ -10,7 +10,9 @@
 -- only, tidak bisa diedit atau dihapus oleh siapa pun termasuk Owner
 -- sendiri (sama seperti idiom app_backups di fix11).
 --
--- Aman dijalankan kapan saja -- cuma menambah 1 tabel baru.
+-- Aman dijalankan berkali-kali (idempotent) -- kebijakan lama dihapus dulu
+-- sebelum dibuat ulang, jadi tidak akan gagal walau sebelumnya sempat
+-- setengah jalan.
 --
 -- Cara pakai: SQL Editor > New query > tempel semua > Run.
 -- ============================================================================
@@ -37,11 +39,13 @@ create index if not exists activity_log_company_module_idx
 alter table activity_log enable row level security;
 
 -- Owner boleh baca SEMUA log aktivitas perusahaannya.
+drop policy if exists "baca aktivitas - owner saja" on activity_log;
 create policy "baca aktivitas - owner saja" on activity_log for select
   using (auth.uid() = company_id);
 
 -- Owner/Admin/Marketing boleh MENULIS baris atas nama diri sendiri saja
 -- (actor_id dipin ke auth.uid(), tidak bisa dipalsukan jadi orang lain).
+drop policy if exists "tulis aktivitas - actor dipin" on activity_log;
 create policy "tulis aktivitas - actor dipin" on activity_log for insert
   with check (
     has_company_access(company_id, array['admin','marketing'])
