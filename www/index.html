@@ -83,6 +83,10 @@
         <svg viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 100-7 3.5 3.5 0 000 7zm7.4-3.5c0 .5-.04 1-.12 1.45l2.1 1.65-2 3.45-2.5-1a7.6 7.6 0 01-2.5 1.45l-.38 2.5h-4l-.38-2.5a7.6 7.6 0 01-2.5-1.45l-2.5 1-2-3.45 2.1-1.65C4.54 13 4.5 12.5 4.5 12s.04-1 .12-1.45L2.52 8.9l2-3.45 2.5 1a7.6 7.6 0 012.5-1.45L9.9 2.5h4l.38 2.5a7.6 7.6 0 012.5 1.45l2.5-1 2 3.45-2.1 1.65c.08.45.12.95.12 1.45z"/></svg>
         Pengaturan
       </button>
+      <button class="nav-item" data-page="aktivitas">
+        <svg viewBox="0 0 24 24"><path d="M13 3a9 9 0 00-9 9H1l3.89 3.89.07.14L9 12H6a7 7 0 117 7 6.93 6.93 0 01-4.95-2.05l-1.42 1.42A9 9 0 1013 3zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>
+        Aktivitas Tim
+      </button>
     </nav>
     <div class="sidebar-footer">
       <button class="btn-ghost" id="printBtn">🖨️ Cetak Laporan</button>
@@ -1597,6 +1601,40 @@
       </div>
     </section>
 
+    <!-- AKTIVITAS TIM (Owner-only) -->
+    <section class="page" id="page-aktivitas">
+      <header class="page-header">
+        <div>
+          <h1>Aktivitas Tim</h1>
+          <p class="page-sub">Jejak setiap perubahan (tambah/ubah/hapus) yang dilakukan Admin/Marketing/Owner di seluruh modul — siapa, kapan, dan nilai sebelum &amp; sesudahnya.</p>
+        </div>
+      </header>
+      <div class="panel">
+        <div class="toolbar">
+          <select id="akt_filterAnggota">
+            <option value="">Semua Anggota</option>
+          </select>
+          <select id="akt_filterModul">
+            <option value="">Semua Modul</option>
+          </select>
+          <input type="date" id="akt_mulai">
+          <input type="date" id="akt_selesai">
+          <button class="btn-ghost" id="akt_filterBtn">Terapkan Filter</button>
+        </div>
+        <div class="table-wrap">
+          <table class="tbl" id="aktivitasTable">
+            <thead><tr>
+              <th>Waktu</th><th>Anggota</th><th>Modul</th><th>Aksi</th><th>Ringkasan</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="settings-actions">
+          <button class="btn-ghost" id="akt_loadMoreBtn">Muat Lebih Banyak</button>
+        </div>
+      </div>
+    </section>
+
   </main>
 </div>
 
@@ -2120,6 +2158,19 @@
 </div>
 
 <!-- Modal: riwayat harga AHSP -->
+<div class="modal-backdrop" id="aktivitasDetailModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="aktivitasDetailTitle">Detail Aktivitas</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <div id="aktivitasDetailBody"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn-primary" data-close-modal>Tutup</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="ahspRiwayatModal">
   <div class="modal">
     <div class="modal-head">
