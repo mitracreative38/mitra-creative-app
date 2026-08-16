@@ -1001,9 +1001,16 @@ function updateSyncUI() {
     const teamPanel = document.getElementById("sync_teamPanel");
     if (teamPanel) teamPanel.style.display = currentTeamRole === "owner" ? "block" : "none";
     if (currentTeamRole === "owner") renderTeamMembers();
+    const backupPanel = document.getElementById("settingsBackupPanel");
+    if (backupPanel) {
+      backupPanel.style.display = currentTeamRole === "owner" ? "block" : "none";
+      if (currentTeamRole === "owner") renderBackupHistory();
+    }
   } else {
     loggedOut.style.display = "block";
     loggedIn.style.display = "none";
+    const backupPanel = document.getElementById("settingsBackupPanel");
+    if (backupPanel) backupPanel.style.display = "none";
   }
 }
 
@@ -6314,6 +6321,47 @@ attachNumberFormatting(document.getElementById("settingsApprovalThreshold"));
 document.getElementById("settingsApprovalThreshold").addEventListener("input", e => { state.approvalThreshold = parseNumberInput(e.target.value); saveState(); });
 document.getElementById("exportJsonBtn").addEventListener("click", () => {
   downloadFile(`backup-keuangan-${new Date().toISOString().slice(0,10)}.json`, JSON.stringify(state, null, 2), "application/json");
+});
+
+// ===== Backup Otomatis (Fase 0.2) =====
+// Riwayat backup ditulis oleh server (service role, lihat server/lib/backup.js),
+// bukan oleh klien -- di sini cuma baca daftarnya (RLS app_backups sudah
+// Owner-only) & unduh isinya kalau diminta, sama seperti Export Backup manual.
+async function renderBackupHistory() {
+  const tbody = document.querySelector("#backupHistoryTable tbody");
+  if (!sb || !targetCompanyId) { tbody.innerHTML = '<tr class="empty-row"><td colspan="2">-</td></tr>'; return; }
+  try {
+    const { data, error } = await sb.from("app_backups").select("id,created_at").eq("company_id", targetCompanyId).order("created_at", { ascending: false }).limit(30);
+    if (error) throw error;
+    if (!data || !data.length) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="2">Belum ada backup otomatis -- backup pertama dibuat dalam 24 jam ke depan.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.map(row => `
+      <tr>
+        <td>${new Date(row.created_at).toLocaleString("id-ID")}</td>
+        <td><button class="icon-btn" data-download-backup="${row.id}" title="Unduh">⬇️</button></td>
+      </tr>
+    `).join("");
+  } catch (err) {
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="2">Gagal memuat riwayat backup: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+document.getElementById("backupHistoryTable").addEventListener("click", async e => {
+  const btn = e.target.closest("[data-download-backup]");
+  if (!btn) return;
+  btn.disabled = true;
+  try {
+    const { data, error } = await sb.from("app_backups").select("data,created_at").eq("id", btn.dataset.downloadBackup).maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("Backup tidak ditemukan.");
+    const tanggal = new Date(data.created_at).toISOString().slice(0, 10);
+    downloadFile(`backup-otomatis-${tanggal}.json`, JSON.stringify(data.data, null, 2), "application/json");
+  } catch (err) {
+    alert("Gagal mengunduh backup: " + err.message);
+  } finally {
+    btn.disabled = false;
+  }
 });
 // Selain slip gaji, beberapa field lain juga tersimpan sebagai satu kolom
 // array utuh yang MENUMPUK dari waktu ke waktu dan TIDAK punya tombol hapus
