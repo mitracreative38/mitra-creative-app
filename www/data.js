@@ -133,6 +133,39 @@ const AHSP_TEMPLATES = [
       { jenis: "Bahan", uraian: "Konektor BNC & Aksesoris", satuan: "set", koefisien: 1, harga: 30000 },
       { jenis: "Upah", uraian: "Teknisi Pasang CCTV", satuan: "OH", koefisien: 1 }
     ] },
+  { kode: "TPL-CCTV-02", kategori: "CCTV", uraian: "Pemasangan Instalasi CCTV per Titik Kamera (Indoor/Dome)", satuan: "titik", overhead: 10,
+    referensi: "Estimasi riset harga pasar (gsi-indo.com, baguscctv.com, hikvision-indonesia.com) — jarak kabel ke DVR/NVR standar s/d 10m, kelebihan pakai TPL-CCTV-04",
+    komponen: [
+      { jenis: "Bahan", uraian: "Kamera CCTV Indoor Dome", satuan: "unit", koefisien: 1, harga: 650000 },
+      { jenis: "Bahan", uraian: "Kabel Coaxial RG59", satuan: "m1", koefisien: 10, harga: 6000 },
+      { jenis: "Bahan", uraian: "Adaptor/Power Supply 12V", satuan: "unit", koefisien: 1, harga: 60000 },
+      { jenis: "Bahan", uraian: "Konektor BNC & Aksesoris", satuan: "set", koefisien: 1, harga: 25000 },
+      { jenis: "Upah", uraian: "Teknisi Pasang CCTV", satuan: "OH", koefisien: 0.75 }
+    ] },
+  { kode: "TPL-CCTV-03", kategori: "CCTV", uraian: "Instalasi & Setting DVR/NVR 8 Channel + Harddisk 2TB", satuan: "unit", overhead: 10,
+    referensi: "Estimasi riset harga pasar paket CCTV 8 titik (gsi-indo.com, baguscctv.com, promocctv.com)",
+    komponen: [
+      { jenis: "Bahan", uraian: "DVR/NVR 8 Channel", satuan: "unit", koefisien: 1, harga: 850000 },
+      { jenis: "Bahan", uraian: "Harddisk CCTV 2TB", satuan: "unit", koefisien: 1, harga: 750000 },
+      { jenis: "Bahan", uraian: "Kabel Power & Konektor DVR", satuan: "set", koefisien: 1, harga: 50000 },
+      { jenis: "Upah", uraian: "Teknisi Setting DVR/NVR", satuan: "OH", koefisien: 1 }
+    ] },
+  { kode: "TPL-CCTV-04", kategori: "CCTV", uraian: "Tambahan Instalasi Kabel CCTV per Meter (di luar paket standar)", satuan: "m1", overhead: 10,
+    referensi: "Estimasi riset harga pasar (gsi-indo.com, baguscctv.com) — dipakai kalau jarak kamera ke DVR/NVR melebihi jatah standar per titik",
+    komponen: [
+      { jenis: "Bahan", uraian: "Kabel Coaxial RG59 + Power", satuan: "m1", koefisien: 1, harga: 7000 },
+      { jenis: "Bahan", uraian: "Pipa Conduit/Klem Kabel", satuan: "m1", koefisien: 1, harga: 3000 },
+      { jenis: "Upah", uraian: "Tukang Tarik Kabel", satuan: "OH", koefisien: 0.02 }
+    ] },
+  { kode: "TPL-CCTV-05", kategori: "CCTV", uraian: "Pemasangan Instalasi CCTV IP Camera + Kabel UTP per Titik", satuan: "titik", overhead: 10,
+    referensi: "Estimasi riset harga pasar CCTV IP/PoE (hikvision-indonesia.com, baguscctv.com) — untuk sistem berbasis NVR IP, bukan DVR analog",
+    komponen: [
+      { jenis: "Bahan", uraian: "Kamera IP CCTV", satuan: "unit", koefisien: 1, harga: 1200000 },
+      { jenis: "Bahan", uraian: "Kabel UTP Cat6", satuan: "m1", koefisien: 15, harga: 6000 },
+      { jenis: "Bahan", uraian: "Konektor RJ45 & Boot", satuan: "set", koefisien: 1, harga: 15000 },
+      { jenis: "Bahan", uraian: "PoE Injector/Switch PoE", satuan: "unit", koefisien: 0.25, harga: 250000 },
+      { jenis: "Upah", uraian: "Teknisi Pasang CCTV IP", satuan: "OH", koefisien: 1 }
+    ] },
   { kode: "TPL-AC-01", kategori: "AC", uraian: "Jasa Pasang AC Split Baru (1/2 PK - 1.5 PK)", satuan: "unit", overhead: 10,
     referensi: "Estimasi riset harga pasar jasa AC (hargaac.co.id, selka.id, trasfello.com, ahliac.com) — pipa tambahan di luar 3m dihitung terpisah",
     komponen: [
@@ -140,6 +173,35 @@ const AHSP_TEMPLATES = [
       { jenis: "Bahan", uraian: "Bracket Outdoor", satuan: "unit", koefisien: 1, harga: 75000 },
       { jenis: "Bahan", uraian: "Kabel Power + Selang Pembuangan", satuan: "set", koefisien: 1, harga: 50000 },
       { jenis: "Upah", uraian: "Teknisi AC", satuan: "OH", koefisien: 1 }
+    ] },
+  { kode: "TPL-AC-02", kategori: "AC", uraian: "Jasa Pasang AC Split Baru (2 PK - 2.5 PK)", satuan: "unit", overhead: 10,
+    referensi: "Estimasi riset harga pasar jasa AC (selka.id, ose.co.id, abangbenerin.com) — unit lebih besar butuh bracket & kabel power lebih kuat",
+    komponen: [
+      { jenis: "Bahan", uraian: "Pipa AC (paket standar 3m, ukuran besar)", satuan: "set", koefisien: 1, harga: 220000 },
+      { jenis: "Bahan", uraian: "Bracket Outdoor Heavy Duty", satuan: "unit", koefisien: 1, harga: 110000 },
+      { jenis: "Bahan", uraian: "Kabel Power + Selang Pembuangan", satuan: "set", koefisien: 1, harga: 70000 },
+      { jenis: "Upah", uraian: "Teknisi AC", satuan: "OH", koefisien: 1.3 }
+    ] },
+  { kode: "TPL-AC-03", kategori: "AC", uraian: "Bongkar Pasang AC Split (Relokasi Unit)", satuan: "unit", overhead: 10,
+    referensi: "Estimasi riset harga pasar (rafifteknik.com, haiservice.id, cariproperti.com) — termasuk isi ulang freon, belum termasuk pipa/bracket baru kalau jarak berubah jauh",
+    komponen: [
+      { jenis: "Bahan", uraian: "Freon R32/R410A Isi Ulang", satuan: "kali", koefisien: 1, harga: 180000 },
+      { jenis: "Bahan", uraian: "Pipa AC Tambahan/Sambungan", satuan: "set", koefisien: 0.5, harga: 150000 },
+      { jenis: "Bahan", uraian: "Bracket Outdoor", satuan: "unit", koefisien: 1, harga: 75000 },
+      { jenis: "Upah", uraian: "Teknisi AC", satuan: "OH", koefisien: 1.5 }
+    ] },
+  { kode: "TPL-AC-04", kategori: "AC", uraian: "Cuci/Service AC Split (Rutin)", satuan: "unit", overhead: 10,
+    referensi: "Estimasi riset harga pasar (sejasa.com, elobanaserviceac.com, griffinteknikac.com)",
+    komponen: [
+      { jenis: "Bahan", uraian: "Cairan Pembersih Evaporator/Kondensor", satuan: "paket", koefisien: 1, harga: 15000 },
+      { jenis: "Upah", uraian: "Teknisi AC", satuan: "OH", koefisien: 0.4 }
+    ] },
+  { kode: "TPL-AC-05", kategori: "AC", uraian: "Tambahan Pipa AC per Meter (di luar paket standar 3m)", satuan: "m1", overhead: 10,
+    referensi: "Estimasi riset harga pasar (selka.id, rafifteknik.com) — dipakai kalau jarak indoor-outdoor melebihi paket standar",
+    komponen: [
+      { jenis: "Bahan", uraian: "Pipa Tembaga AC + Isolasi Armaflex", satuan: "set", koefisien: 1, harga: 70000 },
+      { jenis: "Bahan", uraian: "Kabel Power Tambahan", satuan: "m1", koefisien: 1, harga: 8000 },
+      { jenis: "Upah", uraian: "Teknisi AC", satuan: "OH", koefisien: 0.1 }
     ] },
   { kode: "TPL-LIS-01", kategori: "Instalasi Listrik", uraian: "Instalasi Titik Lampu (Kabel NYM + Conduit + Fitting)", satuan: "titik", overhead: 10,
     referensi: "Estimasi riset harga pasar (mbizmarket.co.id, brighton.co.id, medcom.id)",
