@@ -324,6 +324,58 @@ const AHSP_TEMPLATES = [
     komponen: [
       { jenis: "Upah", uraian: "Desainer 3D", satuan: "OH", koefisien: 1.5 }
     ] },
+  { kode: "TPL-ADV-20", kategori: "Advertising", uraian: "Running Text LED Single Warna per Meter", satuan: "m1", overhead: 10,
+    referensi: "Estimasi riset harga pasar 2026 (tokopedia.com, primaled.id, 4c-light.com) — modul siap pasang termasuk casing, ukuran tinggi ±20cm",
+    komponen: [
+      { jenis: "Bahan", uraian: "Modul LED Running Text Single Color", satuan: "m1", koefisien: 1, harga: 650000 },
+      { jenis: "Bahan", uraian: "Power Supply & Controller", satuan: "unit", koefisien: 0.15, harga: 350000 },
+      { jenis: "Upah", uraian: "Teknisi Pasang Running Text", satuan: "OH", koefisien: 0.3 }
+    ] },
+  { kode: "TPL-ADV-21", kategori: "Advertising", uraian: "Running Text LED Full Color per Meter", satuan: "m1", overhead: 10,
+    referensi: "Estimasi riset harga pasar 2026 (tokopedia.com, primaled.id, sinarglodok.com) — modul P10 full color, bisa tampilkan animasi/gambar sederhana",
+    komponen: [
+      { jenis: "Bahan", uraian: "Modul LED Running Text Full Color P10", satuan: "m1", koefisien: 1, harga: 1500000 },
+      { jenis: "Bahan", uraian: "Power Supply & Controller Full Color", satuan: "unit", koefisien: 0.15, harga: 500000 },
+      { jenis: "Upah", uraian: "Teknisi Pasang Running Text", satuan: "OH", koefisien: 0.4 }
+    ] },
+  { kode: "TPL-ADV-22", kategori: "Advertising", uraian: "Videotron Indoor P2.5 per m2", satuan: "m2", overhead: 12,
+    referensi: "Estimasi riset harga pasar videotron 2026 (uno.id, gsi-indo.com, olzavisual.com) — pixel pitch rapat untuk jarak pandang dekat (dalam ruangan)",
+    komponen: [
+      { jenis: "Bahan", uraian: "Modul LED Indoor P2.5", satuan: "m2", koefisien: 1, harga: 18000000 },
+      { jenis: "Bahan", uraian: "Power Supply & Cabinet", satuan: "m2", koefisien: 1, harga: 1500000 },
+      { jenis: "Bahan", uraian: "Sender Card/Sistem Kontrol", satuan: "paket", koefisien: 0.05, harga: 5000000 },
+      { jenis: "Upah", uraian: "Teknisi Videotron", satuan: "OH", koefisien: 1.5 }
+    ] },
+  { kode: "TPL-ADV-23", kategori: "Advertising", uraian: "Videotron Outdoor P4 per m2", satuan: "m2", overhead: 12,
+    referensi: "Estimasi riset harga pasar videotron 2026 (uno.id, gsi-indo.com, indonesiavideotron.com) — untuk billboard/papan iklan digital luar ruangan, jarak pandang menengah",
+    komponen: [
+      { jenis: "Bahan", uraian: "Modul LED Outdoor P4", satuan: "m2", koefisien: 1, harga: 25000000 },
+      { jenis: "Bahan", uraian: "Power Supply & Cabinet Waterproof", satuan: "m2", koefisien: 1, harga: 2000000 },
+      { jenis: "Bahan", uraian: "Sender Card/Sistem Kontrol", satuan: "paket", koefisien: 0.03, harga: 6000000 },
+      { jenis: "Upah", uraian: "Teknisi Videotron", satuan: "OH", koefisien: 2 }
+    ] },
+  { kode: "TPL-ADV-24", kategori: "Advertising", uraian: "Videotron Outdoor P10 per m2", satuan: "m2", overhead: 12,
+    referensi: "Estimasi riset harga pasar videotron 2026 (uno.id, gsi-indo.com) — pixel pitch renggang, lebih ekonomis untuk billboard skala besar & jarak pandang jauh",
+    komponen: [
+      { jenis: "Bahan", uraian: "Modul LED Outdoor P10", satuan: "m2", koefisien: 1, harga: 15000000 },
+      { jenis: "Bahan", uraian: "Power Supply & Cabinet Waterproof", satuan: "m2", koefisien: 1, harga: 1800000 },
+      { jenis: "Bahan", uraian: "Sender Card/Sistem Kontrol", satuan: "paket", koefisien: 0.02, harga: 6000000 },
+      { jenis: "Upah", uraian: "Teknisi Videotron", satuan: "OH", koefisien: 1.5 }
+    ] },
+  { kode: "TPL-ADV-25", kategori: "Advertising", uraian: "Huruf Timbul Kuningan/Tembaga (per cm tinggi huruf)", satuan: "cm", overhead: 10,
+    referensi: "Estimasi riset harga pasar 2026 (tradisilogam.com, karyautama-steel.com, sinergimedia.co.id) — material premium untuk signage korporat/hotel/resto, finishing poles atau antique",
+    komponen: [
+      { jenis: "Bahan", uraian: "Plat Kuningan/Tembaga 1-1.5mm", satuan: "cm", koefisien: 1, harga: 18000 },
+      { jenis: "Bahan", uraian: "Finishing Poles/Antique", satuan: "cm", koefisien: 1, harga: 2000 },
+      { jenis: "Upah", uraian: "Tukang Finishing Premium", satuan: "OH", koefisien: 0.05 }
+    ] },
+  { kode: "TPL-ADV-26", kategori: "Advertising", uraian: "Huruf Timbul GRC (per cm tinggi huruf, untuk huruf besar outdoor)", satuan: "cm", overhead: 10,
+    referensi: "Estimasi kasar dari harga material GRC (mitra10.com) + markup fabrikasi cetak cor huruf besar -- cek ulang ke vendor GRC lokal, variasi harga cukup besar tergantung ukuran & kerumitan cetakan",
+    komponen: [
+      { jenis: "Bahan", uraian: "GRC Precast Huruf", satuan: "cm", koefisien: 1, harga: 5000 },
+      { jenis: "Bahan", uraian: "Cat Finishing Weathershield", satuan: "cm", koefisien: 1, harga: 800 },
+      { jenis: "Upah", uraian: "Tukang Cetak & Finishing GRC", satuan: "OH", koefisien: 0.04 }
+    ] },
   { kode: "TPL-BJ-03", kategori: "Konstruksi Baja", uraian: "Pemasangan Dinding ACP + Rangka Hollow", satuan: "m2", overhead: 10,
     referensi: "Estimasi riset harga pasar (alcoseven.co.id, pasangaluminiumkaca.com, 99.co)",
     komponen: [
@@ -337,6 +389,25 @@ const AHSP_TEMPLATES = [
       { jenis: "Upah", uraian: "Kepala Tukang Besi", satuan: "OH", koefisien: 0.07 },
       { jenis: "Upah", uraian: "Mandor", satuan: "OH", koefisien: 0.007 }
     ] },
+  { kode: "TPL-BJ-04", kategori: "Konstruksi Baja", uraian: "Pemasangan Dinding ACP Motif Kayu/Batu Premium + Rangka Hollow", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar ACP 2026 (trideko.com, naseni.id, jasapasangfasad.com) — ACP motif kayu/batu/metalik, lebih mahal dari ACP solid color biasa",
+    komponen: [
+      { jenis: "Bahan", uraian: "ACP Motif Kayu/Batu Premium", satuan: "m2", koefisien: 1.1, harga: 650000 },
+      { jenis: "Bahan", uraian: "Besi Hollow 4x4 Galvanis", satuan: "batang", koefisien: 0.8, harga: 120000 },
+      { jenis: "Bahan", uraian: "Bracket Siku/Spigot/Stiffener", satuan: "batang", koefisien: 0.267, harga: 65000 },
+      { jenis: "Bahan", uraian: "Paku Sekrup Beton", satuan: "kg", koefisien: 0.19, harga: 24000 },
+      { jenis: "Bahan", uraian: "Sealant", satuan: "tube", koefisien: 0.25, harga: 28000 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.39 },
+      { jenis: "Upah", uraian: "Tukang Las/Besi", satuan: "OH", koefisien: 0.70 }
+    ] },
+  { kode: "TPL-BJ-05", kategori: "Konstruksi Baja", uraian: "ACP Cutting Huruf/Logo (Papan Nama Timbul ACP)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar ACP cutting/routing 2026 (trideko.com, naseni.id) — dihitung dari luas bidang huruf/logo yang di-cutting, bukan luas panel utuh",
+    komponen: [
+      { jenis: "Bahan", uraian: "ACP untuk Cutting", satuan: "m2", koefisien: 1, harga: 550000 },
+      { jenis: "Bahan", uraian: "Jasa Cutting/Routing CNC", satuan: "m2", koefisien: 1, harga: 150000 },
+      { jenis: "Bahan", uraian: "Rangka Dudukan Belakang", satuan: "m2", koefisien: 1, harga: 80000 },
+      { jenis: "Upah", uraian: "Tukang Pasang", satuan: "OH", koefisien: 0.3 }
+    ] },
   { kode: "TPL-EKS-03", kategori: "Renovasi Eksterior", uraian: "Pemasangan Kanopi Baja Ringan + Atap Spandek (rincian)", satuan: "m2", overhead: 10,
     referensi: "Estimasi riset harga pasar borongan kanopi (jasabajaringan.com, hargakanopi.com, petra-truss.com)",
     komponen: [
@@ -344,6 +415,33 @@ const AHSP_TEMPLATES = [
       { jenis: "Bahan", uraian: "Atap Spandek 0.35mm", satuan: "m2", koefisien: 1, harga: 90000 },
       { jenis: "Bahan", uraian: "Baut & Aksesoris", satuan: "set", koefisien: 1, harga: 15000 },
       { jenis: "Upah", uraian: "Tukang Pasang", satuan: "OH", koefisien: 0.5 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.3 }
+    ] },
+  { kode: "TPL-EKS-04", kategori: "Renovasi Eksterior", uraian: "Fasad GRC Precast Motif", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar GRC 2026 (mitra10.com) — GRC board precast bermotif untuk fasad dekoratif, beda dari plesteran/pengecatan biasa",
+    komponen: [
+      { jenis: "Bahan", uraian: "GRC Board Precast Motif", satuan: "m2", koefisien: 1, harga: 350000 },
+      { jenis: "Bahan", uraian: "Rangka Hollow Galvanis", satuan: "m2", koefisien: 1, harga: 90000 },
+      { jenis: "Bahan", uraian: "Sealant & Aksesoris", satuan: "m2", koefisien: 1, harga: 20000 },
+      { jenis: "Upah", uraian: "Tukang Pasang GRC", satuan: "OH", koefisien: 0.35 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.2 }
+    ] },
+  { kode: "TPL-EKS-05", kategori: "Renovasi Eksterior", uraian: "Fasad Batu Alam/Andesit", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar fasad 2026 (trideko.com) — kisaran harga batu alam cukup lebar tergantung jenis batu (andesit/paras/templek)",
+    komponen: [
+      { jenis: "Bahan", uraian: "Batu Alam/Andesit", satuan: "m2", koefisien: 1, harga: 750000 },
+      { jenis: "Bahan", uraian: "Semen Perekat Batu Alam", satuan: "kg", koefisien: 5, harga: 3000 },
+      { jenis: "Bahan", uraian: "Coating Anti Jamur/Waterproofing", satuan: "m2", koefisien: 1, harga: 25000 },
+      { jenis: "Upah", uraian: "Tukang Pasang Batu Alam", satuan: "OH", koefisien: 0.6 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.4 }
+    ] },
+  { kode: "TPL-EKS-06", kategori: "Renovasi Eksterior", uraian: "Fasad Kaca Curtain Wall", satuan: "m2", overhead: 12,
+    referensi: "Estimasi riset harga pasar fasad 2026 (trideko.com, acpindo.com) — kaca tempered + rangka aluminium struktural, untuk fasad gedung skala menengah-besar",
+    komponen: [
+      { jenis: "Bahan", uraian: "Kaca Tempered 10-12mm", satuan: "m2", koefisien: 1, harga: 1100000 },
+      { jenis: "Bahan", uraian: "Rangka Aluminium Curtain Wall", satuan: "m2", koefisien: 1, harga: 450000 },
+      { jenis: "Bahan", uraian: "Sealant Structural & Aksesoris", satuan: "m2", koefisien: 1, harga: 50000 },
+      { jenis: "Upah", uraian: "Tukang Kaca/Aluminium", satuan: "OH", koefisien: 0.5 },
       { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.3 }
     ] },
   { kode: "TPL-SIP-04", kategori: "Sipil/Konstruksi", uraian: "Pengecatan Dinding Interior (Plamir + Dasar + 2 Lapis Cat)", satuan: "m2", overhead: 10,
