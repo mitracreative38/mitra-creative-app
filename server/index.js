@@ -2,7 +2,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const { createClient } = require("@supabase/supabase-js");
-const { buildPenawaranPrintHtml, wrapPrintPage } = require("./lib/print");
+const { buildPenawaranPrintHtml, buildRabPrintHtml, buildSlipGajiPrintHtml, wrapPrintPage } = require("./lib/print");
 const { getBrowser } = require("./lib/browser");
 
 const PORT = process.env.PORT || 3000;
@@ -58,15 +58,58 @@ function supabaseAsCaller(accessToken) {
   });
 }
 
-app.get("/api/pdf/penawaran/:id", async (req, res) => {
+// Profil perusahaan (nama, alamat, dst.) masih di blob app_state, RLS
+// tabel itu sudah mengizinkan anggota tim aktif membacanya (Fase D cuma
+// mengosongkan field Kas/gaji dari blob, bukan field ini).
+async function getProfil(sbUser, companyId) {
+  const { data: stateRow } = await sbUser.from("app_state").select("data").eq("user_id", companyId).maybeSingle();
+  const blob = (stateRow && stateRow.data) || {};
+  return {
+    company: blob.company, alamat: blob.alamat, telepon: blob.telepon,
+    ownerNama: blob.ownerNama, ownerJabatan: blob.ownerJabatan
+  };
+}
+
+// Merender bodyHtml jadi PDF lewat Puppeteer dan mengirimkannya sebagai
+// respons unduhan -- dipakai sama oleh ketiga endpoint /api/pdf/*.
+async function sendPdfResponse(res, bodyHtml, filename) {
+  const fullHtml = wrapPrintPage(bodyHtml, APP_STYLE_URL);
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+  try {
+    await page.setContent(fullHtml, { waitUntil: "networkidle0" });
+    // page.pdf() balikin Uint8Array biasa (bukan Node Buffer) di versi
+    // puppeteer ini -- res.send() Express butuh Buffer sungguhan supaya
+    // body respons binary-nya terkirim benar, bukan malah dikira object
+    // dan di-JSON.stringify.
+    const pdfBuffer = Buffer.from(await page.pdf({ format: "A4", printBackground: true, margin: { top: "14mm", bottom: "14mm", left: "12mm", right: "12mm" } }));
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename.replace(/[\\/]/g, "-")}.pdf"`);
+    res.send(pdfBuffer);
+  } finally {
+    await page.close();
+  }
+}
+
+// Semua endpoint /api/pdf/* butuh header Authorization -- dicek di sini
+// supaya tidak diulang di tiap route.
+function requireAccessToken(req, res) {
   const authHeader = req.headers.authorization || "";
   const accessToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
   if (!accessToken) {
-    return res.status(401).json({ error: "Perlu login -- header Authorization tidak ada." });
+    res.status(401).json({ error: "Perlu login -- header Authorization tidak ada." });
+    return null;
   }
   if (!SUPABASE_URL) {
-    return res.status(500).json({ error: "Server belum dikonfigurasi (SUPABASE_URL kosong)." });
+    res.status(500).json({ error: "Server belum dikonfigurasi (SUPABASE_URL kosong)." });
+    return null;
   }
+  return accessToken;
+}
+
+app.get("/api/pdf/penawaran/:id", async (req, res) => {
+  const accessToken = requireAccessToken(req, res);
+  if (!accessToken) return;
   try {
     const sbUser = supabaseAsCaller(accessToken);
 
@@ -79,36 +122,64 @@ app.get("/api/pdf/penawaran/:id", async (req, res) => {
       return res.status(404).json({ error: "Penawaran tidak ditemukan." });
     }
 
-    // Profil perusahaan (nama, alamat, dst.) masih di blob app_state, RLS
-    // tabel itu sudah mengizinkan anggota tim aktif membacanya (Fase D
-    // cuma mengosongkan field Kas/gaji dari blob, bukan field ini).
-    const { data: stateRow } = await sbUser.from("app_state").select("data").eq("user_id", pw.company_id).maybeSingle();
-    const blob = (stateRow && stateRow.data) || {};
-    const profil = {
-      company: blob.company, alamat: blob.alamat, telepon: blob.telepon,
-      ownerNama: blob.ownerNama, ownerJabatan: blob.ownerJabatan
-    };
-
+    const profil = await getProfil(sbUser, pw.company_id);
     const bodyHtml = buildPenawaranPrintHtml(pw, profil);
-    const fullHtml = wrapPrintPage(bodyHtml, APP_STYLE_URL);
-
-    const browser = await getBrowser();
-    const page = await browser.newPage();
-    try {
-      await page.setContent(fullHtml, { waitUntil: "networkidle0" });
-      // page.pdf() balikin Uint8Array biasa (bukan Node Buffer) di versi
-      // puppeteer-core ini -- res.send() Express butuh Buffer sungguhan
-      // supaya body respons binary-nya terkirim benar, bukan malah
-      // dikira object dan di-JSON.stringify.
-      const pdfBuffer = Buffer.from(await page.pdf({ format: "A4", printBackground: true, margin: { top: "14mm", bottom: "14mm", left: "12mm", right: "12mm" } }));
-      res.setHeader("Content-Type", "application/pdf");
-      res.setHeader("Content-Disposition", `attachment; filename="Penawaran-${(pw.nomor || pw.id).toString().replace(/[\\/]/g, "-")}.pdf"`);
-      res.send(pdfBuffer);
-    } finally {
-      await page.close();
-    }
+    await sendPdfResponse(res, bodyHtml, `Penawaran-${pw.nomor || pw.id}`);
   } catch (err) {
     console.error("[pdf/penawaran] gagal:", err);
+    res.status(500).json({ error: "Gagal membuat PDF: " + err.message });
+  }
+});
+
+app.get("/api/pdf/rab/:id", async (req, res) => {
+  const accessToken = requireAccessToken(req, res);
+  if (!accessToken) return;
+  try {
+    const sbUser = supabaseAsCaller(accessToken);
+
+    const { data: rab, error: rabErr } = await sbUser.from("rab").select("*").eq("id", req.params.id).maybeSingle();
+    if (rabErr) throw rabErr;
+    if (!rab) {
+      return res.status(404).json({ error: "RAB tidak ditemukan." });
+    }
+
+    const profil = await getProfil(sbUser, rab.company_id);
+    const bodyHtml = buildRabPrintHtml(rab, profil);
+    await sendPdfResponse(res, bodyHtml, `RAB-${rab.nomor || rab.id}`);
+  } catch (err) {
+    console.error("[pdf/rab] gagal:", err);
+    res.status(500).json({ error: "Gagal membuat PDF: " + err.message });
+  }
+});
+
+app.get("/api/pdf/slip-gaji/:id", async (req, res) => {
+  const accessToken = requireAccessToken(req, res);
+  if (!accessToken) return;
+  try {
+    const sbUser = supabaseAsCaller(accessToken);
+
+    // karyawan_gaji.slip_gaji satu kolom array berisi SEMUA slip milik
+    // satu karyawan (bukan satu baris per slip) -- RLS tabel ini
+    // Owner-only, jadi select tanpa filter company_id pun otomatis cuma
+    // mengembalikan baris milik pemanggil kalau dia memang Owner-nya
+    // (kosong kalau bukan).
+    const { data: gajiRows, error: gajiErr } = await sbUser.from("karyawan_gaji").select("*");
+    if (gajiErr) throw gajiErr;
+    let found = null;
+    let companyId = null;
+    for (const row of gajiRows || []) {
+      const slip = (row.slip_gaji || []).find(s => s.id === req.params.id);
+      if (slip) { found = slip; companyId = row.company_id; break; }
+    }
+    if (!found) {
+      return res.status(404).json({ error: "Slip gaji tidak ditemukan." });
+    }
+
+    const profil = await getProfil(sbUser, companyId);
+    const bodyHtml = buildSlipGajiPrintHtml(found, profil);
+    await sendPdfResponse(res, bodyHtml, `Slip-Gaji-${found.namaKaryawan}-${found.mulai}`);
+  } catch (err) {
+    console.error("[pdf/slip-gaji] gagal:", err);
     res.status(500).json({ error: "Gagal membuat PDF: " + err.message });
   }
 });
