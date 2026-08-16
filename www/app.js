@@ -5981,60 +5981,88 @@ function buildPenawaranPrintHtml(pw) {
     </tr>
   `).join("") || `<tr><td colspan="6" class="c">Belum ada item</td></tr>`;
 
+  const todayIso = new Date().toISOString().slice(0, 10);
+  let statusText, statusCls;
+  if (pw.status === "disetujui") { statusText = "DISETUJUI"; statusCls = "ok"; }
+  else if (pw.status === "ditolak") { statusText = "DITOLAK"; statusCls = "bad"; }
+  else {
+    const daysLeft = 14 - daysBetweenIso(pw.tanggal, todayIso);
+    statusText = daysLeft < 0 ? "KADALUARSA" : `BERLAKU ${daysLeft} HARI LAGI`;
+    statusCls = daysLeft < 0 ? "bad" : "ok";
+  }
+
+  const syaratCards = (pw.syarat || "").split("\n").filter(l => l.trim()).map((line, i) => {
+    const m = line.match(/^\s*(\d+)[.)]\s*(.*)$/);
+    const num = (m ? m[1] : String(i + 1)).padStart(2, "0");
+    const text = m ? m[2] : line;
+    return `<div class="pwmc-syarat-card"><span class="pwmc-syarat-num">${num}</span><span class="pwmc-syarat-text">${escapeHtml(text)}</span></div>`;
+  }).join("");
+
+  const showTtdImg = (pw.ttdNama || profil.ownerNama) === OWNER_TTD_NAMA;
+
   return `
-    <div class="letterhead">
-      <div class="letterhead-logo">${LOGO_SVG}</div>
-      <div class="letterhead-text">
-        <div class="lh-name">${escapeHtml(profil.company || "CV. Mitra Creative")}</div>
-        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
-        <div class="lh-address">${escapeHtml(profil.alamat)} - ${escapeHtml(profil.telepon)}</div>
+    <div class="pwmc-doc">
+      <div class="pwmc-header">
+        <img class="pwmc-logo" src="${MITRA_LOGO_DATA_URI}" alt="logo">
+        <div>
+          <div class="pwmc-company">${escapeHtml(profil.company || "CV. Mitra Creative")}</div>
+          <div class="pwmc-tagline">CONTRACTOR SIPIL &bull; ADVERTISING &bull; KONTRUKSI &bull; PENGADAAN BARANG DAN JASA</div>
+          <div class="pwmc-address">${escapeHtml(profil.alamat)} &bull; ${escapeHtml(profil.telepon)}</div>
+        </div>
       </div>
-    </div>
-    <div class="letterhead-rule"></div>
+      <div class="pwmc-goldrule"></div>
 
-    <div class="doc-meta">
-      <table class="meta-table">
-        <tr><td>Nomor</td><td>:</td><td>${escapeHtml(pw.nomor)}</td></tr>
-        <tr><td>Lampiran</td><td>:</td><td>1 (satu) berkas</td></tr>
-        <tr><td>Perihal</td><td>:</td><td>${escapeHtml(pw.perihal || "Penawaran Harga")}</td></tr>
+      <div class="pwmc-title">SURAT PENAWARAN HARGA</div>
+      <div class="pwmc-subtitle">${escapeHtml(pw.perihal || "Penawaran Harga")}</div>
+
+      <div class="pwmc-meta-grid">
+        <div class="pwmc-meta-cell"><div class="pwmc-meta-label">Nomor</div><div class="pwmc-meta-value">${escapeHtml(pw.nomor)}</div></div>
+        <div class="pwmc-meta-cell"><div class="pwmc-meta-label">Tanggal</div><div class="pwmc-meta-value">${formatTanggal(pw.tanggal)}</div></div>
+        <div class="pwmc-meta-cell"><div class="pwmc-meta-label">Lampiran</div><div class="pwmc-meta-value">1 (satu) berkas</div></div>
+        <div class="pwmc-meta-cell"><div class="pwmc-meta-label">Perihal</div><div class="pwmc-meta-value">${escapeHtml(pw.perihal || "Penawaran Harga")}</div></div>
+      </div>
+
+      <div class="pwmc-kepada-label">KEPADA YTH.</div>
+      <div class="pwmc-kepada-grid">
+        <div class="pwmc-kepada-box">
+          <div class="pwmc-kepada-nama">${escapeHtml(pw.kepada || "-")}</div>
+          <div class="pwmc-kepada-alamat">${escapeHtml(pw.alamatKlien || "")}</div>
+        </div>
+        <div class="pwmc-status-box">
+          <div class="pwmc-status-label">Status Penawaran</div>
+          <div class="pwmc-status-value ${statusCls}">${statusText}</div>
+        </div>
+      </div>
+
+      <p class="pwmc-p">Dengan hormat,<br>
+      Bersama ini kami sampaikan penawaran harga untuk pekerjaan <strong>${escapeHtml(pw.perihal || "-")}</strong> dengan rincian sebagai berikut:</p>
+
+      <div class="pwmc-section-label">Rincian Lingkup Pekerjaan</div>
+      <table class="pwmc-table">
+        <thead><tr><th>No</th><th>Uraian Pekerjaan</th><th class="c">Satuan</th><th class="r">Volume</th><th class="r">Harga Satuan</th><th class="r">Jumlah</th></tr></thead>
+        <tbody>${itemsRows}</tbody>
       </table>
-      <div class="doc-date">Semarang, ${formatTanggal(pw.tanggal)}</div>
-    </div>
 
-    <div class="doc-kepada">
-      Kepada Yth,<br>
-      <strong>${escapeHtml(pw.kepada || "-")}</strong><br>
-      ${escapeHtml(pw.alamatKlien || "")}
-    </div>
+      <table class="pwmc-summary">
+        <tr><td>Subtotal</td><td class="r">${rupiah(subtotal)}</td></tr>
+        ${pw.diskon ? `<tr><td>Diskon (${pw.diskon}%)</td><td class="r">- ${rupiah(diskonValue)}</td></tr>` : ""}
+        ${pw.ppn ? `<tr><td>PPN (${pw.ppn}%)</td><td class="r">${rupiah(ppnValue)}</td></tr>` : ""}
+        <tr class="pwmc-total-row"><td>Total Penawaran</td><td class="r">${rupiah(total)}</td></tr>
+      </table>
+      ${pw.pph ? `<p class="pwmc-p" style="font-size:11px; color:#777;">*Sudah termasuk PPh Final (${pw.pph}%) sebesar ${rupiah(pphValue)} sesuai Syarat &amp; Ketentuan di bawah.</p>` : ""}
 
-    <p class="doc-p">Dengan hormat,<br>
-    Bersama ini kami sampaikan penawaran harga untuk pekerjaan <strong>${escapeHtml(pw.perihal || "-")}</strong> dengan rincian sebagai berikut:</p>
+      <div class="pwmc-syarat-label">Syarat &amp; Ketentuan</div>
+      <div class="pwmc-syarat-grid">${syaratCards}</div>
 
-    <table class="doc-items">
-      <thead><tr><th>No</th><th>Uraian Pekerjaan</th><th class="c">Satuan</th><th class="r">Volume</th><th class="r">Harga Satuan</th><th class="r">Jumlah</th></tr></thead>
-      <tbody>${itemsRows}</tbody>
-    </table>
+      <p class="pwmc-p">${escapeHtml(pw.penutup || "")}</p>
 
-    <table class="doc-summary-table">
-      <tr><td>Subtotal</td><td class="r">${rupiah(subtotal)}</td></tr>
-      ${pw.diskon ? `<tr><td>Diskon (${pw.diskon}%)</td><td class="r">- ${rupiah(diskonValue)}</td></tr>` : ""}
-      ${pw.ppn ? `<tr><td>PPN (${pw.ppn}%)</td><td class="r">${rupiah(ppnValue)}</td></tr>` : ""}
-      <tr class="total-row"><td>Total Penawaran</td><td class="r">${rupiah(total)}</td></tr>
-    </table>
-    ${pw.pph ? `<p class="doc-p" style="font-size:11px; color:#777;">*Sudah termasuk PPh Final (${pw.pph}%) sebesar ${rupiah(pphValue)} sesuai Syarat &amp; Ketentuan di bawah.</p>` : ""}
-
-    <div class="doc-syarat">
-      <strong>Syarat &amp; Ketentuan:</strong>
-      <div class="syarat-text">${(pw.syarat || "").split("\n").map(l => `<div>${escapeHtml(l)}</div>`).join("")}</div>
-    </div>
-
-    <p class="doc-p">${escapeHtml(pw.penutup || "")}</p>
-
-    <div class="doc-signature">
-      Hormat kami,<br>${escapeHtml(profil.company || "CV. Mitra Creative")}
-      <div class="sign-space"></div>
-      <strong>${escapeHtml(pw.ttdNama || profil.ownerNama)}</strong><br>
-      ${escapeHtml(pw.ttdJabatan || profil.ownerJabatan)}
+      <div class="pwmc-signature">
+        Hormat kami,<br>
+        <strong>${escapeHtml(profil.company || "CV. Mitra Creative")}</strong>
+        ${showTtdImg ? `<img class="ttd-img" src="${OWNER_TTD_DATA_URI}" alt="tanda tangan">` : `<div class="sign-space"></div>`}
+        <strong>${escapeHtml(pw.ttdNama || profil.ownerNama)}</strong><br>
+        ${escapeHtml(pw.ttdJabatan || profil.ownerJabatan)}
+      </div>
     </div>
   `;
 }

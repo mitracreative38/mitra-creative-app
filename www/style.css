@@ -402,6 +402,66 @@ body.printing-quote #printArea {
 .mr-signature { font-size: 12.5px; margin: 20px 18px 18px; }
 .mr-signature .ttd-img { display: block; height: 55px; width: auto; margin: 4px 0 -6px; }
 
+/* Penawaran Mitra Creative -- versi elegan meniru dokumen penawaran nyata
+   yang sudah pernah dipakai Owner (kop surat standar dengan logo asli,
+   kartu meta Nomor/Tanggal/Lampiran/Perihal, badge status berlaku/
+   kadaluarsa, tabel item berkepala merah, baris TOTAL berkotak merah muda,
+   kartu Syarat & Ketentuan bernomor, tanda tangan asli Owner). Class
+   pwmc-* HANYA dipakai di sini -- modul cetak lain (Klien, RAB, Kas, dst.)
+   tetap pakai letterhead/doc-* seperti sebelumnya, supaya tidak ada
+   tampilan lain yang ikut berubah. */
+.pwmc-doc { font-size: 12.5px; color: #1a1a1a; }
+.pwmc-header { display: flex; align-items: center; gap: 14px; }
+.pwmc-logo { display: block; height: 56px; width: 56px; }
+.pwmc-company { font-size: 21px; font-weight: 800; color: #b5161b; letter-spacing: .3px; }
+.pwmc-tagline { font-size: 10.5px; font-weight: 700; color: #202124; margin-top: 3px; }
+.pwmc-address { font-size: 10.5px; color: #666a70; margin-top: 2px; }
+.pwmc-goldrule { height: 3px; background: #f2b31a; margin: 10px 0 16px; }
+
+.pwmc-title { font-size: 17px; font-weight: 800; color: #202124; margin-bottom: 2px; }
+.pwmc-subtitle { font-size: 12px; font-weight: 700; color: #b5161b; margin-bottom: 12px; }
+
+.pwmc-meta-grid { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid #e6e7e9; margin-bottom: 14px; }
+.pwmc-meta-cell { background: #f7f7f8; padding: 8px 10px; border-right: 1px solid #e6e7e9; }
+.pwmc-meta-cell:last-child { border-right: none; }
+.pwmc-meta-label { font-size: 9.5px; font-weight: 800; color: #666a70; letter-spacing: .4px; text-transform: uppercase; }
+.pwmc-meta-value { font-size: 11.5px; font-weight: 700; color: #202124; margin-top: 3px; }
+
+.pwmc-kepada-label { font-size: 10.5px; font-weight: 800; color: #666a70; letter-spacing: .4px; margin-bottom: 5px; }
+.pwmc-kepada-grid { display: grid; grid-template-columns: 1fr 1fr; margin-bottom: 14px; }
+.pwmc-kepada-box, .pwmc-status-box { border: 1px solid #e6e7e9; padding: 9px 12px; }
+.pwmc-kepada-box { background: #fff; border-right: none; }
+.pwmc-status-box { background: #fff8e5; }
+.pwmc-kepada-nama { font-size: 13px; font-weight: 800; color: #202124; }
+.pwmc-kepada-alamat { font-size: 11px; color: #666a70; margin-top: 2px; }
+.pwmc-status-label { font-size: 9.5px; font-weight: 800; color: #666a70; letter-spacing: .4px; text-transform: uppercase; }
+.pwmc-status-value { font-size: 13px; font-weight: 800; margin-top: 3px; }
+.pwmc-status-value.ok { color: #745700; }
+.pwmc-status-value.bad { color: #b5161b; }
+
+.pwmc-p { font-size: 12.5px; line-height: 1.6; margin: 10px 0; }
+
+.pwmc-section-label { font-size: 11.5px; font-weight: 800; color: #666a70; letter-spacing: .5px; text-transform: uppercase; margin: 16px 0 6px; }
+.pwmc-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 10px; }
+.pwmc-table th { background: #b5161b; color: #fff; text-align: left; padding: 8px 10px; font-weight: 700; }
+.pwmc-table td { padding: 7px 10px; border-bottom: 1px solid #e6e7e9; vertical-align: top; }
+.pwmc-table th.c, .pwmc-table td.c { text-align: center; }
+.pwmc-table th.r, .pwmc-table td.r { text-align: right; }
+
+.pwmc-summary { width: 320px; margin-left: auto; font-size: 12.5px; border-collapse: collapse; }
+.pwmc-summary td { padding: 4px 6px; }
+.pwmc-summary td.r { text-align: right; }
+.pwmc-total-row td { background: #fceeef; border-top: 1px solid #c61f26; border-bottom: 1px solid #c61f26; font-weight: 800; font-size: 13.5px; color: #bc1e24; padding: 8px 6px; }
+
+.pwmc-syarat-label { font-size: 11.5px; font-weight: 800; color: #666a70; letter-spacing: .5px; text-transform: uppercase; margin: 16px 0 8px; }
+.pwmc-syarat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+.pwmc-syarat-card { background: #f7f7f8; border: 1px solid #e6e7e9; padding: 9px 11px; display: flex; gap: 8px; align-items: flex-start; }
+.pwmc-syarat-num { flex: none; width: 20px; height: 20px; border-radius: 50%; background: #f2b31a; color: #fff; font-size: 10px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+.pwmc-syarat-text { font-size: 11px; color: #666a70; line-height: 1.5; padding-top: 2px; }
+
+.pwmc-signature { font-size: 12.5px; margin-top: 22px; text-align: center; }
+.pwmc-signature .ttd-img { display: block; height: 62px; width: auto; margin: 2px auto -8px; }
+
 .doc-meta { display: flex; justify-content: space-between; align-items: flex-start; font-size: 12.5px; margin-bottom: 14px; gap: 20px; }
 .meta-table td { padding: 1px 4px 1px 0; vertical-align: top; }
 .doc-date { white-space: nowrap; }
