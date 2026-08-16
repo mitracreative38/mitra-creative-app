@@ -1315,7 +1315,13 @@
             <h1>Penawaran Harga</h1>
             <p class="page-sub">Buat &amp; cetak surat penawaran harga untuk klien, lengkap dengan kop surat dan tanda tangan owner.</p>
           </div>
-          <button class="btn-primary" id="pw_addBtn">+ Tambah Penawaran</button>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            <select id="pw_addBrandSel" title="Pilih atas nama siapa penawaran ini dibuat">
+              <option value="mitra">Mitra Creative</option>
+              <option value="mataresolusi">Mata Resolusi (Pembanding)</option>
+            </select>
+            <button class="btn-primary" id="pw_addBtn">+ Tambah Penawaran</button>
+          </div>
         </header>
 
         <div class="stat-grid">
@@ -1347,6 +1353,11 @@
               <option value="disetujui">Disetujui</option>
               <option value="ditolak">Ditolak</option>
             </select>
+            <select id="pw_filterBrand">
+              <option value="">Semua Brand</option>
+              <option value="mitra">Mitra Creative</option>
+              <option value="mataresolusi">Mata Resolusi</option>
+            </select>
           </div>
           <div class="table-wrap">
             <table class="tbl" id="pw_table">
@@ -1368,6 +1379,7 @@
           <div style="display:flex; gap:10px; flex-wrap:wrap;">
             <button class="btn-ghost" id="pw_backBtn">← Kembali</button>
             <button class="btn-ghost" id="pw_duplicateBtn">🔁 Duplikat sebagai Revisi</button>
+            <button class="btn-ghost" id="pw_pembandingBtn">⚖️ Buat Pembanding (Mata Resolusi)</button>
             <button class="btn-primary" id="pw_toProyekBtn">🏗️ Buat Proyek dari Penawaran Ini</button>
             <button class="btn-primary" id="pw_printBtn">🖨️ Cetak Penawaran</button>
             <button class="btn-ghost" id="pw_pdfBtn">⬇️ Unduh PDF</button>
@@ -1520,6 +1532,13 @@
         <p class="muted">Transaksi Keluar di Kas Perusahaan dengan jumlah di atas batas ini otomatis berstatus "Menunggu Persetujuan" dan tidak mengurangi saldo sampai disetujui. Isi 0 untuk mematikan fitur ini.</p>
         <label class="field-label">Batas Nominal Perlu Persetujuan (Rp)</label>
         <input type="text" inputmode="numeric" id="settingsApprovalThreshold" class="text-input" style="width:100%">
+      </div>
+
+      <div class="panel narrow" id="settingsMataResolusiPanel">
+        <h3>Penawaran Pembanding (Mata Resolusi)</h3>
+        <p class="muted">Persentase default saat membuat penawaran pembanding atas nama Mata Resolusi lewat tombol "Buat Pembanding" -- harga tiap item otomatis dinaikkan sekian persen dari Penawaran Mitra Creative aslinya. Bisa diubah lagi per dokumen saat dibuat.</p>
+        <label class="field-label">Markup Default (%)</label>
+        <input type="text" inputmode="decimal" id="settingsMataResolusiMarkup" class="text-input" style="width:100%">
       </div>
 
       <div class="panel narrow" id="settingsDataPanel">

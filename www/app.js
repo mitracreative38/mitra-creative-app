@@ -40,8 +40,11 @@ function withDefaults(s) {
   }
   if (!s.proyekRab) s.proyekRab = [];
   if (!s.penawaran) s.penawaran = [];
+  s.penawaran.forEach(p => { if (!p.brand) p.brand = "mitra"; });
   if (typeof s.penawaranCounter !== "number") s.penawaranCounter = 0;
   if (typeof s.rabCounter !== "number") s.rabCounter = 0;
+  if (typeof s.mataResolusiMarkupPercent !== "number") s.mataResolusiMarkupPercent = 5;
+  if (typeof s.mataResolusiPenawaranCounter !== "number") s.mataResolusiPenawaranCounter = 0;
   if (!s.alamat) s.alamat = COMPANY_ADDRESS;
   if (!s.telepon) s.telepon = COMPANY_PHONE;
   if (!s.ownerNama) s.ownerNama = OWNER_INFO.nama;
@@ -311,7 +314,7 @@ const ACTIVITY_DIFF_FIELDS = {
   klien: ["nama", "tahap", "kontakNama", "telepon", "sumber"],
   ahsp: ["uraian", "mode", "hargaManual", "overhead"],
   rab: ["nomor", "nama", "klien", "ppn", "pph", "biayaLain", "itemCount"],
-  penawaran: ["nomor", "nama", "klien", "ppn", "pph", "diskon", "itemCount"],
+  penawaran: ["nomor", "nama", "klien", "ppn", "pph", "diskon", "itemCount", "brand"],
   proyek: ["nama", "status", "nilaiKontrak"],
   karyawan: ["nama", "jabatan", "aktif", "upahHarian", "gajiBulanan"],
   karyawanGaji: ["gajiPokok", "tunjangan", "potongan", "periode"],
@@ -327,7 +330,7 @@ const ACTIVITY_MODULE_LABELS = {
   proyek: "Proyek", karyawan: "Karyawan", karyawanGaji: "Slip Gaji",
   stok: "Stok Material", gudang: "Gudang", pemasok: "Pemasok",
   kasUsaha: "Kas Perusahaan", kasPribadi: "Kas Pribadi",
-  companyProfile: "Profil Perusahaan"
+  companyProfile: "Profil Perusahaan", system: "Sistem"
 };
 function activityEntityLabel(module, obj) {
   if (!obj) return "";
@@ -420,6 +423,37 @@ function flushAndDiscardSnapshot(module, id) {
   const key = module + ":" + id;
   flushActivityQueue(module, id);
   pendingActivity.delete(key);
+}
+// Import Backup menimpa banyak modul sekaligus lewat mirrorAllToRelational()
+// -- fungsi itu SENGAJA tidak mencatat 1 baris log per record (akan
+// menghasilkan ratusan baris untuk 1 aksi impor). Sebagai gantinya, 1 baris
+// ringkasan dicatat di sini supaya Owner tetap tahu aksi bervolume besar ini
+// pernah terjadi, siapa pelakunya, dan berapa banyak yang terdampak per modul.
+async function logBulkImportActivity(counts) {
+  if (!sb || !targetCompanyId || !currentSyncUser) return;
+  try {
+    const parts = Object.entries(counts).filter(([, n]) => n > 0).map(([k, n]) => `${n} ${k}`);
+    // Bentuk diff dipin ke {from,to} yang sama seperti log per-record lain
+    // supaya modal detail Aktivitas Tim (yang mengasumsikan bentuk itu)
+    // bisa merender baris ini tanpa cabang kode khusus.
+    const diff = {};
+    Object.entries(counts).forEach(([k, n]) => { diff[k] = { from: null, to: n }; });
+    const row = {
+      company_id: targetCompanyId,
+      actor_id: currentSyncUser.id,
+      actor_email: currentSyncUser.email || "",
+      actor_role: currentTeamRole,
+      module: "system",
+      action: "update",
+      record_id: "import_backup",
+      summary: `Import Backup JSON (menimpa data): ${parts.join(", ") || "tidak ada data"}`,
+      diff
+    };
+    const { error } = await sb.from("activity_log").insert(row);
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal mencatat aktivitas: " + err.message);
+  }
 }
 
 // ===== Fase C (percobaan): mirror modul Klien ke tabel relasional =====
@@ -628,6 +662,9 @@ function penawaranToRow(p) {
     proyek_id: p.proyekId || null,
     revisi_dari_id: p.revisiDariId || null,
     revisi_ke: p.revisiKe || 0,
+    brand: p.brand || "mitra",
+    markup_percent: p.markupPercent ?? null,
+    source_penawaran_id: p.sourcePenawaranId || null,
     items: p.items || [],
     total: penawaranTotals(p).total,
     updated_at: new Date().toISOString()
@@ -995,6 +1032,8 @@ function companyProfileToRow() {
     approval_threshold: state.approvalThreshold || 0,
     penawaran_counter: state.penawaranCounter || 0,
     rab_counter: state.rabCounter || 0,
+    mata_resolusi_markup_percent: state.mataResolusiMarkupPercent ?? 5,
+    mata_resolusi_penawaran_counter: state.mataResolusiPenawaranCounter || 0,
     updated_at: new Date().toISOString()
   };
 }
@@ -1207,7 +1246,8 @@ function rowToPenawaran(r) {
     status: r.status || "", tanggal: r.tanggal || "", diskon: r.diskon || 0, ppn: r.ppn || 0,
     pph: r.pph || 0, syarat: r.syarat || "", penutup: r.penutup || "", ttdNama: r.ttd_nama || "",
     ttdJabatan: r.ttd_jabatan || "", proyekId: r.proyek_id || "", revisiDariId: r.revisi_dari_id || "",
-    revisiKe: r.revisi_ke || 0, items: r.items || []
+    revisiKe: r.revisi_ke || 0, brand: r.brand || "mitra", markupPercent: r.markup_percent ?? null,
+    sourcePenawaranId: r.source_penawaran_id || "", items: r.items || []
   };
 }
 function rowToProyek(r) {
@@ -1293,6 +1333,8 @@ async function buildStateFromRelational(companyId) {
     approvalThreshold: (profileRow && profileRow.approval_threshold) || 0,
     penawaranCounter: (profileRow && profileRow.penawaran_counter) || 0,
     rabCounter: (profileRow && profileRow.rab_counter) || 0,
+    mataResolusiMarkupPercent: (profileRow && profileRow.mata_resolusi_markup_percent) ?? 5,
+    mataResolusiPenawaranCounter: (profileRow && profileRow.mata_resolusi_penawaran_counter) || 0,
     klien: klienRows.map(rowToKlien),
     ahsp: ahspRows.map(rowToAhsp),
     proyekRab: rabRows.map(rowToRab),
@@ -3833,6 +3875,16 @@ function nextPenawaranNomor() {
   const d = new Date();
   return `${n}/MC-PH/${ROMAWI_BULAN[d.getMonth()]}/${d.getFullYear()}`;
 }
+// Counter terpisah dari Mitra Creative -- supaya nomor surat Mata Resolusi
+// tidak kelihatan "berurutan" dengan nomor Mitra Creative (yang bisa
+// membocorkan bahwa keduanya satu grup yang sama ke pembaca tender).
+function nextMataResolusiPenawaranNomor() {
+  state.mataResolusiPenawaranCounter = (state.mataResolusiPenawaranCounter || 0) + 1;
+  mirrorCompanyProfileUpsert();
+  const n = String(state.mataResolusiPenawaranCounter).padStart(3, "0");
+  const d = new Date();
+  return `${n}/MR-PH/${ROMAWI_BULAN[d.getMonth()]}/${d.getFullYear()}`;
+}
 function nextRabNomor() {
   state.rabCounter = (state.rabCounter || 0) + 1;
   mirrorCompanyProfileUpsert();
@@ -5642,11 +5694,13 @@ function renderPwList() {
 
   const search = (document.getElementById("pw_search").value || "").toLowerCase();
   const filterStatus = document.getElementById("pw_filterStatus").value;
+  const filterBrand = document.getElementById("pw_filterBrand").value;
   const tbody = document.querySelector("#pw_table tbody");
   tbody.innerHTML = "";
   let rows = state.penawaran.slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
   if (search) rows = rows.filter(p => (p.nomor || "").toLowerCase().includes(search) || (p.kepada || "").toLowerCase().includes(search) || (p.perihal || "").toLowerCase().includes(search));
   if (filterStatus) rows = rows.filter(p => p.status === filterStatus);
+  if (filterBrand) rows = rows.filter(p => (p.brand || "mitra") === filterBrand);
   if (!rows.length) {
     tbody.innerHTML = '<tr class="empty-row"><td colspan="7">Belum ada penawaran</td></tr>';
     return;
@@ -5654,10 +5708,11 @@ function renderPwList() {
   rows.forEach(p => {
     const { total } = penawaranTotals(p);
     const kadaluarsa = pwIsKadaluarsa(p, today);
+    const isMr = p.brand === "mataresolusi";
     const tr = document.createElement("tr");
     if (kadaluarsa) tr.classList.add("pw-row-kadaluarsa");
     tr.innerHTML = `
-      <td>${escapeHtml(p.nomor)}${p.revisiDariId ? ` <span class="muted" style="font-size:11px;">(Revisi ${p.revisiKe || 1})</span>` : ""}</td>
+      <td>${isMr ? '<span class="badge brand-mataresolusi" title="Mata Resolusi (Pembanding)">MR</span> ' : ""}${escapeHtml(p.nomor)}${p.revisiDariId ? ` <span class="muted" style="font-size:11px;">(Revisi ${p.revisiKe || 1})</span>` : ""}</td>
       <td>${escapeHtml(p.kepada || "-")}</td>
       <td>${escapeHtml(p.perihal || "-")}</td>
       <td>${formatTanggal(p.tanggal)}</td>
@@ -5696,13 +5751,19 @@ function renderPwEditor() {
 
   const revisiNote = document.getElementById("pw_revisiNote");
   const asal = pw.revisiDariId ? state.penawaran.find(p => p.id === pw.revisiDariId) : null;
+  const sumberPembanding = pw.sourcePenawaranId ? state.penawaran.find(p => p.id === pw.sourcePenawaranId) : null;
   if (asal) {
     revisiNote.style.display = "block";
     revisiNote.innerHTML = `🔁 Revisi ke-${pw.revisiKe || 1} dari <a href="#" data-open-pw-asal="${asal.id}">${escapeHtml(asal.nomor)}</a>`;
+  } else if (sumberPembanding) {
+    revisiNote.style.display = "block";
+    revisiNote.innerHTML = `⚖️ Pembanding (Mata Resolusi${pw.markupPercent != null ? `, +${pw.markupPercent}%` : ""}) dari <a href="#" data-open-pw-asal="${sumberPembanding.id}">${escapeHtml(sumberPembanding.nomor)}</a>`;
   } else {
     revisiNote.style.display = "none";
     revisiNote.innerHTML = "";
   }
+  document.getElementById("pw_pembandingBtn").style.display = pw.brand === "mataresolusi" ? "none" : "";
+  document.getElementById("pw_editorView").querySelector("h1").textContent = pw.brand === "mataresolusi" ? "Edit Penawaran (Mata Resolusi)" : "Edit Penawaran";
 
   const focusedId = document.activeElement.id;
   if (focusedId !== "pw_nomor") document.getElementById("pw_nomor").value = pw.nomor || "";
@@ -5762,11 +5823,15 @@ function refreshPwTotals() {
   document.getElementById("pw_total").textContent = rupiah(total);
 }
 document.getElementById("pw_addBtn").addEventListener("click", () => {
+  const brand = document.getElementById("pw_addBrandSel").value === "mataresolusi" ? "mataresolusi" : "mitra";
+  const isMr = brand === "mataresolusi";
   const pw = {
-    id: uid(), nomor: nextPenawaranNomor(), tanggal: new Date().toISOString().slice(0, 10),
+    id: uid(), nomor: isMr ? nextMataResolusiPenawaranNomor() : nextPenawaranNomor(), tanggal: new Date().toISOString().slice(0, 10),
     kepada: "", alamatKlien: "", perihal: "", kategori: KATEGORI_PEKERJAAN[0], status: "draft",
     diskon: 0, ppn: 11, pph: 0.5, items: [], syarat: defaultSyarat(), penutup: defaultPenutup(),
-    ttdNama: state.ownerNama, ttdJabatan: state.ownerJabatan
+    brand,
+    ttdNama: isMr ? MATA_RESOLUSI_INFO.ownerNama : state.ownerNama,
+    ttdJabatan: isMr ? MATA_RESOLUSI_INFO.ownerJabatan : state.ownerJabatan
   };
   state.penawaran.push(pw);
   saveState();
@@ -5776,6 +5841,7 @@ document.getElementById("pw_addBtn").addEventListener("click", () => {
 document.getElementById("pw_backBtn").addEventListener("click", showPwList);
 document.getElementById("pw_search").addEventListener("input", renderPwList);
 document.getElementById("pw_filterStatus").addEventListener("change", renderPwList);
+document.getElementById("pw_filterBrand").addEventListener("change", renderPwList);
 document.getElementById("pw_table").addEventListener("click", e => {
   const openBtn = e.target.closest("[data-open-pw]");
   const delBtn = e.target.closest("[data-delete-pw]");
@@ -5901,7 +5967,9 @@ document.getElementById("pw_itemsTable").addEventListener("click", e => {
 
 // ===== Cetak Penawaran (letterhead print) =====
 function buildPenawaranPrintHtml(pw) {
+  if (pw.brand === "mataresolusi") return buildMataResolusiPenawaranHtml(pw);
   const { subtotal, diskonValue, ppnValue, pphValue, total } = penawaranTotals(pw);
+  const profil = { company: state.company, alamat: state.alamat || COMPANY_ADDRESS, telepon: state.telepon || COMPANY_PHONE, ownerNama: state.ownerNama, ownerJabatan: state.ownerJabatan };
   const itemsRows = pw.items.map((it, i) => `
     <tr>
       <td class="c">${i + 1}</td>
@@ -5917,9 +5985,9 @@ function buildPenawaranPrintHtml(pw) {
     <div class="letterhead">
       <div class="letterhead-logo">${LOGO_SVG}</div>
       <div class="letterhead-text">
-        <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
+        <div class="lh-name">${escapeHtml(profil.company || "CV. Mitra Creative")}</div>
         <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
-        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+        <div class="lh-address">${escapeHtml(profil.alamat)} - ${escapeHtml(profil.telepon)}</div>
       </div>
     </div>
     <div class="letterhead-rule"></div>
@@ -5963,10 +6031,102 @@ function buildPenawaranPrintHtml(pw) {
     <p class="doc-p">${escapeHtml(pw.penutup || "")}</p>
 
     <div class="doc-signature">
-      Hormat kami,<br>${escapeHtml(state.company || "CV. Mitra Creative")}
+      Hormat kami,<br>${escapeHtml(profil.company || "CV. Mitra Creative")}
       <div class="sign-space"></div>
-      <strong>${escapeHtml(pw.ttdNama || state.ownerNama)}</strong><br>
-      ${escapeHtml(pw.ttdJabatan || state.ownerJabatan)}
+      <strong>${escapeHtml(pw.ttdNama || profil.ownerNama)}</strong><br>
+      ${escapeHtml(pw.ttdJabatan || profil.ownerJabatan)}
+    </div>
+  `;
+}
+// Template Mata Resolusi -- SENGAJA bukan reskin warna dari template Mitra
+// Creative di atas, tapi tata letak yang benar-benar beda: banner logo
+// asli, garis pelangi 4 warna, kotak judul hitam "PENAWARAN HARGA
+// PEKERJAAN / QUOTATION", grid meta 2x2 (Kepada/Tanggal/Pekerjaan/Lokasi),
+// tabel item berkepala gelap. Meniru PERSIS dokumen penawaran Mata
+// Resolusi sungguhan yang sudah pernah dipakai Owner (bukan cuma "gaya
+// mirip"), supaya hasil aplikasi identik dengan yang biasa mereka kirim
+// manual. Dipakai juga oleh server/lib/print.js (duplikasi persis, karena
+// kode server tidak bisa import dari sini -- lihat catatan di sana).
+function buildMataResolusiPenawaranHtml(pw) {
+  const { subtotal, diskonValue, ppnValue, pphValue, total } = penawaranTotals(pw);
+  const profil = MATA_RESOLUSI_INFO;
+  const itemsRows = pw.items.map((it, i) => `
+    <tr>
+      <td class="c">${i + 1}</td>
+      <td>${escapeHtml(it.uraian)}<div class="mr-item-sub">${it.volume} ${escapeHtml(it.satuan)} &times; ${rupiah(it.hargaSatuan)}</div></td>
+      <td class="r">${rupiah((it.volume || 0) * (it.hargaSatuan || 0))}</td>
+    </tr>
+  `).join("") || `<tr><td colspan="3" class="c">Belum ada item</td></tr>`;
+  const showTtdImg = (pw.ttdNama || profil.ownerNama) === MATA_RESOLUSI_INFO.ownerNama;
+
+  return `
+    <div class="mr-doc">
+      <img class="mr-banner" src="${MATA_RESOLUSI_BANNER_DATA_URI}" alt="mata.resolusi">
+      <div class="mr-stripe">
+        <span style="background:#D7263D;"></span><span style="background:#F3B61F;"></span>
+        <span style="background:#15A9A1;"></span><span style="background:#5B3FD3;"></span>
+      </div>
+
+      <div class="mr-title-bar">
+        <div class="mr-title-main">PENAWARAN HARGA PEKERJAAN</div>
+        <div class="mr-title-sub">QUOTATION</div>
+      </div>
+
+      <div class="mr-meta-grid">
+        <div class="mr-meta-cell">
+          <div class="mr-meta-label">Kepada</div>
+          <div class="mr-meta-value">${escapeHtml(pw.kepada || "-")}</div>
+        </div>
+        <div class="mr-meta-cell">
+          <div class="mr-meta-label">Tanggal</div>
+          <div class="mr-meta-value">Semarang, ${formatTanggal(pw.tanggal)}</div>
+        </div>
+        <div class="mr-meta-cell">
+          <div class="mr-meta-label">Pekerjaan</div>
+          <div class="mr-meta-value">${escapeHtml(pw.perihal || "-")}</div>
+        </div>
+        <div class="mr-meta-cell">
+          <div class="mr-meta-label">Lokasi</div>
+          <div class="mr-meta-value">${escapeHtml(pw.alamatKlien || "-")}</div>
+        </div>
+      </div>
+
+      <p class="mr-p">Dengan hormat,<br>
+      Bersama ini kami sampaikan penawaran harga untuk pekerjaan <strong>${escapeHtml(pw.perihal || "-")}</strong> di ${escapeHtml(pw.kepada || "-")}, dengan rincian sebagai berikut:</p>
+
+      <div class="mr-section-label">RINCIAN PEKERJAAN &amp; SPESIFIKASI</div>
+      <table class="mr-table">
+        <thead><tr><th class="c">No.</th><th>Uraian Pekerjaan / Spesifikasi</th><th class="r">Nilai</th></tr></thead>
+        <tbody>${itemsRows}</tbody>
+      </table>
+
+      <table class="mr-summary">
+        ${pw.diskon ? `<tr><td>Diskon (${pw.diskon}%)</td><td class="r">- ${rupiah(diskonValue)}</td></tr>` : ""}
+        ${pw.ppn ? `<tr><td>PPN (${pw.ppn}%)</td><td class="r">${rupiah(ppnValue)}</td></tr>` : ""}
+        <tr class="mr-total-row"><td>TOTAL HARGA PEKERJAAN</td><td class="r">${rupiah(total)}</td></tr>
+      </table>
+
+      <div class="mr-catatan">
+        <strong>CATATAN:</strong> Harga di atas belum termasuk PPN dan PPh.
+        ${pw.pph ? `<br>*Sudah termasuk PPh Final (${pw.pph}%) sebesar ${rupiah(pphValue)} sesuai Syarat &amp; Ketentuan di bawah.` : ""}
+      </div>
+
+      ${pw.syarat ? `
+      <div class="mr-syarat">
+        <strong>Syarat &amp; Ketentuan:</strong>
+        <div class="mr-syarat-text">${pw.syarat.split("\n").map(l => `<div>${escapeHtml(l)}</div>`).join("")}</div>
+      </div>
+      ` : ""}
+
+      <p class="mr-p mr-closing">${escapeHtml(pw.penutup || "Demikian surat penawaran harga ini kami sampaikan. Atas perhatian dan kerja samanya, kami ucapkan terima kasih.")}</p>
+
+      <div class="mr-signature">
+        Hormat kami,
+        ${showTtdImg ? `<img class="ttd-img" src="${MATA_RESOLUSI_TTD_DATA_URI}" alt="tanda tangan">` : `<div class="sign-space"></div>`}
+        <strong>${escapeHtml(pw.ttdNama || profil.ownerNama)}</strong><br>
+        ${escapeHtml(pw.ttdJabatan || profil.ownerJabatan)}<br>
+        ${escapeHtml(profil.telepon)}
+      </div>
     </div>
   `;
 }
@@ -6031,7 +6191,7 @@ document.getElementById("pw_duplicateBtn").addEventListener("click", () => {
   const revisi = {
     ...pw,
     id: uid(),
-    nomor: nextPenawaranNomor(),
+    nomor: pw.brand === "mataresolusi" ? nextMataResolusiPenawaranNomor() : nextPenawaranNomor(),
     tanggal: new Date().toISOString().slice(0, 10),
     status: "draft",
     proyekId: "",
@@ -6043,6 +6203,41 @@ document.getElementById("pw_duplicateBtn").addEventListener("click", () => {
   saveState();
   mirrorPenawaranUpsert(revisi, true);
   showPwEditor(revisi.id);
+});
+// "Pembanding" = salinan Penawaran Mitra Creative atas nama Mata Resolusi,
+// dengan harga tiap item dinaikkan sekian persen (markup) supaya Mitra
+// Creative terlihat lebih kompetitif di tender. Beda dari "Duplikat
+// sebagai Revisi" -- ini bukan revisi dokumen yang sama, tapi dokumen
+// brand lain yang berdiri sendiri (sourcePenawaranId, bukan revisiDariId).
+document.getElementById("pw_pembandingBtn").addEventListener("click", () => {
+  const pw = state.penawaran.find(p => p.id === currentPwId);
+  if (!pw || pw.brand === "mataresolusi") return;
+  const defaultMarkup = state.mataResolusiMarkupPercent ?? 5;
+  const input = prompt(`Buat penawaran pembanding atas nama Mata Resolusi dari "${pw.nomor}". Berapa persen markup harga di atas Mitra Creative?`, String(defaultMarkup));
+  if (input === null) return;
+  const markup = parseFloat(input.replace(",", "."));
+  if (!isFinite(markup) || markup < 0) { alert("Persen markup tidak valid."); return; }
+  const factor = 1 + markup / 100;
+  const pembanding = {
+    ...pw,
+    id: uid(),
+    nomor: nextMataResolusiPenawaranNomor(),
+    tanggal: new Date().toISOString().slice(0, 10),
+    status: "draft",
+    proyekId: "",
+    revisiDariId: "",
+    revisiKe: 0,
+    brand: "mataresolusi",
+    markupPercent: markup,
+    sourcePenawaranId: pw.id,
+    ttdNama: MATA_RESOLUSI_INFO.ownerNama,
+    ttdJabatan: MATA_RESOLUSI_INFO.ownerJabatan,
+    items: pw.items.map(it => ({ ...it, id: uid(), hargaSatuan: Math.round((it.hargaSatuan || 0) * factor) }))
+  };
+  state.penawaran.push(pembanding);
+  saveState();
+  mirrorPenawaranUpsert(pembanding, true);
+  showPwEditor(pembanding.id);
 });
 document.getElementById("pw_revisiNote").addEventListener("click", e => {
   const link = e.target.closest("[data-open-pw-asal]");
@@ -6089,6 +6284,8 @@ function renderAll() {
   document.getElementById("settingsOwnerJabatan").value = state.ownerJabatan || "";
   const approvalInput = document.getElementById("settingsApprovalThreshold");
   if (document.activeElement !== approvalInput) approvalInput.value = formatNumberInput(state.approvalThreshold || 0);
+  const mrMarkupInput = document.getElementById("settingsMataResolusiMarkup");
+  if (document.activeElement !== mrMarkupInput) mrMarkupInput.value = state.mataResolusiMarkupPercent ?? 5;
   document.title = `${state.company || "Laporan Keuangan"} — Laporan Keuangan`;
 }
 
@@ -6844,7 +7041,18 @@ document.getElementById("settingsOwnerNama").addEventListener("input", e => { st
 document.getElementById("settingsOwnerJabatan").addEventListener("input", e => { state.ownerJabatan = e.target.value; saveState(); mirrorCompanyProfileUpsert(); });
 attachNumberFormatting(document.getElementById("settingsApprovalThreshold"));
 document.getElementById("settingsApprovalThreshold").addEventListener("input", e => { state.approvalThreshold = parseNumberInput(e.target.value); saveState(); mirrorCompanyProfileUpsert(); });
+document.getElementById("settingsMataResolusiMarkup").addEventListener("input", e => {
+  const v = parseFloat((e.target.value || "0").replace(",", "."));
+  state.mataResolusiMarkupPercent = isFinite(v) && v >= 0 ? v : 0;
+  saveState();
+  mirrorCompanyProfileUpsert();
+});
 document.getElementById("exportJsonBtn").addEventListener("click", () => {
+  // Panel "Data" ini sudah disembunyikan lewat CSS untuk non-Owner
+  // (applyRoleAccess), tapi itu cuma tampilan -- guard di sini memastikan
+  // klik yang dipaksa lewat console/DevTools tetap ditolak di kode, bukan
+  // cuma tersembunyi di layar.
+  if (currentTeamRole !== "owner") { alert("Hanya Owner yang bisa export backup."); return; }
   downloadFile(`backup-keuangan-${new Date().toISOString().slice(0,10)}.json`, JSON.stringify(state, null, 2), "application/json");
 });
 
@@ -7064,6 +7272,11 @@ async function mirrorAllToRelational() {
   await mirrorSaldoAwalUpsert("kasPribadi", state.kasPribadi.saldoAwal || 0);
 }
 document.getElementById("importJsonInput").addEventListener("change", e => {
+  if (currentTeamRole !== "owner") {
+    alert("Hanya Owner yang bisa import backup.");
+    e.target.value = "";
+    return;
+  }
   const file = e.target.files[0];
   if (!file) return;
   const reader = new FileReader();
@@ -7078,6 +7291,19 @@ document.getElementById("importJsonInput").addEventListener("change", e => {
       currentPwId = null;
       currentStokId = null;
       await mirrorAllToRelational();
+      logBulkImportActivity({
+        klien: (state.klien || []).length,
+        ahsp: (state.ahsp || []).length,
+        rab: (state.proyekRab || []).length,
+        penawaran: (state.penawaran || []).length,
+        proyek: (state.proyek || []).length,
+        karyawan: (state.karyawan || []).length,
+        stok: (state.stok || []).length,
+        gudang: (state.gudang || []).length,
+        pemasok: (state.pemasok || []).length,
+        kasUsahaTransaksi: (state.kasUsaha.transactions || []).length,
+        kasPribadiTransaksi: (state.kasPribadi.transactions || []).length
+      });
       saveState();
       state = await hydrateSensitiveFields(state);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -7091,6 +7317,7 @@ document.getElementById("importJsonInput").addEventListener("change", e => {
   reader.readAsText(file);
 });
 document.getElementById("resetDataBtn").addEventListener("click", () => {
+  if (currentTeamRole !== "owner") { alert("Hanya Owner yang bisa reset semua data."); return; }
   if (confirm("Yakin ingin menghapus SEMUA data dan mengembalikan ke data awal? Tindakan ini tidak bisa dibatalkan. Sebaiknya Export Backup dulu.")) {
     localStorage.removeItem(STORAGE_KEY);
     state = loadState();
