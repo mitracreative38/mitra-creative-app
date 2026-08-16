@@ -290,6 +290,138 @@ function unsubscribeRealtime() {
   realtimeChannel = null;
 }
 
+// ===== Fase 0.5: Log Aktivitas Tim -- jejak audit append-only untuk semua
+// modul, supaya Owner selalu tahu siapa mengubah/menghapus apa dan nilai
+// sebelum/sesudahnya. Ditulis best-effort (fire-and-forget) seperti mirror
+// lain -- gagal menulis log TIDAK PERNAH memblokir penyimpanan data utama.
+// Sengaja di luar REALTIME_RELATIONAL_TABLES: tabel ini murni tempat
+// menulis, dibaca terpisah oleh halaman Aktivitas Tim, bukan bagian dari
+// state yang disinkronkan real-time.
+//
+// RAB & Penawaran (satu-satunya modul dengan autosave per-keystroke di
+// tiap field) TIDAK mencatat log di setiap ketikan -- itu akan
+// menghasilkan ratusan baris per sesi edit. Sebagai gantinya: snapshot
+// "sebelum" diambil sekali saat editornya dibuka (openEditSnapshot),
+// tiap panggilan mirror berikutnya cuma memperbarui "sesudah" &
+// menunda tulis (queueActivityEdit, debounce ~2500ms), dan menutup
+// editor memaksa tulis segera kalau masih ada yang tertunda
+// (flushAndDiscardSnapshot) -- jaring pengaman kalau navigasi keluar
+// terjadi sebelum jeda debounce selesai.
+const ACTIVITY_DIFF_FIELDS = {
+  klien: ["nama", "tahap", "kontakNama", "telepon", "sumber"],
+  ahsp: ["uraian", "mode", "hargaManual", "overhead"],
+  rab: ["nomor", "nama", "klien", "ppn", "pph", "biayaLain", "itemCount"],
+  penawaran: ["nomor", "nama", "klien", "ppn", "pph", "diskon", "itemCount"],
+  proyek: ["nama", "status", "nilaiKontrak"],
+  karyawan: ["nama", "jabatan", "aktif", "upahHarian", "gajiBulanan"],
+  karyawanGaji: ["gajiPokok", "tunjangan", "potongan", "periode"],
+  stok: ["nama", "stokMinimum", "hargaSatuan"],
+  gudang: ["nama", "alamat"],
+  pemasok: ["nama", "telepon", "kategori"],
+  kasUsaha: ["jumlah", "tipe", "kategori", "keterangan", "tanggal", "status"],
+  kasPribadi: ["jumlah", "tipe", "kategori", "keterangan", "tanggal", "status"],
+  companyProfile: ["company", "alamat", "telepon", "approvalThreshold"]
+};
+const ACTIVITY_MODULE_LABELS = {
+  klien: "Klien", ahsp: "AHSP", rab: "RAB", penawaran: "Penawaran",
+  proyek: "Proyek", karyawan: "Karyawan", karyawanGaji: "Slip Gaji",
+  stok: "Stok Material", gudang: "Gudang", pemasok: "Pemasok",
+  kasUsaha: "Kas Perusahaan", kasPribadi: "Kas Pribadi",
+  companyProfile: "Profil Perusahaan"
+};
+function activityEntityLabel(module, obj) {
+  if (!obj) return "";
+  if (module === "kasUsaha" || module === "kasPribadi") return obj.keterangan || rupiah(obj.jumlah || 0);
+  return obj.nama || obj.nomor || obj.uraian || obj.kode || "";
+}
+function activityFieldValue(f, obj) {
+  if (!obj) return undefined;
+  if (f === "itemCount") return (obj.items || []).length;
+  return obj[f];
+}
+function diffActivityFields(module, before, after) {
+  const fields = ACTIVITY_DIFF_FIELDS[module] || [];
+  const diff = {};
+  fields.forEach(f => {
+    const a = activityFieldValue(f, before);
+    const b = activityFieldValue(f, after);
+    if (JSON.stringify(a) !== JSON.stringify(b)) diff[f] = { from: a === undefined ? null : a, to: b === undefined ? null : b };
+  });
+  return diff;
+}
+function buildActivitySummary(module, action, before, after) {
+  const label = ACTIVITY_MODULE_LABELS[module] || module;
+  const nama = activityEntityLabel(module, after || before);
+  if (action === "create") return `${label} "${nama}" ditambahkan`;
+  if (action === "delete") return `${label} "${nama}" dihapus`;
+  const diff = diffActivityFields(module, before, after);
+  const keys = Object.keys(diff);
+  if (!keys.length) return `${label} "${nama}" diubah`;
+  const parts = keys.slice(0, 2).map(k => `${k} dari ${JSON.stringify(diff[k].from)} ke ${JSON.stringify(diff[k].to)}`);
+  return `${label} "${nama}" — ${parts.join(", ")}`;
+}
+async function logActivityNow(module, action, recordId, before, after) {
+  if (!sb || !targetCompanyId || !currentSyncUser) return;
+  try {
+    const row = {
+      company_id: targetCompanyId,
+      actor_id: currentSyncUser.id,
+      actor_email: currentSyncUser.email || "",
+      actor_role: currentTeamRole,
+      module,
+      action,
+      record_id: String(recordId),
+      summary: buildActivitySummary(module, action, before, after),
+      diff: action === "delete" ? (before || null) : diffActivityFields(module, before, after)
+    };
+    const { error } = await sb.from("activity_log").insert(row);
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal mencatat aktivitas: " + err.message);
+  }
+}
+const pendingActivity = new Map();
+function queueActivityEdit(module, id, current) {
+  if (!sb || !targetCompanyId || !currentSyncUser) return;
+  const key = module + ":" + id;
+  let entry = pendingActivity.get(key);
+  if (!entry) {
+    entry = { before: JSON.parse(JSON.stringify(current)), after: JSON.parse(JSON.stringify(current)) };
+    pendingActivity.set(key, entry);
+  } else {
+    entry.after = JSON.parse(JSON.stringify(current));
+  }
+  clearTimeout(entry.timer);
+  // Debounce yang kadaluarsa cuma menulis log & mereset "before" ke nilai
+  // saat ini (BUKAN membuang snapshot sepenuhnya) -- editor mungkin masih
+  // terbuka dan user masih bisa mengetik lagi, jadi sesi pelacakan before/
+  // after harus tetap jalan. Snapshot baru benar-benar dibuang saat editor
+  // ditutup lewat flushAndDiscardSnapshot().
+  entry.timer = setTimeout(() => flushActivityQueue(module, id), 2500);
+}
+function openEditSnapshot(module, id, record) {
+  if (!record) return;
+  const key = module + ":" + id;
+  const prev = pendingActivity.get(key);
+  if (prev) clearTimeout(prev.timer);
+  pendingActivity.set(key, { before: JSON.parse(JSON.stringify(record)), after: JSON.parse(JSON.stringify(record)) });
+}
+function flushActivityQueue(module, id) {
+  const key = module + ":" + id;
+  const entry = pendingActivity.get(key);
+  if (!entry) return;
+  clearTimeout(entry.timer);
+  const diff = diffActivityFields(module, entry.before, entry.after);
+  if (Object.keys(diff).length) logActivityNow(module, "update", id, entry.before, entry.after);
+  entry.before = entry.after;
+  entry.timer = null;
+}
+function flushAndDiscardSnapshot(module, id) {
+  const key = module + ":" + id;
+  flushActivityQueue(module, id);
+  pendingActivity.delete(key);
+}
+
 // ===== Fase C (percobaan): mirror modul Klien ke tabel relasional =====
 // Selama masa transisi, state.klien (di memori + blob app_state) tetap
 // jadi sumber data utama yang dibaca semua bagian aplikasi -- supaya nol
@@ -317,20 +449,22 @@ function klienToRow(k) {
     updated_at: new Date().toISOString()
   };
 }
-async function mirrorKlienUpsert(k) {
+async function mirrorKlienUpsert(k, existing) {
   if (!sb || !targetCompanyId) return;
   try {
     const { error } = await sb.from("klien").upsert(klienToRow(k));
     if (error) throw error;
+    if (existing !== undefined) logActivityNow("klien", existing ? "update" : "create", k.id, existing, k);
   } catch (err) {
     setSyncStatus("Gagal menyimpan klien ke tabel relasional: " + err.message);
   }
 }
-async function mirrorKlienDelete(id) {
+async function mirrorKlienDelete(id, deletedRecord) {
   if (!sb || !targetCompanyId) return;
   try {
     const { error } = await sb.from("klien").delete().eq("id", id).eq("company_id", targetCompanyId);
     if (error) throw error;
+    if (deletedRecord) logActivityNow("klien", "delete", id, deletedRecord, null);
   } catch (err) {
     setSyncStatus("Gagal menghapus klien di tabel relasional: " + err.message);
   }
@@ -370,20 +504,22 @@ function ahspToRow(a) {
     updated_at: new Date().toISOString()
   };
 }
-async function mirrorAhspUpsert(a) {
+async function mirrorAhspUpsert(a, existing) {
   if (!sb || !targetCompanyId) return;
   try {
     const { error } = await sb.from("ahsp").upsert(ahspToRow(a));
     if (error) throw error;
+    if (existing !== undefined) logActivityNow("ahsp", existing ? "update" : "create", a.id, existing, a);
   } catch (err) {
     setSyncStatus("Gagal menyimpan AHSP ke tabel relasional: " + err.message);
   }
 }
-async function mirrorAhspDelete(id) {
+async function mirrorAhspDelete(id, deletedRecord) {
   if (!sb || !targetCompanyId) return;
   try {
     const { error } = await sb.from("ahsp").delete().eq("id", id).eq("company_id", targetCompanyId);
     if (error) throw error;
+    if (deletedRecord) logActivityNow("ahsp", "delete", id, deletedRecord, null);
   } catch (err) {
     setSyncStatus("Gagal menghapus AHSP di tabel relasional: " + err.message);
   }
@@ -426,20 +562,28 @@ function rabToRow(r) {
     updated_at: new Date().toISOString()
   };
 }
-async function mirrorRabUpsert(r) {
+async function mirrorRabUpsert(r, isNew) {
   if (!sb || !targetCompanyId) return;
   try {
     const { error } = await sb.from("rab").upsert(rabToRow(r));
     if (error) throw error;
+    if (isNew) {
+      logActivityNow("rab", "create", r.id, null, r);
+      openEditSnapshot("rab", r.id, r);
+    } else if (isNew !== undefined) {
+      queueActivityEdit("rab", r.id, r);
+    }
   } catch (err) {
     setSyncStatus("Gagal menyimpan RAB ke tabel relasional: " + err.message);
   }
 }
-async function mirrorRabDelete(id) {
+async function mirrorRabDelete(id, deletedRecord) {
   if (!sb || !targetCompanyId) return;
   try {
     const { error } = await sb.from("rab").delete().eq("id", id).eq("company_id", targetCompanyId);
     if (error) throw error;
+    pendingActivity.delete("rab:" + id);
+    if (deletedRecord) logActivityNow("rab", "delete", id, deletedRecord, null);
   } catch (err) {
     setSyncStatus("Gagal menghapus RAB di tabel relasional: " + err.message);
   }
@@ -489,20 +633,28 @@ function penawaranToRow(p) {
     updated_at: new Date().toISOString()
   };
 }
-async function mirrorPenawaranUpsert(p) {
+async function mirrorPenawaranUpsert(p, isNew) {
   if (!sb || !targetCompanyId) return;
   try {
     const { error } = await sb.from("penawaran").upsert(penawaranToRow(p));
     if (error) throw error;
+    if (isNew) {
+      logActivityNow("penawaran", "create", p.id, null, p);
+      openEditSnapshot("penawaran", p.id, p);
+    } else if (isNew !== undefined) {
+      queueActivityEdit("penawaran", p.id, p);
+    }
   } catch (err) {
     setSyncStatus("Gagal menyimpan Penawaran ke tabel relasional: " + err.message);
   }
 }
-async function mirrorPenawaranDelete(id) {
+async function mirrorPenawaranDelete(id, deletedRecord) {
   if (!sb || !targetCompanyId) return;
   try {
     const { error } = await sb.from("penawaran").delete().eq("id", id).eq("company_id", targetCompanyId);
     if (error) throw error;
+    pendingActivity.delete("penawaran:" + id);
+    if (deletedRecord) logActivityNow("penawaran", "delete", id, deletedRecord, null);
   } catch (err) {
     setSyncStatus("Gagal menghapus Penawaran di tabel relasional: " + err.message);
   }
@@ -554,20 +706,22 @@ function proyekToRow(p) {
     updated_at: new Date().toISOString()
   };
 }
-async function mirrorProyekUpsert(p) {
+async function mirrorProyekUpsert(p, existing) {
   if (!sb || !targetCompanyId) return;
   try {
     const { error } = await sb.from("proyek").upsert(proyekToRow(p));
     if (error) throw error;
+    if (existing !== undefined) logActivityNow("proyek", existing ? "update" : "create", p.id, existing, p);
   } catch (err) {
     setSyncStatus("Gagal menyimpan Proyek ke tabel relasional: " + err.message);
   }
 }
-async function mirrorProyekDelete(id) {
+async function mirrorProyekDelete(id, deletedRecord) {
   if (!sb || !targetCompanyId) return;
   try {
     const { error } = await sb.from("proyek").delete().eq("id", id).eq("company_id", targetCompanyId);
     if (error) throw error;
+    if (deletedRecord) logActivityNow("proyek", "delete", id, deletedRecord, null);
   } catch (err) {
     setSyncStatus("Gagal menghapus Proyek di tabel relasional: " + err.message);
   }
@@ -621,31 +775,34 @@ function karyawanGajiToRow(k) {
     updated_at: new Date().toISOString()
   };
 }
-async function mirrorKaryawanUpsert(k) {
+async function mirrorKaryawanUpsert(k, existing) {
   if (!sb || !targetCompanyId) return;
   try {
     const { error } = await sb.from("karyawan").upsert(karyawanToRow(k));
     if (error) throw error;
+    if (existing !== undefined) logActivityNow("karyawan", existing ? "update" : "create", k.id, existing, k);
   } catch (err) {
     setSyncStatus("Gagal menyimpan Karyawan ke tabel relasional: " + err.message);
   }
 }
-async function mirrorKaryawanGajiUpsert(k) {
+async function mirrorKaryawanGajiUpsert(k, isNewSlip) {
   if (!sb || !targetCompanyId) return;
   try {
     const { error } = await sb.from("karyawan_gaji").upsert(karyawanGajiToRow(k));
     if (error) throw error;
+    if (isNewSlip !== undefined) logActivityNow("karyawanGaji", "update", k.id, null, k);
   } catch (err) {
     setSyncStatus("Gagal menyimpan slip gaji ke tabel relasional: " + err.message);
   }
 }
-async function mirrorKaryawanDelete(id) {
+async function mirrorKaryawanDelete(id, deletedRecord) {
   if (!sb || !targetCompanyId) return;
   try {
     const { error: e1 } = await sb.from("karyawan").delete().eq("id", id).eq("company_id", targetCompanyId);
     if (e1) throw e1;
     const { error: e2 } = await sb.from("karyawan_gaji").delete().eq("id", id).eq("company_id", targetCompanyId);
     if (e2) throw e2;
+    if (deletedRecord) logActivityNow("karyawan", "delete", id, deletedRecord, null);
   } catch (err) {
     setSyncStatus("Gagal menghapus Karyawan di tabel relasional: " + err.message);
   }
@@ -692,20 +849,22 @@ function stokToRow(s) {
     updated_at: new Date().toISOString()
   };
 }
-async function mirrorStokUpsert(s) {
+async function mirrorStokUpsert(s, existing) {
   if (!sb || !targetCompanyId) return;
   try {
     const { error } = await sb.from("stok_material").upsert(stokToRow(s));
     if (error) throw error;
+    if (existing !== undefined) logActivityNow("stok", existing ? "update" : "create", s.id, existing, s);
   } catch (err) {
     setSyncStatus("Gagal menyimpan Stok ke tabel relasional: " + err.message);
   }
 }
-async function mirrorStokDelete(id) {
+async function mirrorStokDelete(id, deletedRecord) {
   if (!sb || !targetCompanyId) return;
   try {
     const { error } = await sb.from("stok_material").delete().eq("id", id).eq("company_id", targetCompanyId);
     if (error) throw error;
+    if (deletedRecord) logActivityNow("stok", "delete", id, deletedRecord, null);
   } catch (err) {
     setSyncStatus("Gagal menghapus Stok di tabel relasional: " + err.message);
   }
@@ -731,20 +890,22 @@ function gudangToRow(g) {
     updated_at: new Date().toISOString()
   };
 }
-async function mirrorGudangUpsert(g) {
+async function mirrorGudangUpsert(g, existing) {
   if (!sb || !targetCompanyId) return;
   try {
     const { error } = await sb.from("gudang").upsert(gudangToRow(g));
     if (error) throw error;
+    if (existing !== undefined) logActivityNow("gudang", existing ? "update" : "create", g.id, existing, g);
   } catch (err) {
     setSyncStatus("Gagal menyimpan Gudang ke tabel relasional: " + err.message);
   }
 }
-async function mirrorGudangDelete(id) {
+async function mirrorGudangDelete(id, deletedRecord) {
   if (!sb || !targetCompanyId) return;
   try {
     const { error } = await sb.from("gudang").delete().eq("id", id).eq("company_id", targetCompanyId);
     if (error) throw error;
+    if (deletedRecord) logActivityNow("gudang", "delete", id, deletedRecord, null);
   } catch (err) {
     setSyncStatus("Gagal menghapus Gudang di tabel relasional: " + err.message);
   }
@@ -781,20 +942,22 @@ function pemasokToRow(pm) {
     updated_at: new Date().toISOString()
   };
 }
-async function mirrorPemasokUpsert(pm) {
+async function mirrorPemasokUpsert(pm, existing) {
   if (!sb || !targetCompanyId) return;
   try {
     const { error } = await sb.from("pemasok").upsert(pemasokToRow(pm));
     if (error) throw error;
+    if (existing !== undefined) logActivityNow("pemasok", existing ? "update" : "create", pm.id, existing, pm);
   } catch (err) {
     setSyncStatus("Gagal menyimpan Pemasok ke tabel relasional: " + err.message);
   }
 }
-async function mirrorPemasokDelete(id) {
+async function mirrorPemasokDelete(id, deletedRecord) {
   if (!sb || !targetCompanyId) return;
   try {
     const { error } = await sb.from("pemasok").delete().eq("id", id).eq("company_id", targetCompanyId);
     if (error) throw error;
+    if (deletedRecord) logActivityNow("pemasok", "delete", id, deletedRecord, null);
   } catch (err) {
     setSyncStatus("Gagal menghapus Pemasok di tabel relasional: " + err.message);
   }
@@ -887,20 +1050,22 @@ function kasUsahaTxnToRow(t) {
     created_by: (currentSyncUser && currentSyncUser.id) || targetCompanyId
   };
 }
-async function mirrorKasUsahaUpsert(t) {
+async function mirrorKasUsahaUpsert(t, existing) {
   if (!sb || !targetCompanyId) return;
   try {
     const { error } = await sb.from("kas_usaha_transaksi").upsert(kasUsahaTxnToRow(t));
     if (error) throw error;
+    if (existing !== undefined) logActivityNow("kasUsaha", existing ? "update" : "create", t.id, existing, t);
   } catch (err) {
     setSyncStatus("Gagal menyimpan transaksi Kas Perusahaan ke tabel relasional: " + err.message);
   }
 }
-async function mirrorKasUsahaDelete(id) {
+async function mirrorKasUsahaDelete(id, deletedRecord) {
   if (!sb || !targetCompanyId) return;
   try {
     const { error } = await sb.from("kas_usaha_transaksi").delete().eq("id", id).eq("company_id", targetCompanyId);
     if (error) throw error;
+    if (deletedRecord) logActivityNow("kasUsaha", "delete", id, deletedRecord, null);
   } catch (err) {
     setSyncStatus("Gagal menghapus transaksi Kas Perusahaan di tabel relasional: " + err.message);
   }
@@ -963,20 +1128,22 @@ function kasPribadiTxnToRow(t) {
     catatan: t.catatan || ""
   };
 }
-async function mirrorKasPribadiUpsert(t) {
+async function mirrorKasPribadiUpsert(t, existing) {
   if (!sb || !targetCompanyId) return;
   try {
     const { error } = await sb.from("kas_pribadi_transaksi").upsert(kasPribadiTxnToRow(t));
     if (error) throw error;
+    if (existing !== undefined) logActivityNow("kasPribadi", existing ? "update" : "create", t.id, existing, t);
   } catch (err) {
     setSyncStatus("Gagal menyimpan transaksi Kas Pribadi ke tabel relasional: " + err.message);
   }
 }
-async function mirrorKasPribadiDelete(id) {
+async function mirrorKasPribadiDelete(id, deletedRecord) {
   if (!sb || !targetCompanyId) return;
   try {
     const { error } = await sb.from("kas_pribadi_transaksi").delete().eq("id", id).eq("company_id", targetCompanyId);
     if (error) throw error;
+    if (deletedRecord) logActivityNow("kasPribadi", "delete", id, deletedRecord, null);
   } catch (err) {
     setSyncStatus("Gagal menghapus transaksi Kas Pribadi di tabel relasional: " + err.message);
   }
@@ -994,11 +1161,11 @@ async function migrateKasPribadiIfNeeded() {
     setSyncStatus("Gagal migrasi data Kas Pribadi ke tabel relasional: " + err.message);
   }
 }
-function mirrorKasTxnUpsert(book, t) {
-  if (book === "kasUsaha") mirrorKasUsahaUpsert(t); else mirrorKasPribadiUpsert(t);
+function mirrorKasTxnUpsert(book, t, existing) {
+  if (book === "kasUsaha") mirrorKasUsahaUpsert(t, existing); else mirrorKasPribadiUpsert(t, existing);
 }
-function mirrorKasTxnDelete(book, id) {
-  if (book === "kasUsaha") mirrorKasUsahaDelete(id); else mirrorKasPribadiDelete(id);
+function mirrorKasTxnDelete(book, id, deletedRecord) {
+  if (book === "kasUsaha") mirrorKasUsahaDelete(id, deletedRecord); else mirrorKasPribadiDelete(id, deletedRecord);
 }
 
 // ===== Fase 0.4 (Tahap 1): bangun ulang seluruh `state` dari tabel
@@ -1255,6 +1422,7 @@ function updateSyncUI() {
       backupPanel.style.display = currentTeamRole === "owner" ? "block" : "none";
       if (currentTeamRole === "owner") renderBackupHistory();
     }
+    if (currentTeamRole === "owner" && document.getElementById("page-aktivitas").classList.contains("active")) renderActivityLog(true);
   } else {
     loggedOut.style.display = "block";
     loggedIn.style.display = "none";
@@ -2096,7 +2264,7 @@ document.getElementById("klienForm").addEventListener("submit", e => {
   };
   if (idx >= 0) state.klien[idx] = k; else state.klien.push(k);
   saveState();
-  mirrorKlienUpsert(k);
+  mirrorKlienUpsert(k, existing);
   renderAll();
   closeModals();
 });
@@ -2110,8 +2278,9 @@ document.getElementById("kl_table").addEventListener("click", e => {
     if (k) openKlienModal(k);
   } else if (delBtn) {
     if (confirm("Hapus klien ini? Proyek/Penawaran yang sudah dikaitkan tidak akan ikut terhapus, hanya kaitannya yang hilang.")) {
+      const deleted = state.klien.find(x => x.id === delBtn.dataset.deleteKlien);
       state.klien = state.klien.filter(x => x.id !== delBtn.dataset.deleteKlien);
-      mirrorKlienDelete(delBtn.dataset.deleteKlien);
+      mirrorKlienDelete(delBtn.dataset.deleteKlien, deleted);
       if (currentKlienId === delBtn.dataset.deleteKlien) currentKlienId = null;
       saveState();
       renderAll();
@@ -2200,7 +2369,7 @@ document.getElementById("kld_toRabBtn").addEventListener("click", () => {
   const rab = { id: uid(), nomor: nextRabNomor(), nama: k.nama, klien: k.nama, klienId: k.id, lokasi: k.alamat || "", kategori: KATEGORI_PEKERJAAN[0], tanggal: new Date().toISOString().slice(0, 10), ppn: 0, pph: 0.5, biayaLain: 0, items: [] };
   state.proyekRab.push(rab);
   saveState();
-  mirrorRabUpsert(rab);
+  mirrorRabUpsert(rab, true);
   goToDoc("rab", rab.id);
 });
 document.getElementById("kld_toPwBtn").addEventListener("click", () => {
@@ -2214,7 +2383,7 @@ document.getElementById("kld_toPwBtn").addEventListener("click", () => {
   };
   state.penawaran.push(pw);
   saveState();
-  mirrorPenawaranUpsert(pw);
+  mirrorPenawaranUpsert(pw, true);
   goToDoc("pw", pw.id);
 });
 
@@ -2347,7 +2516,7 @@ document.getElementById("gd_addBtn").addEventListener("click", () => {
   const gudangItem = { id: uid(), nama };
   state.gudang.push(gudangItem);
   saveState();
-  mirrorGudangUpsert(gudangItem);
+  mirrorGudangUpsert(gudangItem, null);
   document.getElementById("gd_nama").value = "";
   renderGudangManagerTable();
   renderAll();
@@ -2356,9 +2525,10 @@ document.getElementById("gd_table").addEventListener("click", e => {
   const delBtn = e.target.closest("[data-delete-gudang]");
   if (delBtn) {
     if (confirm("Hapus gudang/lokasi ini? Transaksi stok yang sudah tercatat tidak ikut terhapus, hanya kaitannya yang hilang.")) {
+      const deleted = state.gudang.find(g => g.id === delBtn.dataset.deleteGudang);
       state.gudang = state.gudang.filter(g => g.id !== delBtn.dataset.deleteGudang);
       saveState();
-      mirrorGudangDelete(delBtn.dataset.deleteGudang);
+      mirrorGudangDelete(delBtn.dataset.deleteGudang, deleted);
       renderGudangManagerTable();
       renderAll();
     }
@@ -2615,9 +2785,10 @@ document.getElementById("stok_table").addEventListener("click", e => {
     if (s) openStokModal(s);
   } else if (delBtn) {
     if (confirm("Hapus barang ini beserta seluruh riwayatnya?")) {
+      const deleted = state.stok.find(x => x.id === delBtn.dataset.deleteStok);
       state.stok = state.stok.filter(x => x.id !== delBtn.dataset.deleteStok);
       saveState();
-      mirrorStokDelete(delBtn.dataset.deleteStok);
+      mirrorStokDelete(delBtn.dataset.deleteStok, deleted);
       renderStokList();
     }
   }
@@ -2656,7 +2827,7 @@ document.getElementById("stokForm").addEventListener("submit", e => {
   };
   if (idx >= 0) state.stok[idx] = item; else state.stok.push(item);
   saveState();
-  mirrorStokUpsert(item);
+  mirrorStokUpsert(item, existing);
   renderAll();
   closeModals();
 });
@@ -2726,10 +2897,11 @@ document.getElementById("stok_txnTable").addEventListener("click", e => {
   input.addEventListener("change", () => {
     const item = state.stok.find(s => s.id === currentStokId);
     if (!item) return;
+    const sebelum = { ...item };
     if (id === "stok_infoHarga") item.hargaSatuan = parseNumberInput(input.value);
     else item.stokMinimum = parseNumberInput(input.value);
     saveState();
-    mirrorStokUpsert(item);
+    mirrorStokUpsert(item, sebelum);
     renderStokRiwayat();
   });
 });
@@ -2828,8 +3000,9 @@ document.getElementById("ky_table").addEventListener("click", e => {
     if (k) openKaryawanModal(k);
   } else if (delBtn) {
     if (confirm("Hapus karyawan ini beserta seluruh riwayat absensi & slip gajinya?")) {
+      const deleted = state.karyawan.find(x => x.id === delBtn.dataset.deleteKaryawan);
       state.karyawan = state.karyawan.filter(x => x.id !== delBtn.dataset.deleteKaryawan);
-      mirrorKaryawanDelete(delBtn.dataset.deleteKaryawan);
+      mirrorKaryawanDelete(delBtn.dataset.deleteKaryawan, deleted);
       saveState();
       renderAll();
     }
@@ -2893,7 +3066,7 @@ document.getElementById("karyawanForm").addEventListener("submit", e => {
   };
   if (idx >= 0) state.karyawan[idx] = k; else state.karyawan.push(k);
   saveState();
-  mirrorKaryawanUpsert(k);
+  mirrorKaryawanUpsert(k, existing);
   renderAll();
   closeModals();
 });
@@ -3186,7 +3359,7 @@ document.getElementById("slipGajiEditForm").addEventListener("submit", e => {
   recomputeSlipGajiChain(k);
   syncSlipGajiKasTxn(k, sl);
   saveState();
-  mirrorKaryawanGajiUpsert(k);
+  mirrorKaryawanGajiUpsert(k, true);
   renderAll();
   closeModals();
 });
@@ -3212,7 +3385,7 @@ document.getElementById("pg_riwayatTable").addEventListener("click", e => {
       state.kasUsaha.transactions = state.kasUsaha.transactions.filter(t => t.sumberSlipId !== delBtn.dataset.deleteSlip);
       recomputeSlipGajiChain(k);
       saveState();
-      mirrorKaryawanGajiUpsert(k);
+      mirrorKaryawanGajiUpsert(k, true);
       mirrorKasUsahaDeleteBySumberSlip(delBtn.dataset.deleteSlip);
       renderAll();
     }
@@ -3268,7 +3441,7 @@ document.getElementById("pg_simpanCetakBtn").addEventListener("click", () => {
     catatan: "Otomatis dari slip gaji"
   });
   saveState();
-  mirrorKaryawanGajiUpsert(k);
+  mirrorKaryawanGajiUpsert(k, true);
   mirrorKasUsahaUpsert(state.kasUsaha.transactions[state.kasUsaha.transactions.length - 1]);
   renderAll();
   printSlipGaji(k, slip);
@@ -3550,6 +3723,7 @@ document.getElementById("pemasokForm").addEventListener("submit", e => {
   e.preventDefault();
   const id = document.getElementById("pm_id").value;
   const idx = state.pemasok.findIndex(x => x.id === id);
+  const existing = idx >= 0 ? state.pemasok[idx] : null;
   const pm = {
     id: id || uid(),
     nama: document.getElementById("pm_nama").value.trim(),
@@ -3560,7 +3734,7 @@ document.getElementById("pemasokForm").addEventListener("submit", e => {
   };
   if (idx >= 0) state.pemasok[idx] = pm; else state.pemasok.push(pm);
   saveState();
-  mirrorPemasokUpsert(pm);
+  mirrorPemasokUpsert(pm, existing);
   renderAll();
   closeModals();
 });
@@ -3574,10 +3748,11 @@ document.getElementById("pm_table").addEventListener("click", e => {
     if (pm) openPemasokModal(pm);
   } else if (delBtn) {
     if (confirm("Hapus pemasok ini? Riwayat pembelian yang sudah tercatat di Stok/Proyek tidak ikut terhapus, hanya kaitannya yang hilang.")) {
+      const deleted = state.pemasok.find(x => x.id === delBtn.dataset.deletePemasok);
       state.pemasok = state.pemasok.filter(x => x.id !== delBtn.dataset.deletePemasok);
       if (currentPemasokId === delBtn.dataset.deletePemasok) currentPemasokId = null;
       saveState();
-      mirrorPemasokDelete(delBtn.dataset.deletePemasok);
+      mirrorPemasokDelete(delBtn.dataset.deletePemasok, deleted);
       renderAll();
     }
   }
@@ -4006,7 +4181,7 @@ document.getElementById("ahspForm").addEventListener("submit", e => {
   }
   if (idx >= 0) state.ahsp[idx] = item; else state.ahsp.push(item);
   saveState();
-  mirrorAhspUpsert(item);
+  mirrorAhspUpsert(item, existing);
   renderAll();
   closeModals();
 });
@@ -4033,8 +4208,9 @@ document.getElementById("ah_table").addEventListener("click", e => {
     if (a) openAhspModal(a);
   } else if (delBtn) {
     if (confirm("Hapus item AHSP ini?")) {
+      const deleted = state.ahsp.find(x => x.id === delBtn.dataset.deleteAhsp);
       state.ahsp = state.ahsp.filter(x => x.id !== delBtn.dataset.deleteAhsp);
-      mirrorAhspDelete(delBtn.dataset.deleteAhsp);
+      mirrorAhspDelete(delBtn.dataset.deleteAhsp, deleted);
       saveState();
       renderAll();
     }
@@ -4218,7 +4394,7 @@ document.getElementById("ahi_confirmBtn").addEventListener("click", () => {
       riwayatHarga: []
     };
     state.ahsp.push(item);
-    mirrorAhspUpsert(item);
+    mirrorAhspUpsert(item, null);
   });
   saveState();
   renderAll();
@@ -4392,7 +4568,7 @@ document.getElementById("ahtpl_confirmBtn").addEventListener("click", () => {
       riwayatHarga: []
     };
     state.ahsp.push(item);
-    mirrorAhspUpsert(item);
+    mirrorAhspUpsert(item, null);
     added++;
   });
   saveState();
@@ -4474,7 +4650,7 @@ document.getElementById("itemForm").addEventListener("submit", e => {
   const idx = doc.items.findIndex(x => x.id === item.id);
   if (idx >= 0) doc.items[idx] = item; else doc.items.push(item);
   saveState();
-  if (itemModalCtx.kind === "rab") { mirrorRabUpsert(doc); renderRabEditor(); } else { mirrorPenawaranUpsert(doc); renderPwEditor(); }
+  if (itemModalCtx.kind === "rab") { mirrorRabUpsert(doc, false); renderRabEditor(); } else { mirrorPenawaranUpsert(doc, false); renderPwEditor(); }
   closeModals();
 });
 
@@ -4790,7 +4966,7 @@ document.getElementById("est_tambahkanBtn").addEventListener("click", () => {
     });
   });
   saveState();
-  mirrorRabUpsert(rab);
+  mirrorRabUpsert(rab, false);
   renderRabEditor();
   const belumAda = estimasiPreviewItems.filter(it => !it.ahspId).length;
   alert(`${estimasiPreviewItems.length} item ditambahkan ke RAB.` + (belumAda ? ` ${belumAda} di antaranya belum terhubung ke AHSP (harga Rp0) — isi manual di tabel RAB atau impor dulu template AHSP yang cocok.` : ""));
@@ -5104,6 +5280,7 @@ function renderRabList() {
   });
 }
 function showRabList() {
+  if (currentRabId) flushAndDiscardSnapshot("rab", currentRabId);
   currentRabId = null;
   document.getElementById("rab_listView").style.display = "block";
   document.getElementById("rab_editorView").style.display = "none";
@@ -5111,6 +5288,8 @@ function showRabList() {
 }
 function showRabEditor(id) {
   currentRabId = id;
+  const rab = state.proyekRab.find(r => r.id === id);
+  openEditSnapshot("rab", id, rab);
   document.getElementById("rab_listView").style.display = "none";
   document.getElementById("rab_editorView").style.display = "block";
   renderRabEditor();
@@ -5273,7 +5452,7 @@ document.getElementById("rab_addBtn").addEventListener("click", () => {
   const rab = { id: uid(), nomor: nextRabNomor(), nama: "", klien: "", klienId: "", lokasi: "", kategori: KATEGORI_PEKERJAAN[0], tanggal: new Date().toISOString().slice(0, 10), ppn: 0, pph: 0.5, biayaLain: 0, items: [] };
   state.proyekRab.push(rab);
   saveState();
-  mirrorRabUpsert(rab);
+  mirrorRabUpsert(rab, true);
   showRabEditor(rab.id);
 });
 document.getElementById("rab_backBtn").addEventListener("click", showRabList);
@@ -5291,7 +5470,7 @@ document.getElementById("rab_table").addEventListener("click", e => {
       : "Hapus RAB ini?";
     if (confirm(msg)) {
       state.proyekRab = state.proyekRab.filter(r => r.id !== delBtn.dataset.deleteRab);
-      mirrorRabDelete(delBtn.dataset.deleteRab);
+      mirrorRabDelete(delBtn.dataset.deleteRab, rab);
       saveState();
       renderRabList();
     }
@@ -5303,33 +5482,33 @@ document.getElementById("rab_table").addEventListener("click", e => {
     if (!rab) return;
     rab[id.replace("rab_", "")] = document.getElementById(id).value;
     saveState();
-    mirrorRabUpsert(rab);
+    mirrorRabUpsert(rab, false);
   });
 });
 document.getElementById("rab_klienId").addEventListener("change", () => {
   const rab = state.proyekRab.find(r => r.id === currentRabId);
-  if (rab) { rab.klienId = document.getElementById("rab_klienId").value || ""; saveState(); mirrorRabUpsert(rab); }
+  if (rab) { rab.klienId = document.getElementById("rab_klienId").value || ""; saveState(); mirrorRabUpsert(rab, false); }
 });
 document.getElementById("rab_kategori").addEventListener("change", () => {
   const rab = state.proyekRab.find(r => r.id === currentRabId);
-  if (rab) { rab.kategori = document.getElementById("rab_kategori").value; saveState(); mirrorRabUpsert(rab); }
+  if (rab) { rab.kategori = document.getElementById("rab_kategori").value; saveState(); mirrorRabUpsert(rab, false); }
 });
 document.getElementById("rab_tanggal").addEventListener("change", () => {
   const rab = state.proyekRab.find(r => r.id === currentRabId);
-  if (rab) { rab.tanggal = document.getElementById("rab_tanggal").value; saveState(); mirrorRabUpsert(rab); }
+  if (rab) { rab.tanggal = document.getElementById("rab_tanggal").value; saveState(); mirrorRabUpsert(rab, false); }
 });
 document.getElementById("rab_ppn").addEventListener("input", () => {
   const rab = state.proyekRab.find(r => r.id === currentRabId);
-  if (rab) { rab.ppn = parseFloat(document.getElementById("rab_ppn").value) || 0; saveState(); mirrorRabUpsert(rab); refreshRabTotals(); }
+  if (rab) { rab.ppn = parseFloat(document.getElementById("rab_ppn").value) || 0; saveState(); mirrorRabUpsert(rab, false); refreshRabTotals(); }
 });
 document.getElementById("rab_pph").addEventListener("input", () => {
   const rab = state.proyekRab.find(r => r.id === currentRabId);
-  if (rab) { rab.pph = parseFloat(document.getElementById("rab_pph").value) || 0; saveState(); mirrorRabUpsert(rab); refreshRabTotals(); }
+  if (rab) { rab.pph = parseFloat(document.getElementById("rab_pph").value) || 0; saveState(); mirrorRabUpsert(rab, false); refreshRabTotals(); }
 });
 attachNumberFormatting(document.getElementById("rab_biayaLain"));
 document.getElementById("rab_biayaLain").addEventListener("input", () => {
   const rab = state.proyekRab.find(r => r.id === currentRabId);
-  if (rab) { rab.biayaLain = parseNumberInput(document.getElementById("rab_biayaLain").value); saveState(); mirrorRabUpsert(rab); refreshRabTotals(); }
+  if (rab) { rab.biayaLain = parseNumberInput(document.getElementById("rab_biayaLain").value); saveState(); mirrorRabUpsert(rab, false); refreshRabTotals(); }
 });
 document.getElementById("rab_addItemBtn").addEventListener("click", () => openItemModal({ kind: "rab", docId: currentRabId }, null));
 document.getElementById("rab_itemsTable").addEventListener("click", e => {
@@ -5344,7 +5523,7 @@ document.getElementById("rab_itemsTable").addEventListener("click", e => {
     if (confirm("Hapus item ini?")) {
       rab.items = rab.items.filter(x => x.id !== delBtn.dataset.deleteItem);
       saveState();
-      mirrorRabUpsert(rab);
+      mirrorRabUpsert(rab, false);
       renderRabEditor();
     }
   }
@@ -5364,7 +5543,7 @@ document.getElementById("rab_toPenawaranBtn").addEventListener("click", () => {
   const pw = createPenawaranFromRab(rab);
   state.penawaran.push(pw);
   saveState();
-  mirrorPenawaranUpsert(pw);
+  mirrorPenawaranUpsert(pw, true);
   showPage("penawaran");
   showPwEditor(pw.id);
 });
@@ -5421,8 +5600,8 @@ function createProyekFromDoc(kind, doc) {
   state.proyek.push(proj);
   doc.proyekId = proj.id;
   saveState();
-  if (kind === "rab") mirrorRabUpsert(doc); else mirrorPenawaranUpsert(doc);
-  mirrorProyekUpsert(proj);
+  if (kind === "rab") mirrorRabUpsert(doc, false); else mirrorPenawaranUpsert(doc, false);
+  mirrorProyekUpsert(proj, null);
   return { proj, alokasi };
 }
 function goToDoc(kind, id) {
@@ -5495,6 +5674,7 @@ function renderPwList() {
   });
 }
 function showPwList() {
+  if (currentPwId) flushAndDiscardSnapshot("penawaran", currentPwId);
   currentPwId = null;
   document.getElementById("pw_listView").style.display = "block";
   document.getElementById("pw_editorView").style.display = "none";
@@ -5502,6 +5682,8 @@ function showPwList() {
 }
 function showPwEditor(id) {
   currentPwId = id;
+  const pw = state.penawaran.find(p => p.id === id);
+  openEditSnapshot("penawaran", id, pw);
   document.getElementById("pw_listView").style.display = "none";
   document.getElementById("pw_editorView").style.display = "block";
   renderPwEditor();
@@ -5588,7 +5770,7 @@ document.getElementById("pw_addBtn").addEventListener("click", () => {
   };
   state.penawaran.push(pw);
   saveState();
-  mirrorPenawaranUpsert(pw);
+  mirrorPenawaranUpsert(pw, true);
   showPwEditor(pw.id);
 });
 document.getElementById("pw_backBtn").addEventListener("click", showPwList);
@@ -5606,7 +5788,7 @@ document.getElementById("pw_table").addEventListener("click", e => {
       : "Hapus penawaran ini?";
     if (confirm(msg)) {
       state.penawaran = state.penawaran.filter(p => p.id !== delBtn.dataset.deletePw);
-      mirrorPenawaranDelete(delBtn.dataset.deletePw);
+      mirrorPenawaranDelete(delBtn.dataset.deletePw, pw);
       saveState();
       renderPwList();
     }
@@ -5618,20 +5800,20 @@ document.getElementById("pw_table").addEventListener("click", e => {
     if (!pw) return;
     pw[id.replace("pw_", "")] = document.getElementById(id).value;
     saveState();
-    mirrorPenawaranUpsert(pw);
+    mirrorPenawaranUpsert(pw, false);
   });
 });
 document.getElementById("pw_klienId").addEventListener("change", () => {
   const pw = state.penawaran.find(p => p.id === currentPwId);
-  if (pw) { pw.klienId = document.getElementById("pw_klienId").value || ""; saveState(); mirrorPenawaranUpsert(pw); }
+  if (pw) { pw.klienId = document.getElementById("pw_klienId").value || ""; saveState(); mirrorPenawaranUpsert(pw, false); }
 });
 document.getElementById("pw_tanggal").addEventListener("change", () => {
   const pw = state.penawaran.find(p => p.id === currentPwId);
-  if (pw) { pw.tanggal = document.getElementById("pw_tanggal").value; saveState(); mirrorPenawaranUpsert(pw); }
+  if (pw) { pw.tanggal = document.getElementById("pw_tanggal").value; saveState(); mirrorPenawaranUpsert(pw, false); }
 });
 document.getElementById("pw_kategori").addEventListener("change", () => {
   const pw = state.penawaran.find(p => p.id === currentPwId);
-  if (pw) { pw.kategori = document.getElementById("pw_kategori").value; saveState(); mirrorPenawaranUpsert(pw); }
+  if (pw) { pw.kategori = document.getElementById("pw_kategori").value; saveState(); mirrorPenawaranUpsert(pw, false); }
 });
 document.getElementById("pw_status").addEventListener("change", () => {
   const pw = state.penawaran.find(p => p.id === currentPwId);
@@ -5649,15 +5831,16 @@ document.getElementById("pw_status").addEventListener("change", () => {
       if (needProyek) parts.push("buat Proyek baru dari penawaran ini");
       if (confirm(`Penawaran ini disetujui klien. Sekalian ${parts.join(" dan ")}?`)) {
         if (needKlienUpdate) {
+          const klienSebelum = { ...klien };
           klien.tahap = "Deal/SPK";
           if (!klien.riwayatKontak) klien.riwayatKontak = [];
           klien.riwayatKontak.push({ id: uid(), tanggal: new Date().toISOString().slice(0, 10), catatan: `Penawaran ${pw.nomor} disetujui — tahap otomatis diubah ke Deal/SPK` });
-          mirrorKlienUpsert(klien);
+          mirrorKlienUpsert(klien, klienSebelum);
         }
         if (needProyek) {
           const { proj } = createProyekFromDoc("pw", pw);
           saveState();
-          mirrorPenawaranUpsert(pw);
+          mirrorPenawaranUpsert(pw, false);
           renderAll();
           showPage("proyek");
           showProyekDetail(proj.id);
@@ -5668,20 +5851,20 @@ document.getElementById("pw_status").addEventListener("change", () => {
     }
   }
   saveState();
-  mirrorPenawaranUpsert(pw);
+  mirrorPenawaranUpsert(pw, false);
   renderAll();
 });
 document.getElementById("pw_diskon").addEventListener("input", () => {
   const pw = state.penawaran.find(p => p.id === currentPwId);
-  if (pw) { pw.diskon = parseFloat(document.getElementById("pw_diskon").value) || 0; saveState(); mirrorPenawaranUpsert(pw); refreshPwTotals(); }
+  if (pw) { pw.diskon = parseFloat(document.getElementById("pw_diskon").value) || 0; saveState(); mirrorPenawaranUpsert(pw, false); refreshPwTotals(); }
 });
 document.getElementById("pw_ppn").addEventListener("input", () => {
   const pw = state.penawaran.find(p => p.id === currentPwId);
-  if (pw) { pw.ppn = parseFloat(document.getElementById("pw_ppn").value) || 0; saveState(); mirrorPenawaranUpsert(pw); refreshPwTotals(); }
+  if (pw) { pw.ppn = parseFloat(document.getElementById("pw_ppn").value) || 0; saveState(); mirrorPenawaranUpsert(pw, false); refreshPwTotals(); }
 });
 document.getElementById("pw_pph").addEventListener("input", () => {
   const pw = state.penawaran.find(p => p.id === currentPwId);
-  if (pw) { pw.pph = parseFloat(document.getElementById("pw_pph").value) || 0; saveState(); mirrorPenawaranUpsert(pw); refreshPwTotals(); }
+  if (pw) { pw.pph = parseFloat(document.getElementById("pw_pph").value) || 0; saveState(); mirrorPenawaranUpsert(pw, false); refreshPwTotals(); }
 });
 document.getElementById("pw_importRab").addEventListener("change", () => {
   const sel = document.getElementById("pw_importRab");
@@ -5693,7 +5876,7 @@ document.getElementById("pw_importRab").addEventListener("change", () => {
   if (!pw.perihal) pw.perihal = rab.nama;
   if (!pw.kepada) pw.kepada = rab.klien;
   saveState();
-  mirrorPenawaranUpsert(pw);
+  mirrorPenawaranUpsert(pw, false);
   renderPwEditor();
   sel.value = "";
 });
@@ -5710,7 +5893,7 @@ document.getElementById("pw_itemsTable").addEventListener("click", e => {
     if (confirm("Hapus item ini?")) {
       pw.items = pw.items.filter(x => x.id !== delBtn.dataset.deleteItem);
       saveState();
-      mirrorPenawaranUpsert(pw);
+      mirrorPenawaranUpsert(pw, false);
       renderPwEditor();
     }
   }
@@ -5858,7 +6041,7 @@ document.getElementById("pw_duplicateBtn").addEventListener("click", () => {
   };
   state.penawaran.push(revisi);
   saveState();
-  mirrorPenawaranUpsert(revisi);
+  mirrorPenawaranUpsert(revisi, true);
   showPwEditor(revisi.id);
 });
 document.getElementById("pw_revisiNote").addEventListener("click", e => {
@@ -5957,7 +6140,10 @@ function showPage(name) {
   location.hash = name;
 }
 document.querySelectorAll(".nav-item").forEach(btn => {
-  btn.addEventListener("click", () => showPage(btn.dataset.page));
+  btn.addEventListener("click", () => {
+    showPage(btn.dataset.page);
+    if (btn.dataset.page === "aktivitas") renderActivityLog(true);
+  });
 });
 document.getElementById("mobileToggle").addEventListener("click", () => {
   document.getElementById("sidebar").classList.toggle("open");
@@ -6050,7 +6236,7 @@ document.getElementById("txnForm").addEventListener("submit", e => {
   const idx = arr.findIndex(t => t.id === id);
   if (idx >= 0) arr[idx] = txn; else arr.push(txn);
   saveState();
-  mirrorKasTxnUpsert(book, txn);
+  mirrorKasTxnUpsert(book, txn, existing);
   renderAll();
   closeModals();
 });
@@ -6068,18 +6254,20 @@ document.getElementById("txnForm").addEventListener("submit", e => {
     } else if (delBtn) {
       const book = delBtn.dataset.book;
       if (confirm("Hapus transaksi ini?")) {
+        const deleted = state[book].transactions.find(x => x.id === delBtn.dataset.delete);
         state[book].transactions = state[book].transactions.filter(x => x.id !== delBtn.dataset.delete);
         saveState();
-        mirrorKasTxnDelete(book, delBtn.dataset.delete);
+        mirrorKasTxnDelete(book, delBtn.dataset.delete, deleted);
         renderAll();
       }
     } else if (approveBtn) {
       const book = approveBtn.dataset.book;
       const t = state[book].transactions.find(x => x.id === approveBtn.dataset.approve);
       if (t && confirm(`Setujui pengeluaran ${rupiah(t.jumlah)} ini? Saldo Kas Perusahaan akan langsung berkurang.`)) {
+        const sebelum = { ...t };
         t.status = "lunas";
         saveState();
-        mirrorKasTxnUpsert(book, t);
+        mirrorKasTxnUpsert(book, t, sebelum);
         renderAll();
       }
     }
@@ -6149,7 +6337,7 @@ document.getElementById("proyekForm").addEventListener("submit", e => {
   };
   if (idx >= 0) state.proyek[idx] = proj; else state.proyek.push(proj);
   saveState();
-  mirrorProyekUpsert(proj);
+  mirrorProyekUpsert(proj, existing);
   renderAll();
   closeModals();
 });
@@ -6164,8 +6352,9 @@ document.getElementById("pr_table").addEventListener("click", e => {
     if (p) openProyekModal(p);
   } else if (delBtn) {
     if (confirm("Hapus proyek ini? Transaksi Kas Perusahaan yang sudah terkait proyek ini tidak akan ikut terhapus.")) {
+      const deleted = state.proyek.find(x => x.id === delBtn.dataset.deleteProyek);
       state.proyek = state.proyek.filter(x => x.id !== delBtn.dataset.deleteProyek);
-      mirrorProyekDelete(delBtn.dataset.deleteProyek);
+      mirrorProyekDelete(delBtn.dataset.deleteProyek, deleted);
       if (currentProyekId === delBtn.dataset.deleteProyek) currentProyekId = null;
       saveState();
       renderAll();
@@ -6303,7 +6492,7 @@ document.getElementById("belanjaForm").addEventListener("submit", e => {
   syncBelanjaMaterial(p, item);
   saveState();
   mirrorProyekUpsert(p);
-  state.stok.forEach(mirrorStokUpsert);
+  state.stok.forEach(s => mirrorStokUpsert(s));
   mirrorSyncBelanjaMaterialKas(item);
   renderAll();
   closeModals();
@@ -6324,7 +6513,7 @@ document.getElementById("pd_belanjaTable").addEventListener("click", e => {
       state.stok.forEach(s => { s.transactions = (s.transactions || []).filter(t => t.sumberBelanjaId !== bid); });
       saveState();
       mirrorProyekUpsert(p);
-      state.stok.forEach(mirrorStokUpsert);
+      state.stok.forEach(s => mirrorStokUpsert(s));
       mirrorKasUsahaDeleteBySumberBelanja(bid);
       renderAll();
     }
@@ -6699,6 +6888,98 @@ document.getElementById("backupHistoryTable").addEventListener("click", async e 
     btn.disabled = false;
   }
 });
+// ===== Fase 0.5: halaman "Aktivitas Tim" (Owner-only) =====
+let aktivitasOffset = 0;
+const AKTIVITAS_PAGE_SIZE = 50;
+let aktivitasFiltersReady = false;
+async function populateAktivitasFilters() {
+  if (aktivitasFiltersReady || !sb || !targetCompanyId) return;
+  aktivitasFiltersReady = true;
+  const modulSel = document.getElementById("akt_filterModul");
+  modulSel.innerHTML = '<option value="">Semua Modul</option>' + Object.keys(ACTIVITY_MODULE_LABELS).map(m => `<option value="${m}">${escapeHtml(ACTIVITY_MODULE_LABELS[m])}</option>`).join("");
+  try {
+    const { data, error } = await sb.from("team_members").select("member_id,member_email").eq("owner_id", targetCompanyId).eq("status", "active");
+    if (error) throw error;
+    const anggotaSel = document.getElementById("akt_filterAnggota");
+    const opsi = [`<option value="${targetCompanyId}">Owner</option>`]
+      .concat((data || []).filter(r => r.member_id).map(r => `<option value="${r.member_id}">${escapeHtml(r.member_email)}</option>`));
+    anggotaSel.innerHTML = '<option value="">Semua Anggota</option>' + opsi.join("");
+  } catch (err) { /* best-effort -- filter anggota tetap "Semua" kalau gagal */ }
+}
+function aktivitasWaktuRentang() {
+  const mulai = document.getElementById("akt_mulai").value;
+  const selesai = document.getElementById("akt_selesai").value;
+  return { mulai, selesai };
+}
+function renderAktivitasRow(row) {
+  const waktu = new Date(row.created_at).toLocaleString("id-ID");
+  const aksiLabel = { create: "Tambah", update: "Ubah", delete: "Hapus" }[row.action] || row.action;
+  return `
+    <tr data-aktivitas-id="${row.id}" style="cursor:pointer;">
+      <td>${waktu}</td>
+      <td>${escapeHtml(row.actor_email)} <span class="muted">(${escapeHtml(ROLE_LABELS[row.actor_role] || row.actor_role)})</span></td>
+      <td>${escapeHtml(ACTIVITY_MODULE_LABELS[row.module] || row.module)}</td>
+      <td>${aksiLabel}</td>
+      <td>${escapeHtml(row.summary)}</td>
+    </tr>
+  `;
+}
+async function renderActivityLog(reset) {
+  const tbody = document.querySelector("#aktivitasTable tbody");
+  if (!sb || !targetCompanyId) { tbody.innerHTML = '<tr class="empty-row"><td colspan="5">-</td></tr>'; return; }
+  await populateAktivitasFilters();
+  if (reset !== false) { aktivitasOffset = 0; tbody.innerHTML = ""; }
+  try {
+    let q = sb.from("activity_log").select("*").eq("company_id", targetCompanyId).order("created_at", { ascending: false });
+    const anggota = document.getElementById("akt_filterAnggota").value;
+    const modul = document.getElementById("akt_filterModul").value;
+    const { mulai, selesai } = aktivitasWaktuRentang();
+    if (anggota) q = q.eq("actor_id", anggota);
+    if (modul) q = q.eq("module", modul);
+    if (mulai) q = q.gte("created_at", mulai);
+    if (selesai) q = q.lte("created_at", selesai + "T23:59:59");
+    q = q.range(aktivitasOffset, aktivitasOffset + AKTIVITAS_PAGE_SIZE - 1);
+    const { data, error } = await q;
+    if (error) throw error;
+    const rows = data || [];
+    if (aktivitasOffset === 0 && !rows.length) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="5">Belum ada aktivitas tercatat pada rentang/filter ini.</td></tr>';
+    } else {
+      tbody.insertAdjacentHTML("beforeend", rows.map(renderAktivitasRow).join(""));
+    }
+    aktivitasOffset += rows.length;
+    document.getElementById("akt_loadMoreBtn").style.display = rows.length < AKTIVITAS_PAGE_SIZE ? "none" : "";
+  } catch (err) {
+    if (aktivitasOffset === 0) tbody.innerHTML = `<tr class="empty-row"><td colspan="5">Gagal memuat log aktivitas: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+document.getElementById("akt_filterBtn").addEventListener("click", () => renderActivityLog(true));
+document.getElementById("akt_loadMoreBtn").addEventListener("click", () => renderActivityLog(false));
+const aktivitasDetailModal = document.getElementById("aktivitasDetailModal");
+document.getElementById("aktivitasTable").addEventListener("click", async e => {
+  const tr = e.target.closest("[data-aktivitas-id]");
+  if (!tr || !sb) return;
+  try {
+    const { data, error } = await sb.from("activity_log").select("*").eq("id", tr.dataset.aktivitasId).maybeSingle();
+    if (error) throw error;
+    if (!data) return;
+    document.getElementById("aktivitasDetailTitle").textContent = `${ACTIVITY_MODULE_LABELS[data.module] || data.module} — ${escapeHtml(data.actor_email)}`;
+    const diff = data.diff;
+    let bodyHtml;
+    if (data.action === "delete") {
+      bodyHtml = `<p class="muted">Data yang dihapus:</p><pre style="white-space:pre-wrap; font-size:12px;">${escapeHtml(JSON.stringify(diff, null, 2))}</pre>`;
+    } else if (diff && Object.keys(diff).length) {
+      bodyHtml = `<table class="tbl"><thead><tr><th>Field</th><th>Sebelum</th><th>Sesudah</th></tr></thead><tbody>${
+        Object.keys(diff).map(f => `<tr><td>${escapeHtml(f)}</td><td>${escapeHtml(JSON.stringify(diff[f].from))}</td><td>${escapeHtml(JSON.stringify(diff[f].to))}</td></tr>`).join("")
+      }</tbody></table>`;
+    } else {
+      bodyHtml = `<p class="muted">${escapeHtml(data.summary)}</p>`;
+    }
+    document.getElementById("aktivitasDetailBody").innerHTML = bodyHtml;
+    aktivitasDetailModal.classList.add("open");
+  } catch (err) { /* best-effort -- diam kalau gagal buka detail */ }
+});
+
 // Selain slip gaji, beberapa field lain juga tersimpan sebagai satu kolom
 // array utuh yang MENUMPUK dari waktu ke waktu dan TIDAK punya tombol hapus
 // di UI (jadi seharusnya tidak pernah menyusut secara wajar): absensi
@@ -6753,11 +7034,16 @@ function preserveHistoryFieldsOnImport(sebelum, sesudah) {
 async function mirrorAllToRelational() {
   if (!sb || !targetCompanyId) return;
   await mirrorCompanyProfileUpsert();
-  (state.klien || []).forEach(mirrorKlienUpsert);
-  (state.ahsp || []).forEach(mirrorAhspUpsert);
-  (state.proyekRab || []).forEach(mirrorRabUpsert);
-  (state.penawaran || []).forEach(mirrorPenawaranUpsert);
-  (state.proyek || []).forEach(mirrorProyekUpsert);
+  // Catatan Fase 0.5: setiap mirrorXUpsert di bawah SENGAJA dipanggil
+  // dengan tepat 1 argumen (bukan diteruskan langsung ke .forEach, yang
+  // akan menyisipkan index array sebagai argumen kedua) -- parameter
+  // "existing" yang undefined berarti "jangan catat ke Log Aktivitas",
+  // karena ini re-mirror massal (impor/migrasi), bukan aksi satu pengguna.
+  (state.klien || []).forEach(k => mirrorKlienUpsert(k));
+  (state.ahsp || []).forEach(a => mirrorAhspUpsert(a));
+  (state.proyekRab || []).forEach(r => mirrorRabUpsert(r));
+  (state.penawaran || []).forEach(p => mirrorPenawaranUpsert(p));
+  (state.proyek || []).forEach(p => mirrorProyekUpsert(p));
   (state.karyawan || []).forEach(k => {
     mirrorKaryawanUpsert(k);
     // karyawan_gaji.slip_gaji tersimpan sebagai SATU kolom array utuh
@@ -6769,11 +7055,11 @@ async function mirrorAllToRelational() {
     // MENAMBAH, bukan menghapus riwayat gaji yang sudah tercatat.
     if ((k.slipGaji || []).length) mirrorKaryawanGajiUpsert(k);
   });
-  (state.stok || []).forEach(mirrorStokUpsert);
-  (state.gudang || []).forEach(mirrorGudangUpsert);
-  (state.pemasok || []).forEach(mirrorPemasokUpsert);
-  (state.kasUsaha.transactions || []).forEach(mirrorKasUsahaUpsert);
-  (state.kasPribadi.transactions || []).forEach(mirrorKasPribadiUpsert);
+  (state.stok || []).forEach(s => mirrorStokUpsert(s));
+  (state.gudang || []).forEach(g => mirrorGudangUpsert(g));
+  (state.pemasok || []).forEach(pm => mirrorPemasokUpsert(pm));
+  (state.kasUsaha.transactions || []).forEach(t => mirrorKasUsahaUpsert(t));
+  (state.kasPribadi.transactions || []).forEach(t => mirrorKasPribadiUpsert(t));
   await mirrorSaldoAwalUpsert("kasUsaha", state.kasUsaha.saldoAwal || 0);
   await mirrorSaldoAwalUpsert("kasPribadi", state.kasPribadi.saldoAwal || 0);
 }
