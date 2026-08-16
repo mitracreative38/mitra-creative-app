@@ -2486,7 +2486,9 @@
 <!-- Supabase client for optional cloud sync — app works fully offline/local if this fails to load -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="data.js"></script>
-<script src="data_ahsp_resmi.js"></script>
+<!-- data_ahsp_resmi.js (1.940 item AHSP resmi, ~1.7MB) SENGAJA tidak dimuat di sini
+     -- ukurannya besar dan cuma dipakai saat halaman AHSP/modal Template Standar dibuka.
+     Dimuat dinamis oleh loadAhspResmiDataset() di app.js supaya buka aplikasi tetap cepat. -->
 <script src="app.js"></script>
 <!-- Native-shell glue (status bar, splash screen, Android back button) — no-op outside the mobile app -->
 <script src="mobile-init.bundle.js"></script>
