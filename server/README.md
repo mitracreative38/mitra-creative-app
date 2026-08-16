@@ -14,6 +14,15 @@ lewat Chromium headless (Puppeteer) supaya hasilnya identik dengan
 tampilan "Cetak Penawaran" biasa. RAB, Slip Gaji, dan dokumen lain
 menyusul satu per satu.
 
+Fitur kedua: **backup otomatis terjadwal** (`server/lib/backup.js`) --
+tiap ~jam server mengecek semua perusahaan (pakai service role, lintas
+RLS) dan membuat cuplikan blob `app_state` ke tabel `app_backups` untuk
+perusahaan mana pun yang belum di-backup dalam 24 jam terakhir (dicek
+dari database, bukan memori proses, jadi tahan restart/redeploy).
+Riwayat 30 hari terakhir bisa dilihat & diunduh Owner lewat panel
+"Backup Otomatis" di halaman Pengaturan. Butuh tabel baru
+`supabase_relational_schema_fix11.sql` dijalankan di Supabase SQL Editor.
+
 ## Menjalankan di komputer sendiri (opsional, untuk coba-coba)
 
 ```

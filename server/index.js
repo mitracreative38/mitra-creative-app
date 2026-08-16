@@ -4,6 +4,7 @@ const cors = require("cors");
 const { createClient } = require("@supabase/supabase-js");
 const { buildPenawaranPrintHtml, buildRabPrintHtml, buildSlipGajiPrintHtml, wrapPrintPage } = require("./lib/print");
 const { getBrowser } = require("./lib/browser");
+const { checkAndRunBackups } = require("./lib/backup");
 
 const PORT = process.env.PORT || 3000;
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -183,6 +184,16 @@ app.get("/api/pdf/slip-gaji/:id", async (req, res) => {
     res.status(500).json({ error: "Gagal membuat PDF: " + err.message });
   }
 });
+
+// Backup otomatis (Fase 0.2): dicek setiap jam, tapi tiap perusahaan cuma
+// benar-benar di-backup kalau sudah lewat ~24 jam sejak backup terakhirnya
+// (dicek dari database, jadi tahan restart/redeploy -- lihat lib/backup.js).
+const BACKUP_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+if (supabaseAdmin) {
+  setInterval(() => { checkAndRunBackups(supabaseAdmin).catch(err => console.error("[backup] gagal:", err.message)); }, BACKUP_CHECK_INTERVAL_MS);
+  // Jalan sekali singkat setelah startup juga, supaya tidak perlu nunggu 1 jam pertama.
+  setTimeout(() => { checkAndRunBackups(supabaseAdmin).catch(err => console.error("[backup] gagal:", err.message)); }, 30 * 1000);
+}
 
 app.listen(PORT, () => {
   console.log(`Server berjalan di port ${PORT}`);
