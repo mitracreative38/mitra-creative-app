@@ -185,6 +185,8 @@ body {
 .tbl th.num, .tbl td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .tbl tbody tr:hover { background: var(--gridline); }
 .tbl .empty-row td { text-align: center; color: var(--text-muted); padding: 30px 10px; }
+.tbl .kelompok-row td { background: var(--gridline); padding: 7px 10px; }
+.tbl .kelompok-row:hover { background: var(--gridline); }
 
 .badge { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 600; }
 .badge-masuk { background: color-mix(in srgb, var(--series-1) 16%, transparent); color: var(--series-1); }

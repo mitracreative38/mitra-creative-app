@@ -135,21 +135,50 @@ function rabTotals(rab) {
   return { subtotal, ppnValue, pphValue, total };
 }
 
+// Mengelompokkan item RAB berdasarkan field kelompok (section), sama persis
+// dengan groupItemsByKelompok di www/app.js, supaya PDF server-side
+// menampilkan header/subtotal per kelompok identik dengan tampilan cetak
+// di browser.
+function groupItemsByKelompok(items) {
+  const groups = [];
+  const byKey = {};
+  items.forEach(it => {
+    const key = it.kelompok || "";
+    if (!byKey[key]) {
+      byKey[key] = { kelompok: key, items: [], subtotal: 0 };
+      groups.push(byKey[key]);
+    }
+    byKey[key].items.push(it);
+    byKey[key].subtotal += (it.volume || 0) * (it.hargaSatuan || 0);
+  });
+  return groups;
+}
+
 // rab: baris tabel "rab" (kolom snake_case) digabung dengan profil
 // perusahaan, sama polanya dengan buildPenawaranPrintHtml di atas.
 function buildRabPrintHtml(rab, profil) {
   const { subtotal, ppnValue, pphValue, total } = rabTotals(rab);
   const items = rab.items || [];
-  const itemsRows = items.map((it, i) => `
-    <tr>
-      <td class="c">${i + 1}</td>
-      <td>${escapeHtml(it.uraian)}</td>
-      <td class="c">${escapeHtml(it.satuan)}</td>
-      <td class="r">${it.volume}</td>
-      <td class="r">${rupiah(it.hargaSatuan)}</td>
-      <td class="r">${rupiah((it.volume || 0) * (it.hargaSatuan || 0))}</td>
-    </tr>
-  `).join("") || `<tr><td colspan="6" class="c">Belum ada item</td></tr>`;
+  let rowNum = 0;
+  const itemsRows = groupItemsByKelompok(items).map(group => {
+    const header = group.kelompok ? `
+      <tr><td colspan="5" style="background:#f3f3f3;"><strong>${escapeHtml(group.kelompok)}</strong></td><td class="r" style="background:#f3f3f3;"><strong>${rupiah(group.subtotal)}</strong></td></tr>
+    ` : "";
+    const rows = group.items.map(it => {
+      rowNum++;
+      return `
+        <tr>
+          <td class="c">${rowNum}</td>
+          <td>${escapeHtml(it.uraian)}</td>
+          <td class="c">${escapeHtml(it.satuan)}</td>
+          <td class="r">${it.volume}</td>
+          <td class="r">${rupiah(it.hargaSatuan)}</td>
+          <td class="r">${rupiah((it.volume || 0) * (it.hargaSatuan || 0))}</td>
+        </tr>
+      `;
+    }).join("");
+    return header + rows;
+  }).join("") || `<tr><td colspan="6" class="c">Belum ada item</td></tr>`;
 
   return `
     <div class="letterhead">
