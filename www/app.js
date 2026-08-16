@@ -4058,6 +4058,16 @@ function openItemModal(ctx, existing) {
   document.getElementById("it_volume").value = existing ? String(existing.volume) : "";
   document.getElementById("it_harga").value = existing ? formatNumberInput(existing.hargaSatuan) : "";
   itemModalCtx.ahspId = existing ? (existing.ahspId || "") : "";
+  // Pengelompokan section (kelompok) cuma dipakai di RAB -- Penawaran tetap
+  // daftar flat seperti sebelumnya, jadi field ini disembunyikan untuk itu.
+  const kelompokField = document.getElementById("it_kelompokField");
+  if (ctx.kind === "rab") {
+    kelompokField.style.display = "";
+    document.getElementById("it_kelompok").value = existing ? (existing.kelompok || "") : "";
+  } else {
+    kelompokField.style.display = "none";
+    document.getElementById("it_kelompok").value = "";
+  }
   updateItemJumlahPreview();
   itemModal.classList.add("open");
 }
@@ -4092,6 +4102,7 @@ document.getElementById("itemForm").addEventListener("submit", e => {
     hargaSatuan: parseNumberInput(document.getElementById("it_harga").value),
     ahspId: itemModalCtx.ahspId || ""
   };
+  if (itemModalCtx.kind === "rab") item.kelompok = document.getElementById("it_kelompok").value.trim();
   const idx = doc.items.findIndex(x => x.id === item.id);
   if (idx >= 0) doc.items[idx] = item; else doc.items.push(item);
   saveState();
@@ -4117,6 +4128,283 @@ function findBestAhspMatch(text) {
   });
   return bestScore >= 0.34 ? best : null;
 }
+
+// ===== Estimasi Cepat dari Dimensi (RAB) =====
+// Kalkulator volume otomatis per jenis pekerjaan rumah, dari input dimensi
+// bangunan. Rumus geometri konstruksi standar (trapesium pondasi, volume
+// balok/kolom persegi, dst) yang ditulis sendiri berdasarkan pengetahuan
+// umum estimasi bangunan -- BUKAN hasil salin dari software pihak ketiga
+// manapun. Hasilnya estimasi awal, bukan angka final untuk pengajuan resmi.
+function round3(n) { return Math.round((n || 0) * 1000) / 1000; }
+const ESTIMASI_KATEGORI = [
+  { id: "pondasi", label: "Pondasi Batu Kali", kelompok: "II. Pekerjaan Pondasi",
+    fields: [
+      { key: "panjang", label: "Panjang total pondasi", unit: "m", default: 20 },
+      { key: "lebarAtas", label: "Lebar atas pondasi", unit: "m", default: 0.3 },
+      { key: "lebarBawah", label: "Lebar bawah pondasi", unit: "m", default: 0.6 },
+      { key: "tinggiPasangan", label: "Tinggi pasangan batu", unit: "m", default: 0.6 },
+      { key: "tebalUrugPasir", label: "Tebal urugan pasir", unit: "m", default: 0.05 },
+      { key: "kedalamanGalian", label: "Kedalaman galian", unit: "m", default: 0.7 }
+    ],
+    compute(v) {
+      const lebarGalian = v.lebarBawah + 0.3; // ruang kerja tambahan kiri-kanan
+      return [
+        { uraian: "Galian tanah pondasi", satuan: "m3", volume: round3(v.panjang * lebarGalian * v.kedalamanGalian) },
+        { uraian: "Urugan pasir bawah pondasi", satuan: "m3", volume: round3(v.panjang * v.lebarBawah * v.tebalUrugPasir) },
+        { uraian: "Pasangan pondasi batu kali", satuan: "m3", volume: round3(v.panjang * ((v.lebarAtas + v.lebarBawah) / 2) * v.tinggiPasangan) }
+      ];
+    }
+  },
+  { id: "sloof", label: "Sloof Beton", kelompok: "III. Pekerjaan Struktur Beton",
+    fields: [
+      { key: "panjang", label: "Panjang total sloof", unit: "m", default: 20 },
+      { key: "lebar", label: "Lebar sloof", unit: "m", default: 0.15 },
+      { key: "tinggi", label: "Tinggi sloof", unit: "m", default: 0.2 },
+      { key: "koefBesi", label: "Koefisien besi beton", unit: "kg/m3", default: 110 }
+    ],
+    compute(v) {
+      const volBeton = round3(v.panjang * v.lebar * v.tinggi);
+      return [
+        { uraian: "Beton sloof", satuan: "m3", volume: volBeton },
+        { uraian: "Bekisting sloof", satuan: "m2", volume: round3(2 * (v.lebar + v.tinggi) * v.panjang) },
+        { uraian: "Pembesian sloof", satuan: "kg", volume: round3(volBeton * v.koefBesi) }
+      ];
+    }
+  },
+  { id: "kolom", label: "Kolom Beton", kelompok: "III. Pekerjaan Struktur Beton",
+    fields: [
+      { key: "jumlah", label: "Jumlah kolom", unit: "buah", default: 10 },
+      { key: "lebar", label: "Lebar penampang kolom", unit: "m", default: 0.15 },
+      { key: "tebal", label: "Tebal penampang kolom", unit: "m", default: 0.15 },
+      { key: "tinggi", label: "Tinggi kolom", unit: "m", default: 3.5 },
+      { key: "koefBesi", label: "Koefisien besi beton", unit: "kg/m3", default: 150 }
+    ],
+    compute(v) {
+      const volBeton = round3(v.jumlah * v.lebar * v.tebal * v.tinggi);
+      return [
+        { uraian: "Beton kolom", satuan: "m3", volume: volBeton },
+        { uraian: "Bekisting kolom", satuan: "m2", volume: round3(v.jumlah * 2 * (v.lebar + v.tebal) * v.tinggi) },
+        { uraian: "Pembesian kolom", satuan: "kg", volume: round3(volBeton * v.koefBesi) }
+      ];
+    }
+  },
+  { id: "balok", label: "Balok Beton", kelompok: "III. Pekerjaan Struktur Beton",
+    fields: [
+      { key: "panjang", label: "Panjang total balok", unit: "m", default: 20 },
+      { key: "lebar", label: "Lebar balok", unit: "m", default: 0.15 },
+      { key: "tinggi", label: "Tinggi balok", unit: "m", default: 0.25 },
+      { key: "koefBesi", label: "Koefisien besi beton", unit: "kg/m3", default: 130 }
+    ],
+    compute(v) {
+      const volBeton = round3(v.panjang * v.lebar * v.tinggi);
+      return [
+        { uraian: "Beton balok", satuan: "m3", volume: volBeton },
+        { uraian: "Bekisting balok", satuan: "m2", volume: round3((2 * v.tinggi + v.lebar) * v.panjang) },
+        { uraian: "Pembesian balok", satuan: "kg", volume: round3(volBeton * v.koefBesi) }
+      ];
+    }
+  },
+  { id: "pelat", label: "Pelat Beton (Lantai/Dak)", kelompok: "III. Pekerjaan Struktur Beton",
+    fields: [
+      { key: "panjang", label: "Panjang pelat", unit: "m", default: 8 },
+      { key: "lebar", label: "Lebar pelat", unit: "m", default: 6 },
+      { key: "tebal", label: "Tebal pelat", unit: "m", default: 0.12 },
+      { key: "koefBesi", label: "Koefisien besi beton", unit: "kg/m3", default: 100 }
+    ],
+    compute(v) {
+      const volBeton = round3(v.panjang * v.lebar * v.tebal);
+      return [
+        { uraian: "Beton pelat lantai/dak", satuan: "m3", volume: volBeton },
+        { uraian: "Bekisting pelat", satuan: "m2", volume: round3(v.panjang * v.lebar) },
+        { uraian: "Pembesian pelat", satuan: "kg", volume: round3(volBeton * v.koefBesi) }
+      ];
+    }
+  },
+  { id: "dinding", label: "Dinding (Pasangan Bata/Batako)", kelompok: "IV. Pekerjaan Dinding",
+    fields: [
+      { key: "panjang", label: "Panjang total dinding", unit: "m", default: 40 },
+      { key: "tinggi", label: "Tinggi dinding", unit: "m", default: 3 },
+      { key: "luasBukaan", label: "Luas bukaan pintu/jendela (dikurangi)", unit: "m2", default: 8 },
+      { key: "sisiPlester", label: "Jumlah sisi diplester", unit: "sisi", default: 2 }
+    ],
+    compute(v) {
+      const luasDinding = Math.max(0, round3(v.panjang * v.tinggi - v.luasBukaan));
+      return [
+        { uraian: "Pasangan dinding bata/batako", satuan: "m2", volume: luasDinding },
+        { uraian: "Plesteran dinding", satuan: "m2", volume: round3(luasDinding * v.sisiPlester) },
+        { uraian: "Acian dinding", satuan: "m2", volume: round3(luasDinding * v.sisiPlester) }
+      ];
+    }
+  },
+  { id: "atap", label: "Atap", kelompok: "V. Pekerjaan Atap",
+    fields: [
+      { key: "luasDenah", label: "Luas denah/proyeksi atap", unit: "m2", default: 80 },
+      { key: "sudut", label: "Sudut kemiringan atap", unit: "derajat", default: 30 }
+    ],
+    compute(v) {
+      const luasEfektif = round3(v.luasDenah / Math.cos(v.sudut * Math.PI / 180));
+      return [
+        { uraian: "Penutup atap", satuan: "m2", volume: luasEfektif },
+        { uraian: "Rangka atap (kuda-kuda, reng, usuk)", satuan: "m2", volume: luasEfektif }
+      ];
+    }
+  },
+  { id: "keramik", label: "Keramik Lantai", kelompok: "VI. Pekerjaan Lantai & Dinding Finishing",
+    fields: [
+      { key: "panjang", label: "Panjang ruang", unit: "m", default: 8 },
+      { key: "lebar", label: "Lebar ruang", unit: "m", default: 6 },
+      { key: "dikurangi", label: "Luas dikurangi (kolom, dst)", unit: "m2", default: 0 }
+    ],
+    compute(v) {
+      return [
+        { uraian: "Pemasangan keramik lantai", satuan: "m2", volume: Math.max(0, round3(v.panjang * v.lebar - v.dikurangi)) }
+      ];
+    }
+  },
+  { id: "plafon", label: "Plafon", kelompok: "VII. Pekerjaan Plafon",
+    fields: [
+      { key: "panjang", label: "Panjang ruang", unit: "m", default: 8 },
+      { key: "lebar", label: "Lebar ruang", unit: "m", default: 6 }
+    ],
+    compute(v) {
+      return [
+        { uraian: "Pemasangan plafon", satuan: "m2", volume: round3(v.panjang * v.lebar) }
+      ];
+    }
+  },
+  { id: "elektrikal", label: "Elektrikal", kelompok: "VIII. Pekerjaan Elektrikal",
+    fields: [
+      { key: "titikLampu", label: "Jumlah titik lampu", unit: "titik", default: 10 },
+      { key: "titikStopKontak", label: "Jumlah titik stop kontak", unit: "titik", default: 8 },
+      { key: "titikSaklar", label: "Jumlah titik saklar", unit: "titik", default: 6 },
+      { key: "titikPanel", label: "Jumlah panel/MCB", unit: "unit", default: 1 }
+    ],
+    compute(v) {
+      return [
+        { uraian: "Instalasi titik lampu", satuan: "titik", volume: v.titikLampu },
+        { uraian: "Instalasi titik stop kontak", satuan: "titik", volume: v.titikStopKontak },
+        { uraian: "Instalasi titik saklar", satuan: "titik", volume: v.titikSaklar },
+        { uraian: "Pemasangan panel/MCB", satuan: "unit", volume: v.titikPanel }
+      ];
+    }
+  },
+  { id: "air_bersih", label: "Instalasi Air Bersih", kelompok: "IX. Pekerjaan Plumbing & Sanitasi",
+    fields: [
+      { key: "panjangPipa", label: "Panjang pipa distribusi", unit: "m", default: 30 },
+      { key: "titikAir", label: "Jumlah titik kran/closet/wastafel", unit: "titik", default: 6 }
+    ],
+    compute(v) {
+      return [
+        { uraian: "Pemasangan pipa air bersih", satuan: "m", volume: v.panjangPipa },
+        { uraian: "Instalasi titik air (kran/closet/wastafel)", satuan: "titik", volume: v.titikAir }
+      ];
+    }
+  },
+  { id: "septic_tank", label: "Septic Tank", kelompok: "IX. Pekerjaan Plumbing & Sanitasi",
+    fields: [
+      { key: "panjang", label: "Panjang septic tank", unit: "m", default: 1.5 },
+      { key: "lebar", label: "Lebar septic tank", unit: "m", default: 1.2 },
+      { key: "kedalaman", label: "Kedalaman septic tank", unit: "m", default: 1.5 },
+      { key: "tebalTutup", label: "Tebal plat tutup beton", unit: "m", default: 0.1 }
+    ],
+    compute(v) {
+      return [
+        { uraian: "Galian septic tank", satuan: "m3", volume: round3(v.panjang * v.lebar * v.kedalaman) },
+        { uraian: "Pasangan dinding bata septic tank", satuan: "m2", volume: round3(2 * (v.panjang + v.lebar) * v.kedalaman) },
+        { uraian: "Beton plat tutup septic tank", satuan: "m3", volume: round3(v.panjang * v.lebar * v.tebalTutup) }
+      ];
+    }
+  },
+  { id: "tangga", label: "Tangga", kelompok: "III. Pekerjaan Struktur Beton",
+    fields: [
+      { key: "jumlahAnak", label: "Jumlah anak tangga", unit: "buah", default: 15 },
+      { key: "lebarTangga", label: "Lebar tangga", unit: "m", default: 1.0 },
+      { key: "optrede", label: "Tinggi anak tangga (optrede)", unit: "m", default: 0.18 },
+      { key: "antrede", label: "Lebar anak tangga (antrede)", unit: "m", default: 0.28 }
+    ],
+    compute(v) {
+      // Volume per anak tangga didekati sebagai penampang segitiga siku
+      // (optrede x antrede / 2) x lebar tangga -- pendekatan kasar yang umum
+      // dipakai untuk estimasi awal beton tangga.
+      const volBeton = round3(v.jumlahAnak * 0.5 * v.optrede * v.antrede * v.lebarTangga);
+      return [
+        { uraian: "Beton tangga", satuan: "m3", volume: volBeton }
+      ];
+    }
+  }
+];
+
+const estimasiModal = document.getElementById("estimasiModal");
+let estimasiPreviewItems = [];
+function renderEstimasiFields() {
+  const kat = ESTIMASI_KATEGORI.find(k => k.id === document.getElementById("est_kategori").value);
+  const wrap = document.getElementById("est_fields");
+  if (!kat) { wrap.innerHTML = ""; return; }
+  wrap.innerHTML = kat.fields.map(f => `
+    <div class="field">
+      <label>${escapeHtml(f.label)} (${escapeHtml(f.unit)})</label>
+      <input type="text" inputmode="decimal" class="est-field-input" data-key="${escapeHtml(f.key)}" value="${f.default}">
+    </div>
+  `).join("");
+  document.getElementById("est_previewWrap").style.display = "none";
+  document.getElementById("est_tambahkanBtn").disabled = true;
+  estimasiPreviewItems = [];
+}
+document.getElementById("rab_estimasiBtn").addEventListener("click", () => {
+  const sel = document.getElementById("est_kategori");
+  if (!sel.options.length) sel.innerHTML = ESTIMASI_KATEGORI.map(k => `<option value="${k.id}">${escapeHtml(k.label)}</option>`).join("");
+  sel.value = ESTIMASI_KATEGORI[0].id;
+  renderEstimasiFields();
+  estimasiModal.classList.add("open");
+});
+document.getElementById("est_kategori").addEventListener("change", renderEstimasiFields);
+document.getElementById("est_hitungBtn").addEventListener("click", () => {
+  const kat = ESTIMASI_KATEGORI.find(k => k.id === document.getElementById("est_kategori").value);
+  if (!kat) return;
+  const v = {};
+  document.querySelectorAll(".est-field-input").forEach(inp => {
+    v[inp.dataset.key] = parseFloat((inp.value || "").replace(",", ".")) || 0;
+  });
+  const results = kat.compute(v).filter(r => r.volume > 0);
+  estimasiPreviewItems = results.map(r => {
+    const match = findBestAhspMatch(r.uraian);
+    return { ...r, ahspId: match ? match.id : "", hargaSatuan: match ? ahspHarga(match) : 0, kelompok: kat.kelompok };
+  });
+  const tbody = document.querySelector("#est_previewTable tbody");
+  tbody.innerHTML = estimasiPreviewItems.length
+    ? estimasiPreviewItems.map(it => `
+        <tr>
+          <td>${escapeHtml(it.uraian)}</td>
+          <td>${escapeHtml(it.satuan)}</td>
+          <td class="num">${it.volume}</td>
+          <td class="num">${it.ahspId ? rupiah(it.hargaSatuan) : '<span class="muted">belum ada di AHSP</span>'}</td>
+        </tr>
+      `).join("")
+    : '<tr class="empty-row"><td colspan="4">Semua volume hasil hitungan 0 — cek kembali dimensi yang diisi.</td></tr>';
+  document.getElementById("est_previewWrap").style.display = "";
+  document.getElementById("est_tambahkanBtn").disabled = estimasiPreviewItems.length === 0;
+});
+document.getElementById("est_tambahkanBtn").addEventListener("click", () => {
+  const rab = state.proyekRab.find(r => r.id === currentRabId);
+  if (!rab || !estimasiPreviewItems.length) return;
+  estimasiPreviewItems.forEach(it => {
+    rab.items.push({
+      id: uid(),
+      uraian: it.uraian,
+      satuan: it.satuan,
+      volume: it.volume,
+      hargaSatuan: it.hargaSatuan,
+      ahspId: it.ahspId,
+      kelompok: it.kelompok
+    });
+  });
+  saveState();
+  mirrorRabUpsert(rab);
+  renderRabEditor();
+  const belumAda = estimasiPreviewItems.filter(it => !it.ahspId).length;
+  alert(`${estimasiPreviewItems.length} item ditambahkan ke RAB.` + (belumAda ? ` ${belumAda} di antaranya belum terhubung ke AHSP (harga Rp0) — isi manual di tabel RAB atau impor dulu template AHSP yang cocok.` : ""));
+  renderEstimasiFields();
+});
 
 // ===== BOQ (.xlsx) parsing =====
 async function parseBoqWorkbook(arrayBuffer) {
@@ -4461,26 +4749,52 @@ function renderRabEditor() {
   if (!rab.items.length) {
     tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Belum ada item pekerjaan</td></tr>';
   } else {
-    rab.items.forEach(it => {
-      const jumlah = (it.volume || 0) * (it.hargaSatuan || 0);
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${escapeHtml(it.uraian)}</td>
-        <td>${escapeHtml(it.satuan)}</td>
-        <td class="num">${it.volume}</td>
-        <td class="num">${rupiah(it.hargaSatuan)}</td>
-        <td class="num">${rupiah(jumlah)}</td>
-        <td>
-          <div class="row-actions">
-            <button class="icon-btn" data-edit-item="${it.id}" title="Edit">✏️</button>
-            <button class="icon-btn" data-delete-item="${it.id}" title="Hapus">🗑️</button>
-          </div>
-        </td>
-      `;
-      tbody.appendChild(tr);
-    });
+    tbody.innerHTML = groupItemsByKelompok(rab.items).map(group => {
+      const header = group.kelompok ? `
+        <tr class="kelompok-row">
+          <td colspan="4"><strong>${escapeHtml(group.kelompok)}</strong></td>
+          <td class="num"><strong>${rupiah(group.subtotal)}</strong></td>
+          <td></td>
+        </tr>
+      ` : "";
+      const rows = group.items.map(it => {
+        const jumlah = (it.volume || 0) * (it.hargaSatuan || 0);
+        return `
+          <tr>
+            <td>${escapeHtml(it.uraian)}</td>
+            <td>${escapeHtml(it.satuan)}</td>
+            <td class="num">${it.volume}</td>
+            <td class="num">${rupiah(it.hargaSatuan)}</td>
+            <td class="num">${rupiah(jumlah)}</td>
+            <td>
+              <div class="row-actions">
+                <button class="icon-btn" data-edit-item="${it.id}" title="Edit">✏️</button>
+                <button class="icon-btn" data-delete-item="${it.id}" title="Hapus">🗑️</button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join("");
+      return header + rows;
+    }).join("");
   }
   refreshRabTotals();
+}
+// Mengelompokkan item RAB berdasarkan field kelompok (section) -- item tanpa
+// kelompok (kosong) ditampilkan tanpa header, di awal, sesuai urutan aslinya.
+function groupItemsByKelompok(items) {
+  const groups = [];
+  const byKey = {};
+  items.forEach(it => {
+    const key = it.kelompok || "";
+    if (!byKey[key]) {
+      byKey[key] = { kelompok: key, items: [], subtotal: 0 };
+      groups.push(byKey[key]);
+    }
+    byKey[key].items.push(it);
+    byKey[key].subtotal += (it.volume || 0) * (it.hargaSatuan || 0);
+  });
+  return groups;
 }
 function refreshRabTotals() {
   const rab = state.proyekRab.find(r => r.id === currentRabId);
@@ -4493,16 +4807,26 @@ function refreshRabTotals() {
 }
 function buildRabPrintHtml(rab) {
   const { subtotal, ppnValue, pphValue, total } = rabTotals(rab);
-  const itemsRows = rab.items.map((it, i) => `
-    <tr>
-      <td class="c">${i + 1}</td>
-      <td>${escapeHtml(it.uraian)}</td>
-      <td class="c">${escapeHtml(it.satuan)}</td>
-      <td class="r">${it.volume}</td>
-      <td class="r">${rupiah(it.hargaSatuan)}</td>
-      <td class="r">${rupiah((it.volume || 0) * (it.hargaSatuan || 0))}</td>
-    </tr>
-  `).join("") || `<tr><td colspan="6" class="c">Belum ada item</td></tr>`;
+  let rowNum = 0;
+  const itemsRows = groupItemsByKelompok(rab.items).map(group => {
+    const header = group.kelompok ? `
+      <tr><td colspan="5" style="background:#f3f3f3;"><strong>${escapeHtml(group.kelompok)}</strong></td><td class="r" style="background:#f3f3f3;"><strong>${rupiah(group.subtotal)}</strong></td></tr>
+    ` : "";
+    const rows = group.items.map(it => {
+      rowNum++;
+      return `
+        <tr>
+          <td class="c">${rowNum}</td>
+          <td>${escapeHtml(it.uraian)}</td>
+          <td class="c">${escapeHtml(it.satuan)}</td>
+          <td class="r">${it.volume}</td>
+          <td class="r">${rupiah(it.hargaSatuan)}</td>
+          <td class="r">${rupiah((it.volume || 0) * (it.hargaSatuan || 0))}</td>
+        </tr>
+      `;
+    }).join("");
+    return header + rows;
+  }).join("") || `<tr><td colspan="6" class="c">Belum ada item</td></tr>`;
 
   return `
     <div class="letterhead">

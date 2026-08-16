@@ -1243,6 +1243,7 @@
             <input type="file" id="rab_importBoqInput" accept=".xlsx" hidden>
             <button class="btn-ghost" id="rab_importImageBtn">🖼️ Baca dari Gambar (OCR)</button>
             <input type="file" id="rab_importImageInput" accept="image/*" hidden>
+            <button class="btn-ghost" id="rab_estimasiBtn">🧮 Estimasi dari Dimensi</button>
             <button class="btn-ghost" id="rab_addItemBtn">+ Tambah Item</button>
           </div>
           <div class="table-wrap">
@@ -2166,6 +2167,22 @@
           <label>Uraian Pekerjaan</label>
           <input type="text" id="it_uraian" required placeholder="mis. Pemasangan Plafon Gypsum">
         </div>
+        <div class="field full" id="it_kelompokField">
+          <label>Kelompok / Sub-Kategori (opsional)</label>
+          <input type="text" id="it_kelompok" list="kelompokList" placeholder="mis. II. Pekerjaan Pondasi">
+          <datalist id="kelompokList">
+            <option value="I. Pekerjaan Persiapan">
+            <option value="II. Pekerjaan Pondasi">
+            <option value="III. Pekerjaan Struktur Beton">
+            <option value="IV. Pekerjaan Dinding">
+            <option value="V. Pekerjaan Atap">
+            <option value="VI. Pekerjaan Lantai & Dinding Finishing">
+            <option value="VII. Pekerjaan Plafon">
+            <option value="VIII. Pekerjaan Elektrikal">
+            <option value="IX. Pekerjaan Plumbing & Sanitasi">
+            <option value="X. Pekerjaan Finishing Lain">
+          </datalist>
+        </div>
         <div class="field">
           <label>Satuan</label>
           <input type="text" id="it_satuan" list="satuanList2" required placeholder="mis. m2">
@@ -2189,6 +2206,39 @@
         <button type="submit" class="btn-primary">Simpan Item</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- Modal: Estimasi Cepat dari Dimensi (hitung volume otomatis dari ukuran bangunan) -->
+<div class="modal-backdrop" id="estimasiModal">
+  <div class="modal wide">
+    <div class="modal-head">
+      <h3>Estimasi Cepat dari Dimensi</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <p class="muted" style="font-size:12px;">Isi ukuran/dimensi pekerjaan, volume tiap sub-pekerjaan dihitung otomatis pakai rumus geometri konstruksi standar. Ini <strong>estimasi awal</strong> — sesuaikan lagi dengan gambar kerja &amp; kondisi lapangan sebenarnya. Harga otomatis terisi kalau item AHSP yang cocok sudah ada di daftar AHSP Anda (lewat Template Standar); kalau belum, harga akan Rp0 dan perlu diisi manual di tabel RAB setelah ditambahkan.</p>
+    <div class="form-grid">
+      <div class="field full">
+        <label>Jenis Pekerjaan</label>
+        <select id="est_kategori"></select>
+      </div>
+    </div>
+    <div id="est_fields" class="form-grid"></div>
+    <div class="modal-actions" style="justify-content:flex-start;">
+      <button type="button" class="btn-ghost" id="est_hitungBtn">Hitung Volume</button>
+    </div>
+    <div id="est_previewWrap" style="display:none; margin-top:10px;">
+      <div class="table-wrap">
+        <table class="tbl" id="est_previewTable">
+          <thead><tr><th>Uraian</th><th>Satuan</th><th class="num">Volume</th><th class="num">Harga (AHSP)</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn-ghost" data-close-modal>Tutup</button>
+      <button type="button" class="btn-primary" id="est_tambahkanBtn" disabled>Tambahkan ke RAB</button>
+    </div>
   </div>
 </div>
 
