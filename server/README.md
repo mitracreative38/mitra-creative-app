@@ -27,12 +27,12 @@ npm run dev
 Lalu buka `http://localhost:3000/health` di browser -- harus muncul
 `{"ok":true,...}`.
 
-Untuk coba fitur cetak PDF secara lokal, Puppeteer butuh Chromium
-sungguhan di komputer Anda -- isi `PUPPETEER_EXECUTABLE_PATH` di file
-`.env` dengan lokasi Chrome/Chromium yang sudah ter-install (mis. di
-Windows biasanya `C:\Program Files\Google\Chrome\Application\chrome.exe`).
-Di Railway langkah ini otomatis (lihat di bawah), tidak perlu diisi
-manual.
+Fitur cetak PDF butuh Chromium -- `npm install` di atas otomatis
+men-download Chromium yang kompatibel (paket `puppeteer`, bukan
+`puppeteer-core`), jadi biasanya tidak perlu pengaturan tambahan apa pun,
+baik lokal maupun di Railway. `PUPPETEER_EXECUTABLE_PATH` di `.env` cuma
+perlu diisi kalau mau pakai Chrome/Chromium lain yang sudah ter-install
+di komputer Anda sendiri (override, opsional).
 
 ## Deploy ke Railway (dilakukan sendiri oleh Owner, sekali saja)
 
@@ -69,13 +69,20 @@ sama seperti GitHub Pages untuk frontend.
 
 ## Tentang Chromium (untuk cetak PDF)
 
-`nixpacks.toml` di folder ini memberi tahu Railway untuk meng-install
-Chromium sistem saat build (tidak perlu Owner mengatur apa pun secara
-manual untuk ini). Server otomatis mencarinya lewat PATH saat start.
+Server pakai paket `puppeteer` (bukan `puppeteer-core`) supaya Chromium
+yang kompatibel otomatis terdownload sendiri saat `npm install` di proses
+build Railway -- langkah standar yang selalu jalan, tidak bergantung pada
+file konfigurasi build tertentu.
 
-**Ini bagian yang paling mungkin butuh penyesuaian setelah deploy
-pertama** -- lingkungan cloud kadang punya perilaku sedikit berbeda dari
-yang diperkirakan. Kalau tombol "Unduh PDF" di aplikasi gagal dengan
-pesan seperti "Chromium tidak ditemukan" atau error terkait sandbox,
-kabari -- bisa dilihat dari **Deployments > (deployment terbaru) > View
-Logs** di Railway untuk pesan error persisnya, lalu diperbaiki dari situ.
+(Percobaan pertama memakai `nixpacks.toml` untuk meng-install Chromium
+sistem terbukti tidak jalan -- ternyata Railway memakai build system
+"Railpack" untuk project ini, bukan Nixpacks, jadi `nixpacks.toml`
+custom sama sekali tidak terbaca. Pendekatan sekarang tidak bergantung
+pada hal semacam itu.)
+
+Kalau tombol "Unduh PDF" di aplikasi masih gagal setelah ini (mis. error
+tentang "shared library" yang hilang -- lingkungan container minimal
+kadang tidak menyertakan semua library yang dibutuhkan Chromium untuk
+benar-benar berjalan, meskipun sudah ter-download), kabari -- bisa
+dilihat dari **Deployments > (deployment terbaru) > Deploy Logs** di
+Railway untuk pesan error persisnya, lalu diperbaiki dari situ.
