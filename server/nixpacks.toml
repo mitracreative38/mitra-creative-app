@@ -1,0 +1,8 @@
+# Dipakai Railway (build system Nixpacks) untuk meng-install Chromium
+# sistem + library yang dibutuhkannya, supaya fitur cetak PDF
+# (server/index.js, endpoint /api/pdf/...) bisa menjalankan Puppeteer.
+# server/package.json sengaja pakai "puppeteer-core" (bukan "puppeteer")
+# supaya TIDAK download Chromium sendiri lagi -- pakai yang di-install di
+# sini, dituding lewat env var PUPPETEER_EXECUTABLE_PATH (lihat README).
+[phases.setup]
+nixPkgs = ["chromium"]

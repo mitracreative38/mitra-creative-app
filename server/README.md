@@ -5,9 +5,14 @@ GitHub Pages seperti biasa, tidak berubah). Server ini yang nanti menangani
 hal-hal yang tidak bisa dilakukan dari situs statis: cetak PDF otomatis,
 pengingat WhatsApp/email terjadwal, dan payment gateway.
 
-Tahap sekarang baru fondasi: server Express kosong dengan satu endpoint
-`/health` untuk memastikan semuanya tersambung dengan benar sebelum fitur
-sungguhan (PDF, WA/email, payment) mulai ditambahkan satu per satu.
+Fitur pertama yang sudah aktif: **cetak PDF Penawaran** lewat endpoint
+`GET /api/pdf/penawaran/:id` (tombol "⬇️ Unduh PDF" di halaman edit
+Penawaran) -- server mengambil data Penawaran itu langsung dari Supabase
+(pakai token login pemanggilnya sendiri, jadi tunduk pada aturan akses/RLS
+yang sama seperti kalau diakses dari aplikasi), lalu merender PDF-nya
+lewat Chromium headless (Puppeteer) supaya hasilnya identik dengan
+tampilan "Cetak Penawaran" biasa. RAB, Slip Gaji, dan dokumen lain
+menyusul satu per satu.
 
 ## Menjalankan di komputer sendiri (opsional, untuk coba-coba)
 
@@ -21,6 +26,13 @@ npm run dev
 
 Lalu buka `http://localhost:3000/health` di browser -- harus muncul
 `{"ok":true,...}`.
+
+Untuk coba fitur cetak PDF secara lokal, Puppeteer butuh Chromium
+sungguhan di komputer Anda -- isi `PUPPETEER_EXECUTABLE_PATH` di file
+`.env` dengan lokasi Chrome/Chromium yang sudah ter-install (mis. di
+Windows biasanya `C:\Program Files\Google\Chrome\Application\chrome.exe`).
+Di Railway langkah ini otomatis (lihat di bawah), tidak perlu diisi
+manual.
 
 ## Deploy ke Railway (dilakukan sendiri oleh Owner, sekali saja)
 
@@ -54,3 +66,16 @@ dilakukan otomatis -- ikuti langkah berikut di [railway.app](https://railway.app
 Setelah ini aktif, setiap kali ada perubahan di folder `server/` yang
 di-push ke branch `main`, Railway akan otomatis build ulang dan deploy --
 sama seperti GitHub Pages untuk frontend.
+
+## Tentang Chromium (untuk cetak PDF)
+
+`nixpacks.toml` di folder ini memberi tahu Railway untuk meng-install
+Chromium sistem saat build (tidak perlu Owner mengatur apa pun secara
+manual untuk ini). Server otomatis mencarinya lewat PATH saat start.
+
+**Ini bagian yang paling mungkin butuh penyesuaian setelah deploy
+pertama** -- lingkungan cloud kadang punya perilaku sedikit berbeda dari
+yang diperkirakan. Kalau tombol "Unduh PDF" di aplikasi gagal dengan
+pesan seperti "Chromium tidak ditemukan" atau error terkait sandbox,
+kabari -- bisa dilihat dari **Deployments > (deployment terbaru) > View
+Logs** di Railway untuk pesan error persisnya, lalu diperbaiki dari situ.
