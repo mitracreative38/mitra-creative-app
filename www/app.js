@@ -2829,6 +2829,7 @@ function renderPenggajianRiwayat() {
       <td>
         <div class="row-actions">
           <button class="icon-btn" data-print-slip="${sl.id}" title="Cetak Ulang">🖨️</button>
+          <button class="icon-btn" data-pdf-slip="${sl.id}" title="Unduh PDF">⬇️</button>
           <button class="icon-btn" data-edit-slip="${sl.id}" title="Perbaiki">✏️</button>
           <button class="icon-btn" data-delete-slip="${sl.id}" title="Hapus">🗑️</button>
         </div>
@@ -2908,6 +2909,7 @@ document.getElementById("slipGajiEditForm").addEventListener("submit", e => {
 });
 document.getElementById("pg_riwayatTable").addEventListener("click", e => {
   const printBtn = e.target.closest("[data-print-slip]");
+  const pdfBtn = e.target.closest("[data-pdf-slip]");
   const editBtn = e.target.closest("[data-edit-slip]");
   const delBtn = e.target.closest("[data-delete-slip]");
   const k = currentKaryawanForPayroll();
@@ -2915,6 +2917,9 @@ document.getElementById("pg_riwayatTable").addEventListener("click", e => {
   if (printBtn) {
     const sl = k.slipGaji.find(s => s.id === printBtn.dataset.printSlip);
     if (sl) printSlipGaji(k, sl);
+  } else if (pdfBtn) {
+    const sl = k.slipGaji.find(s => s.id === pdfBtn.dataset.pdfSlip);
+    if (sl) downloadPdfFromServer(pdfBtn, `slip-gaji/${sl.id}`, `Slip-Gaji-${sl.namaKaryawan}-${sl.mulai}`);
   } else if (editBtn) {
     const sl = k.slipGaji.find(s => s.id === editBtn.dataset.editSlip);
     if (sl) openSlipGajiEditModal(sl);
@@ -4477,6 +4482,11 @@ document.getElementById("rab_printBtn").addEventListener("click", () => {
   document.body.classList.add("printing-quote");
   window.print();
 });
+document.getElementById("rab_pdfBtn").addEventListener("click", () => {
+  const rab = state.proyekRab.find(r => r.id === currentRabId);
+  if (!rab) return;
+  downloadPdfFromServer(document.getElementById("rab_pdfBtn"), `rab/${rab.id}`, `RAB-${rab.nomor || rab.id}`);
+});
 document.getElementById("rab_addBtn").addEventListener("click", () => {
   const rab = { id: uid(), nomor: nextRabNomor(), nama: "", klien: "", klienId: "", lokasi: "", kategori: KATEGORI_PEKERJAAN[0], tanggal: new Date().toISOString().slice(0, 10), ppn: 0, pph: 0.5, biayaLain: 0, items: [] };
   state.proyekRab.push(rab);
@@ -5002,21 +5012,22 @@ document.getElementById("pw_printBtn").addEventListener("click", () => {
   document.body.classList.add("printing-quote");
   window.print();
 });
-document.getElementById("pw_pdfBtn").addEventListener("click", async () => {
-  const pw = state.penawaran.find(p => p.id === currentPwId);
-  if (!pw) return;
+// Dipakai bersama oleh semua tombol "Unduh PDF" (Penawaran/RAB/Slip Gaji,
+// dst.) -- btn: elemen tombolnya sendiri (buat status "Membuat PDF..."),
+// path: bagian setelah /api/pdf/ (mis. "penawaran/<id>"), filename: nama
+// file .pdf yang didownload (tanpa ekstensi).
+async function downloadPdfFromServer(btn, path, filename) {
   if (!sb || !currentSyncUser) {
     alert("Unduh PDF butuh login cloud (Pengaturan > Sinkronisasi Cloud) supaya server bisa mengambil data ini dengan aman.");
     return;
   }
-  const btn = document.getElementById("pw_pdfBtn");
   const originalLabel = btn.textContent;
   btn.disabled = true;
   btn.textContent = "Membuat PDF...";
   try {
     const { data: { session } } = await sb.auth.getSession();
     if (!session) throw new Error("Sesi login sudah habis, silakan login ulang.");
-    const res = await fetch(`${PDF_SERVER_URL}/api/pdf/penawaran/${pw.id}`, {
+    const res = await fetch(`${PDF_SERVER_URL}/api/pdf/${path}`, {
       headers: { Authorization: `Bearer ${session.access_token}` }
     });
     if (!res.ok) {
@@ -5027,7 +5038,7 @@ document.getElementById("pw_pdfBtn").addEventListener("click", async () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `Penawaran-${(pw.nomor || pw.id).replace(/[\\/]/g, "-")}.pdf`;
+    a.download = `${filename.replace(/[\\/]/g, "-")}.pdf`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -5038,6 +5049,11 @@ document.getElementById("pw_pdfBtn").addEventListener("click", async () => {
     btn.disabled = false;
     btn.textContent = originalLabel;
   }
+}
+document.getElementById("pw_pdfBtn").addEventListener("click", () => {
+  const pw = state.penawaran.find(p => p.id === currentPwId);
+  if (!pw) return;
+  downloadPdfFromServer(document.getElementById("pw_pdfBtn"), `penawaran/${pw.id}`, `Penawaran-${pw.nomor || pw.id}`);
 });
 document.getElementById("pw_toProyekBtn").addEventListener("click", () => {
   const pw = state.penawaran.find(p => p.id === currentPwId);

@@ -127,6 +127,131 @@ function buildPenawaranPrintHtml(pw, profil) {
   `;
 }
 
+function rabTotals(rab) {
+  const subtotal = itemsSubtotal(rab.items);
+  const ppnValue = subtotal * (rab.ppn || 0) / 100;
+  const pphValue = subtotal * (rab.pph || 0) / 100;
+  const total = subtotal + ppnValue + (rab.biaya_lain || 0);
+  return { subtotal, ppnValue, pphValue, total };
+}
+
+// rab: baris tabel "rab" (kolom snake_case) digabung dengan profil
+// perusahaan, sama polanya dengan buildPenawaranPrintHtml di atas.
+function buildRabPrintHtml(rab, profil) {
+  const { subtotal, ppnValue, pphValue, total } = rabTotals(rab);
+  const items = rab.items || [];
+  const itemsRows = items.map((it, i) => `
+    <tr>
+      <td class="c">${i + 1}</td>
+      <td>${escapeHtml(it.uraian)}</td>
+      <td class="c">${escapeHtml(it.satuan)}</td>
+      <td class="r">${it.volume}</td>
+      <td class="r">${rupiah(it.hargaSatuan)}</td>
+      <td class="r">${rupiah((it.volume || 0) * (it.hargaSatuan || 0))}</td>
+    </tr>
+  `).join("") || `<tr><td colspan="6" class="c">Belum ada item</td></tr>`;
+
+  return `
+    <div class="letterhead">
+      <div class="letterhead-logo">${LOGO_SVG}</div>
+      <div class="letterhead-text">
+        <div class="lh-name">${escapeHtml(profil.company || "CV. Mitra Creative")}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(profil.alamat || COMPANY_ADDRESS)} - ${escapeHtml(profil.telepon || COMPANY_PHONE)}</div>
+      </div>
+    </div>
+    <div class="letterhead-rule"></div>
+    <h3 style="text-align:center; margin:6px 0 4px; letter-spacing:.5px;">RENCANA ANGGARAN BIAYA (RAB)</h3>
+    <p class="doc-p" style="text-align:center; margin:0 0 16px;">Dokumen internal — bukan dokumen resmi untuk klien</p>
+
+    <table class="meta-table">
+      <tr><td>No. RAB</td><td>:</td><td>${escapeHtml(rab.nomor || "-")}</td></tr>
+      <tr><td>Nama Proyek</td><td>:</td><td>${escapeHtml(rab.nama_proyek || "-")}</td></tr>
+      <tr><td>Klien</td><td>:</td><td>${escapeHtml(rab.klien || "-")}</td></tr>
+      <tr><td>Lokasi</td><td>:</td><td>${escapeHtml(rab.lokasi || "-")}</td></tr>
+      <tr><td>Kategori</td><td>:</td><td>${escapeHtml(rab.kategori || "-")}</td></tr>
+      <tr><td>Tanggal</td><td>:</td><td>${formatTanggal(rab.tanggal)}</td></tr>
+    </table>
+
+    <table class="doc-items" style="margin-top:16px;">
+      <thead><tr><th>No</th><th>Uraian Pekerjaan</th><th class="c">Satuan</th><th class="r">Volume</th><th class="r">Harga Satuan</th><th class="r">Jumlah</th></tr></thead>
+      <tbody>${itemsRows}</tbody>
+    </table>
+
+    <table class="doc-summary-table">
+      <tr><td>Subtotal</td><td class="r">${rupiah(subtotal)}</td></tr>
+      ${rab.ppn ? `<tr><td>PPN (${rab.ppn}%)</td><td class="r">${rupiah(ppnValue)}</td></tr>` : ""}
+      ${rab.biaya_lain ? `<tr><td>Biaya Lain-lain</td><td class="r">${rupiah(rab.biaya_lain)}</td></tr>` : ""}
+      <tr class="total-row"><td>Total RAB</td><td class="r">${rupiah(total)}</td></tr>
+    </table>
+    ${rab.pph ? `<p class="doc-p" style="font-size:11px; color:#777;">*Sudah termasuk PPh Final (${rab.pph}%) sebesar ${rupiah(pphValue)}.</p>` : ""}
+
+    <p style="font-size:11px; color:#777; margin-top:10px;">Dicetak ${formatTanggal(new Date().toISOString().slice(0, 10))}.</p>
+  `;
+}
+
+function slipTotalPotongan(sl) {
+  return (sl.uangMakan || 0) + (sl.bon || 0) + (sl.potonganPinjaman || 0);
+}
+function slipGajiBersih(sl) {
+  return (sl.upahKotor || 0) - slipTotalPotongan(sl);
+}
+
+// sl: satu entri dari array karyawan_gaji.slip_gaji (sudah membawa
+// namaKaryawan/jabatan/tipeGaji apa adanya sejak dibuat, tidak perlu
+// join ke tabel karyawan lagi).
+function buildSlipGajiPrintHtml(sl, profil) {
+  return `
+    <div class="letterhead">
+      <div class="letterhead-logo">${LOGO_SVG}</div>
+      <div class="letterhead-text">
+        <div class="lh-name">${escapeHtml(profil.company || "CV. Mitra Creative")}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(profil.alamat || COMPANY_ADDRESS)} - ${escapeHtml(profil.telepon || COMPANY_PHONE)}</div>
+      </div>
+    </div>
+    <div class="letterhead-rule"></div>
+    <h3 style="text-align:center; margin:6px 0 16px; letter-spacing:.5px;">SLIP GAJI KARYAWAN</h3>
+    <table class="meta-table" style="margin-bottom:14px;">
+      <tr><td>Nama</td><td>:</td><td><strong>${escapeHtml(sl.namaKaryawan)}</strong></td></tr>
+      <tr><td>Jabatan</td><td>:</td><td>${escapeHtml(sl.jabatan || "-")}</td></tr>
+      <tr><td>Periode</td><td>:</td><td>${formatTanggal(sl.mulai)} — ${formatTanggal(sl.selesai)}</td></tr>
+    </table>
+    <table class="doc-items">
+      <thead><tr><th>Uraian</th><th>Keterangan</th><th class="r">Jumlah</th></tr></thead>
+      <tbody>
+        ${sl.tipeGaji === "Bulanan" ? `
+        <tr><td>Gaji Bulanan</td><td>Gaji tetap bulanan</td><td class="r">${rupiah(sl.gajiBulanan)}</td></tr>
+        <tr><td>Bonus Target</td><td>Realisasi ${rupiah(sl.realisasi)} − Target ${rupiah(sl.target)} × ${sl.persenBonus}%</td><td class="r">${rupiah(sl.bonus)}</td></tr>
+        ` : `
+        <tr><td>Upah Harian</td><td>${sl.hariHadir} hari × ${rupiah(sl.upahHarian)}</td><td class="r">${rupiah(sl.totalUpahHarian)}</td></tr>
+        <tr><td>Lembur</td><td>${sl.jamLembur} jam × ${rupiah(sl.tarifLembur)}</td><td class="r">${rupiah(sl.totalLembur)}</td></tr>
+        `}
+      </tbody>
+    </table>
+    <table class="doc-summary-table">
+      <tr class="total-row"><td>Upah Kotor</td><td class="r">${rupiah(sl.upahKotor)}</td></tr>
+      <tr><td>Uang Makan (sudah diterima)</td><td class="r">- ${rupiah(sl.uangMakan)}</td></tr>
+      <tr><td>Bon Mingguan</td><td class="r">- ${rupiah(sl.bon)}</td></tr>
+      <tr><td>Potongan Pinjaman</td><td class="r">- ${rupiah(sl.potonganPinjaman)}</td></tr>
+      <tr class="total-row"><td>Gaji Bersih (Take Home)</td><td class="r">${rupiah(slipGajiBersih(sl))}</td></tr>
+    </table>
+    <p class="doc-p">Sisa Pinjaman Sebelum: <strong>${rupiah(sl.sisaSebelum)}</strong> &nbsp;→&nbsp; Sisa Pinjaman Sesudah: <strong>${rupiah(sl.sisaSesudah)}</strong></p>
+    <div style="display:flex; justify-content:space-between; margin-top:30px; font-size:12.5px;">
+      <div>
+        Diterima oleh,
+        <div class="sign-space"></div>
+        <strong>${escapeHtml(sl.namaKaryawan)}</strong>
+      </div>
+      <div style="text-align:right;">
+        Dibayar oleh,<br>${escapeHtml(profil.company || "CV. Mitra Creative")}
+        <div class="sign-space"></div>
+        <strong>${escapeHtml(profil.ownerNama || "")}</strong><br>${escapeHtml(profil.ownerJabatan || "")}
+      </div>
+    </div>
+  `;
+}
+
 // Halaman HTML lengkap yang di-render Puppeteer. Memakai stylesheet ASLI
 // aplikasi (di-host di GitHub Pages) lewat <link>, supaya hasil cetak PDF
 // ini selalu identik dengan tampilan cetak di aplikasi -- tidak ada CSS
@@ -144,4 +269,4 @@ function wrapPrintPage(bodyHtml, styleUrl) {
 </html>`;
 }
 
-module.exports = { buildPenawaranPrintHtml, wrapPrintPage, rupiah, formatTanggal, escapeHtml };
+module.exports = { buildPenawaranPrintHtml, buildRabPrintHtml, buildSlipGajiPrintHtml, wrapPrintPage, rupiah, formatTanggal, escapeHtml };
