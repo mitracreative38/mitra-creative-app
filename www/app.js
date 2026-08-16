@@ -3410,6 +3410,9 @@ function renderAhsp() {
   if (filterSel.options.length <= 1) {
     KATEGORI_PEKERJAAN.forEach(k => filterSel.insertAdjacentHTML("beforeend", `<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`));
   }
+  document.getElementById("ah_totalItem").textContent = state.ahsp.length;
+  document.getElementById("ah_totalKategori").textContent = new Set(state.ahsp.map(a => a.kategori)).size;
+  document.getElementById("ah_totalResmi").textContent = state.ahsp.filter(a => (a.kode || "").startsWith("PUPR-")).length;
   const search = (document.getElementById("ah_search").value || "").toLowerCase();
   const filterKategori = filterSel.value;
   let rows = state.ahsp.slice().sort((a, b) => a.kategori.localeCompare(b.kategori) || a.uraian.localeCompare(b.uraian));
