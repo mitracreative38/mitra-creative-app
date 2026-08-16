@@ -8,6 +8,16 @@
 const COMPANY_ADDRESS = "Jl. Taman Asri No. 15, Pedurungan Tengah, Semarang";
 const COMPANY_PHONE = "0895811220203";
 
+// Anak cabang dipakai sebagai penawaran pembanding di tender -- identitas
+// tetap, sama seperti duplikasi MATA_RESOLUSI_INFO di www/data.js.
+const MATA_RESOLUSI_INFO = {
+  company: "mata.resolusi",
+  alamat: "Jl. Sambiroto, Kedungmundu, Semarang",
+  telepon: "085640098250",
+  ownerNama: "Citra Lani",
+  ownerJabatan: "Sales Marketing"
+};
+
 const BULAN_ID = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 
 function rupiah(n) {
@@ -51,13 +61,28 @@ const LOGO_SVG = `<svg viewBox="0 0 64 64" width="52" height="52" xmlns="http://
   <path d="M20 8 L20 32 Q20 40 26 40 Q28 40 28 34 L28 8 Z" fill="#f7c948" opacity="0.9"/>
 </svg>`;
 
+// Logo Mata Resolusi, sama persis duplikasi MATA_RESOLUSI_LOGO_SVG di www/app.js.
+const MATA_RESOLUSI_LOGO_SVG = `<svg viewBox="0 0 64 64" width="46" height="46" xmlns="http://www.w3.org/2000/svg">
+  <path d="M2 32 Q 20 6 32 32 Q 20 58 2 32 Z" fill="none" stroke="#111" stroke-width="4.5"/>
+  <path d="M62 32 Q 44 6 32 32 Q 44 58 62 32 Z" fill="none" stroke="#111" stroke-width="4.5"/>
+  <circle cx="32" cy="32" r="11" fill="#fff" stroke="#111" stroke-width="2"/>
+  <path d="M32 22 A10 10 0 0 1 42 32 L32 32 Z" fill="#e0333f"/>
+  <path d="M42 32 A10 10 0 0 1 32 42 L32 32 Z" fill="#2f8fd1"/>
+  <path d="M32 42 A10 10 0 0 1 22 32 L32 32 Z" fill="#2fa84f"/>
+  <path d="M22 32 A10 10 0 0 1 32 22 L32 32 Z" fill="#f2b705"/>
+</svg>`;
+
 // pw: baris tabel "penawaran" (kolom snake_case dari Supabase) digabung
 // dengan profil perusahaan (company/alamat/telepon/ownerNama/ownerJabatan
 // dari app_state.data). Sengaja menerima objek datar, bukan bentuk state
 // browser, supaya jelas apa saja yang dibutuhkan endpoint ini.
-function buildPenawaranPrintHtml(pw, profil) {
+function buildPenawaranPrintHtml(pw, profilMitra) {
   const { subtotal, diskonValue, ppnValue, pphValue, total } = penawaranTotals(pw);
   const items = pw.items || [];
+  const isMr = pw.brand === "mataresolusi";
+  const profil = isMr
+    ? MATA_RESOLUSI_INFO
+    : { company: profilMitra.company || "CV. Mitra Creative", alamat: profilMitra.alamat || COMPANY_ADDRESS, telepon: profilMitra.telepon || COMPANY_PHONE, ownerNama: profilMitra.ownerNama, ownerJabatan: profilMitra.ownerJabatan };
   const itemsRows = items.map((it, i) => `
     <tr>
       <td class="c">${i + 1}</td>
@@ -70,15 +95,15 @@ function buildPenawaranPrintHtml(pw, profil) {
   `).join("") || `<tr><td colspan="6" class="c">Belum ada item</td></tr>`;
 
   return `
-    <div class="letterhead">
-      <div class="letterhead-logo">${LOGO_SVG}</div>
+    <div class="letterhead${isMr ? " letterhead-mataresolusi" : ""}">
+      <div class="letterhead-logo">${isMr ? MATA_RESOLUSI_LOGO_SVG : LOGO_SVG}</div>
       <div class="letterhead-text">
-        <div class="lh-name">${escapeHtml(profil.company || "CV. Mitra Creative")}</div>
-        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
-        <div class="lh-address">${escapeHtml(profil.alamat || COMPANY_ADDRESS)} - ${escapeHtml(profil.telepon || COMPANY_PHONE)}</div>
+        <div class="lh-name">${escapeHtml(profil.company)}</div>
+        ${isMr ? "" : `<div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>`}
+        <div class="lh-address">${escapeHtml(profil.alamat)} - ${escapeHtml(profil.telepon)}</div>
       </div>
     </div>
-    <div class="letterhead-rule"></div>
+    <div class="letterhead-rule${isMr ? " letterhead-rule-mataresolusi" : ""}"></div>
 
     <div class="doc-meta">
       <table class="meta-table">

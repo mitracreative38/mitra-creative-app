@@ -76,6 +76,18 @@ const OWNER_INFO = { nama: "Aditya Khresna", jabatan: "Owner / Direktur" };
 const COMPANY_ADDRESS = "Jl. Taman Asri No. 15, Pedurungan Tengah, Semarang";
 const COMPANY_PHONE = "0895811220203";
 
+// Anak cabang dipakai sebagai penawaran pembanding di tender -- identitas
+// brand-nya beda total dari Mitra Creative (kop surat, warna, logo),
+// sengaja bukan field yang bisa diedit di Pengaturan karena datanya tetap
+// (persis seperti OWNER_INFO/COMPANY_ADDRESS/COMPANY_PHONE di atas).
+const MATA_RESOLUSI_INFO = {
+  company: "mata.resolusi",
+  alamat: "Jl. Sambiroto, Kedungmundu, Semarang",
+  telepon: "085640098250",
+  ownerNama: "Citra Lani",
+  ownerJabatan: "Sales Marketing"
+};
+
 const SEED_AHSP = [
   { kategori: "Sipil/Konstruksi", kode: "SIP-01", uraian: "Pasangan Bata Merah 1:4", satuan: "m2", mode: "detail", overhead: 10, komponen: [
     { jenis: "Bahan", uraian: "Bata Merah", satuan: "bh", koefisien: 70, harga: 700 },

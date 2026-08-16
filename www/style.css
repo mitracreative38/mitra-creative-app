@@ -364,6 +364,14 @@ body.printing-quote #printArea {
 .lh-address { font-size: 11px; color: #333; margin-top: 2px; }
 .letterhead-rule { height: 4px; background: #d0221e; margin: 10px 0 18px; }
 
+/* Mata Resolusi -- kop surat sengaja jauh beda dari Mitra Creative
+   (hitam-putih minimalis, huruf kecil semua, tanpa tagline) supaya kedua
+   brand tidak pernah kelihatan seperti "template yang sama diganti warna". */
+.letterhead-mataresolusi .lh-name { color: #111; text-transform: none; letter-spacing: 0; font-weight: 800; }
+.letterhead-mataresolusi .lh-address { color: #444; }
+.letterhead-rule-mataresolusi { background: #111; height: 2px; }
+.badge.brand-mataresolusi { background: #111; color: #fff; font-weight: 700; letter-spacing: .3px; }
+
 .doc-meta { display: flex; justify-content: space-between; align-items: flex-start; font-size: 12.5px; margin-bottom: 14px; gap: 20px; }
 .meta-table td { padding: 1px 4px 1px 0; vertical-align: top; }
 .doc-date { white-space: nowrap; }
