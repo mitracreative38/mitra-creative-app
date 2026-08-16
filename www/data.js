@@ -376,6 +376,62 @@ const AHSP_TEMPLATES = [
       { jenis: "Bahan", uraian: "Cat Finishing Weathershield", satuan: "cm", koefisien: 1, harga: 800 },
       { jenis: "Upah", uraian: "Tukang Cetak & Finishing GRC", satuan: "OH", koefisien: 0.04 }
     ] },
+  { kode: "TPL-ADV-27", kategori: "Advertising", uraian: "Pembuatan & Pasang Neon Box Flexi Backlight (rincian)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar neon box 2026 (neonboxjabodetabek.id, neonboxcustom.com, milleniaart.com) — pelengkap TPL-ADV-04 (varian acrylic frontlight); box housing sama, permukaan pakai flexi backlite yang dicetak gambar/tulisan, disinari LED dari dalam",
+    komponen: [
+      { jenis: "Bahan", uraian: "Rangka Besi Hollow 4x4", satuan: "batang", koefisien: 0.8, harga: 120000 },
+      { jenis: "Bahan", uraian: "Flexi Backlite (Cetak)", satuan: "m2", koefisien: 1, harga: 90000 },
+      { jenis: "Bahan", uraian: "Lampu LED Strip", satuan: "m1", koefisien: 3, harga: 25000 },
+      { jenis: "Bahan", uraian: "Trafo/Adaptor LED", satuan: "unit", koefisien: 0.15, harga: 150000 },
+      { jenis: "Bahan", uraian: "Sealant/Lem", satuan: "tube", koefisien: 0.2, harga: 28000 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.6 },
+      { jenis: "Upah", uraian: "Tukang", satuan: "OH", koefisien: 0.8 }
+    ] },
+  { kode: "TPL-ADV-28", kategori: "Advertising", uraian: "Bongkar Neon Box/Signage Lama", satuan: "m2", overhead: 10,
+    referensi: "Estimasi internal Mitra Creative (jasa bongkar murni, harga pasar spesifik jarang dipublikasikan) — sebelum pasang neon box/signage baru di lokasi yang sama",
+    komponen: [
+      { jenis: "Bahan", uraian: "Material Tambal/Finishing Bekas Bongkaran", satuan: "m2", koefisien: 1, harga: 10000 },
+      { jenis: "Upah", uraian: "Tukang Bongkar", satuan: "OH", koefisien: 0.15 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.15 }
+    ] },
+  { kode: "TPL-ADV-29", kategori: "Advertising", uraian: "Cetak Baliho Flexi (Produksi Saja, per m2)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar cetak digital 2026 (blog.harvestprinting.co.id, jagoanspanduk.com) — cuma cetak, belum termasuk rangka/pendirian (lihat TPL-ADV-30/31) & pasang (TPL-ADV-32) yang biasanya jadi item terpisah",
+    komponen: [
+      { jenis: "Bahan", uraian: "Bahan Flexi China 340gsm", satuan: "m2", koefisien: 1, harga: 25000 },
+      { jenis: "Bahan", uraian: "Mata Itik/Eyelet & Tali", satuan: "m2", koefisien: 1, harga: 2000 },
+      { jenis: "Upah", uraian: "Finishing", satuan: "OH", koefisien: 0.02 }
+    ] },
+  { kode: "TPL-ADV-30", kategori: "Advertising", uraian: "Pendirian Rangka Baliho Bambu/Kayu (Struktur Sementara)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar 2026 (flooringdeckingbali.wordpress.com, mbizmarket.co.id, semestaadvertising.id) — struktur sementara untuk baliho jangka pendek, bambu lokal + usuk kayu bengkirai",
+    komponen: [
+      { jenis: "Bahan", uraian: "Bambu/Usuk Kayu Bengkirai", satuan: "m2", koefisien: 1, harga: 280000 },
+      { jenis: "Bahan", uraian: "Paku/Tali Pengikat", satuan: "paket", koefisien: 1, harga: 20000 },
+      { jenis: "Upah", uraian: "Tukang Pasang Rangka", satuan: "OH", koefisien: 0.3 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.3 }
+    ] },
+  { kode: "TPL-ADV-31", kategori: "Advertising", uraian: "Pendirian Rangka Baliho Besi (Struktur Permanen)", satuan: "m2", overhead: 12,
+    referensi: "Estimasi riset harga pasar 2026 (mbizmarket.co.id — rangka papan baliho besi) — struktur lebih permanen & tahan lama dari rangka bambu/kayu, untuk baliho ukuran besar/jangka panjang",
+    komponen: [
+      { jenis: "Bahan", uraian: "Besi Hollow/Siku Rangka", satuan: "kg", koefisien: 10, harga: 18000 },
+      { jenis: "Bahan", uraian: "Cat & Menie Anti Karat", satuan: "m2", koefisien: 1, harga: 15000 },
+      { jenis: "Upah", uraian: "Tukang Las", satuan: "OH", koefisien: 0.2 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.15 }
+    ] },
+  { kode: "TPL-ADV-32", kategori: "Advertising", uraian: "Jasa Pasang Baliho ke Rangka (Finishing)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar jasa pemasangan baliho 2026 (mbizmarket.co.id, 99advertising.id) — murni jasa naikkan & ikat flexi baliho ke rangka yang sudah berdiri (TPL-ADV-30/31)",
+    komponen: [
+      { jenis: "Bahan", uraian: "Tali/Kawat Pengikat", satuan: "m2", koefisien: 1, harga: 3000 },
+      { jenis: "Upah", uraian: "Tukang Pasang", satuan: "OH", koefisien: 0.1 }
+    ] },
+  { kode: "TPL-ADV-33", kategori: "Advertising", uraian: "Papan Nama Toko Galvanis + Cat Duco (Produksi + Pasang)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar signage 2026 (neonboxjabodetabek.id, reklamejogja.com, builder.id) — opsi signage dasar/ekonomis, pelengkap neon box & huruf timbul yang harganya lebih premium",
+    komponen: [
+      { jenis: "Bahan", uraian: "Plat Galvanis 0.8mm", satuan: "m2", koefisien: 1, harga: 180000 },
+      { jenis: "Bahan", uraian: "Rangka Hollow", satuan: "batang", koefisien: 0.5, harga: 120000 },
+      { jenis: "Bahan", uraian: "Cat Duco", satuan: "kg", koefisien: 0.3, harga: 45000 },
+      { jenis: "Upah", uraian: "Tukang", satuan: "OH", koefisien: 0.4 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.3 }
+    ] },
   { kode: "TPL-BJ-03", kategori: "Konstruksi Baja", uraian: "Pemasangan Dinding ACP + Rangka Hollow", satuan: "m2", overhead: 10,
     referensi: "Estimasi riset harga pasar (alcoseven.co.id, pasangaluminiumkaca.com, 99.co)",
     komponen: [
