@@ -362,7 +362,10 @@
           <h1>Laporan Keuangan</h1>
           <p class="page-sub">Laba Rugi periode berjalan dan ringkasan Neraca sederhana, dihitung otomatis dari Kas Perusahaan, Stok, dan pinjaman karyawan.</p>
         </div>
-        <button class="btn-primary" id="lk_printBtn">🖨️ Cetak Laporan Keuangan</button>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn-ghost" id="lk_exportExcelBtn">📊 Export Excel</button>
+          <button class="btn-primary" id="lk_printBtn">🖨️ Cetak Laporan Keuangan</button>
+        </div>
       </header>
 
       <div class="subtabs">
@@ -429,6 +432,7 @@
           <h1>KPI</h1>
           <p class="page-sub">Indikator kinerja utama Penjualan, Proyek, Keuangan, dan Tim — dihitung otomatis dari data yang sudah ada di aplikasi ini.</p>
         </div>
+        <button class="btn-ghost" id="kpi_exportExcelBtn">📊 Export Excel</button>
       </header>
 
       <div class="panel">
@@ -2879,9 +2883,10 @@
 <!-- Hidden print area for Penawaran Harga (letterhead document) -->
 <div id="printArea"></div>
 
-<!-- Libraries for BOQ (.xlsx) import & OCR image import — loaded from CDN, only touched when those features are used -->
+<!-- Libraries for BOQ (.xlsx) import, OCR image import, & Excel export — loaded from CDN, only touched when those features are used -->
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <!-- Supabase client for optional cloud sync — app works fully offline/local if this fails to load -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="data.js"></script>

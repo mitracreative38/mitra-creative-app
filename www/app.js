@@ -2836,6 +2836,35 @@ document.getElementById("lk_printBtn").addEventListener("click", () => {
   document.body.classList.add("printing-quote");
   window.print();
 });
+document.getElementById("lk_exportExcelBtn").addEventListener("click", () => {
+  if (typeof XLSX === "undefined") {
+    alert("Gagal memuat pustaka Excel (XLSX). Pastikan koneksi internet aktif saat pertama kali memakai fitur ini.");
+    return;
+  }
+  const mulai = document.getElementById("lr_mulai").value;
+  const selesai = document.getElementById("lr_selesai").value;
+  const tanggalNeraca = document.getElementById("nr_tanggal").value;
+  const { rows, pendapatan, beban, labaBersih } = computeLabaRugi(mulai, selesai);
+  const neraca = computeNeraca(tanggalNeraca);
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([
+    ...rows.map(r => ({ Kategori: r.kategori, Kelompok: r.kelompok, Jumlah: r.jumlah })),
+    { Kategori: "", Kelompok: "", Jumlah: null },
+    { Kategori: "Total Pendapatan", Kelompok: "", Jumlah: pendapatan },
+    { Kategori: "Total Beban", Kelompok: "", Jumlah: beban },
+    { Kategori: "Laba Bersih", Kelompok: "", Jumlah: labaBersih }
+  ]), "Laba Rugi");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([
+    { Pos: "Saldo Kas Perusahaan", Jumlah: neraca.saldoKas },
+    { Pos: "Piutang Usaha (belum cair)", Jumlah: neraca.piutangUsaha },
+    { Pos: "Nilai Stok Material & Alat", Jumlah: neraca.nilaiStok },
+    { Pos: "Piutang Karyawan (pinjaman belum lunas)", Jumlah: neraca.piutangKaryawan },
+    { Pos: "Total Aset", Jumlah: neraca.totalAset },
+    { Pos: "Total Modal (= Total Aset)", Jumlah: neraca.totalAset }
+  ]), "Neraca");
+  XLSX.writeFile(wb, `laporan-keuangan-${mulai}_${selesai}.xlsx`);
+});
 
 // ===== KPI =====
 // Bucket 6 bulan kalender berturut-turut, berakhir di bulan yang memuat
@@ -3020,6 +3049,52 @@ function renderKpiActiveSubtab() {
 }
 document.getElementById("kpi_mulai").addEventListener("change", renderKpiActiveSubtab);
 document.getElementById("kpi_selesai").addEventListener("change", renderKpiActiveSubtab);
+document.getElementById("kpi_exportExcelBtn").addEventListener("click", () => {
+  if (typeof XLSX === "undefined") {
+    alert("Gagal memuat pustaka Excel (XLSX). Pastikan koneksi internet aktif saat pertama kali memakai fitur ini.");
+    return;
+  }
+  const { mulai, selesai } = kpiPeriode();
+  const penjualan = computeKpiPenjualan(mulai, selesai);
+  const proyek = computeKpiProyek(mulai, selesai);
+  const keuangan = computeKpiKeuangan(mulai, selesai);
+  const tim = computeKpiTim(mulai, selesai);
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([
+    { Indikator: "Penawaran Dikirim (Periode)", Nilai: penjualan.terkirim },
+    { Indikator: "Penawaran Disetujui (Periode)", Nilai: penjualan.disetujui },
+    { Indikator: "Penawaran Ditolak (Periode)", Nilai: penjualan.ditolak },
+    { Indikator: "Win Rate (%)", Nilai: penjualan.winRate },
+    { Indikator: "Nilai Disetujui (Rp)", Nilai: penjualan.nilaiDisetujui },
+    { Indikator: "Nilai Pipeline Aktif (Rp)", Nilai: penjualan.nilaiPipeline },
+    ...penjualan.funnel.map(f => ({ Indikator: `Funnel Klien: ${f.tahap}`, Nilai: f.jumlah }))
+  ]), "Penjualan");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([
+    { Indikator: "Total Proyek", Nilai: proyek.totalProyek },
+    { Indikator: "Proyek Baru (Periode)", Nilai: proyek.baruPeriode },
+    { Indikator: "Margin Rata-rata (%)", Nilai: proyek.marginRata },
+    { Indikator: "Proyek Tepat Waktu (%)", Nilai: proyek.tepatWaktu },
+    { Indikator: "Deviasi Anggaran (%)", Nilai: proyek.deviasiAnggaran }
+  ]), "Proyek");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([
+    { Indikator: "Pendapatan (Rp)", Nilai: keuangan.pendapatan },
+    { Indikator: "Beban (Rp)", Nilai: keuangan.beban },
+    { Indikator: "Laba Bersih (Rp)", Nilai: keuangan.labaBersih },
+    { Indikator: "Rasio Piutang (%)", Nilai: keuangan.rasioPiutang },
+    { Indikator: "Omzet Bulan Ini (Rp)", Nilai: keuangan.omzetBulanIni },
+    { Indikator: "Target Omzet Bulanan (Rp)", Nilai: keuangan.targetOmzet },
+    { Indikator: "Laba Bersih Bulan Ini (Rp)", Nilai: keuangan.labaBulanIni },
+    { Indikator: "Target Laba Bersih Bulanan (Rp)", Nilai: keuangan.targetLaba }
+  ]), "Keuangan");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([
+    { Indikator: "Karyawan Aktif", Nilai: tim.karyawanAktif },
+    { Indikator: "Tingkat Kehadiran (%)", Nilai: tim.tingkatKehadiran },
+    { Indikator: "Total Jam Lembur", Nilai: tim.totalLembur },
+    { Indikator: "Rasio Biaya Tenaga Kerja (%)", Nilai: tim.rasioBiayaTenagaKerja }
+  ]), "Tim");
+  XLSX.writeFile(wb, `kpi-${mulai}_${selesai}.xlsx`);
+});
 
 // ===== Gudang / Lokasi Stok =====
 const gudangManagerModal = document.getElementById("gudangManagerModal");
