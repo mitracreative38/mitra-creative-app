@@ -720,6 +720,9 @@ function proyekToRow(p) {
     progress_realisasi: p.progressRealisasi || [],
     progress: realisasiTerbaru ? realisasiTerbaru.persen : 0,
     dokumen: p.dokumen || [],
+    jadwal_pekerjaan: p.jadwalPekerjaan || [],
+    laporan_harian: p.laporanHarian || [],
+    perubahan_pekerjaan: p.perubahanPekerjaan || [],
     updated_at: new Date().toISOString()
   };
 }
@@ -1244,7 +1247,9 @@ function rowToProyek(r) {
     karyawanIds: r.karyawan_ids || [], subkontraktor: r.subkontraktor || [],
     belanjaMaterial: r.belanja_material || [], sumberRabId: r.sumber_rab_id || "",
     sumberPenawaranId: r.sumber_penawaran_id || "", progressRencana: r.progress_rencana || [],
-    progressRealisasi: r.progress_realisasi || [], dokumen: r.dokumen || []
+    progressRealisasi: r.progress_realisasi || [], dokumen: r.dokumen || [],
+    jadwalPekerjaan: r.jadwal_pekerjaan || [], laporanHarian: r.laporan_harian || [],
+    perubahanPekerjaan: r.perubahan_pekerjaan || []
   };
 }
 function rowToKaryawan(r) {
@@ -1568,6 +1573,24 @@ function attachNumberFormatting(input) {
     const before = input.value;
     const digits = before.replace(/[^0-9]/g, "");
     input.value = digits ? Number(digits).toLocaleString("id-ID") : "";
+    const diff = input.value.length - before.length;
+    const newPos = Math.max(0, pos + diff);
+    input.setSelectionRange(newPos, newPos);
+  });
+}
+// Sama seperti attachNumberFormatting(), tapi mempertahankan tanda minus
+// di depan -- dipakai untuk field yang nilainya boleh negatif (mis. Nilai
+// Perubahan Pekerjaan, bisa jadi pengurangan). attachNumberFormatting()
+// biasa sengaja membuang semua karakter non-digit (termasuk "-") karena
+// dirancang untuk field Rupiah yang selalu positif (jumlah transaksi,
+// harga satuan, dst).
+function attachSignedNumberFormatting(input) {
+  input.addEventListener("input", () => {
+    const pos = input.selectionStart;
+    const before = input.value;
+    const negatif = before.trim().startsWith("-");
+    const digits = before.replace(/[^0-9]/g, "");
+    input.value = digits ? (negatif ? "-" : "") + Number(digits).toLocaleString("id-ID") : (negatif ? "-" : "");
     const diff = input.value.length - before.length;
     const newPos = Math.max(0, pos + diff);
     input.setSelectionRange(newPos, newPos);
@@ -2033,6 +2056,9 @@ function renderProyekDetail() {
   if (!p.progressRencana) p.progressRencana = [];
   if (!p.progressRealisasi) p.progressRealisasi = [];
   if (!p.dokumen) p.dokumen = [];
+  if (!p.jadwalPekerjaan) p.jadwalPekerjaan = [];
+  if (!p.laporanHarian) p.laporanHarian = [];
+  if (!p.perubahanPekerjaan) p.perubahanPekerjaan = [];
 
   const rencanaSorted = p.progressRencana.slice().sort((a, b) => (a.tanggal || "").localeCompare(b.tanggal || ""));
   const realisasiSorted = p.progressRealisasi.slice().sort((a, b) => (a.tanggal || "").localeCompare(b.tanggal || ""));
@@ -2084,6 +2110,239 @@ function renderProyekDetail() {
       <td><div class="row-actions"><button class="icon-btn" data-edit-dokumen="${d.id}" title="Edit">✏️</button><button class="icon-btn" data-delete-dokumen="${d.id}" title="Hapus">🗑️</button></div></td>
     </tr>
   `; }).join("") : '<tr class="empty-row"><td colspan="6">Belum ada dokumen</td></tr>';
+
+  renderJadwalPekerjaan(p, today);
+  renderLaporanHarian(p);
+  renderPerubahanPekerjaan(p);
+}
+
+// ----- Jadwal Pekerjaan (Gantt sederhana) -----
+function renderJadwalPekerjaan(p, today) {
+  const tugas = p.jadwalPekerjaan.slice().sort((a, b) => (a.tanggalMulai || "").localeCompare(b.tanggalMulai || ""));
+  document.querySelector("#pj_jadwalTable tbody").innerHTML = tugas.length ? tugas.map(t => {
+    const telat = t.tanggalSelesai && t.tanggalSelesai < today && (t.persenSelesai || 0) < 100;
+    return `
+    <tr>
+      <td>${escapeHtml(t.nama)}</td>
+      <td>${t.tanggalMulai ? formatTanggal(t.tanggalMulai) : "-"}</td>
+      <td class="${telat ? "bad" : ""}">${t.tanggalSelesai ? formatTanggal(t.tanggalSelesai) : "-"}${telat ? " ⚠️ telat" : ""}</td>
+      <td class="num">${t.persenSelesai || 0}%</td>
+      <td><div class="row-actions"><button class="icon-btn" data-delete-jadwal="${t.id}" title="Hapus">🗑️</button></div></td>
+    </tr>
+  `; }).join("") : '<tr class="empty-row"><td colspan="5">Belum ada tahapan pekerjaan</td></tr>';
+
+  const ganttEl = document.getElementById("pj_gantt");
+  const withDates = tugas.filter(t => t.tanggalMulai && t.tanggalSelesai);
+  if (!withDates.length) {
+    ganttEl.innerHTML = '<div class="muted" style="font-size:12px;">Isi Tanggal Mulai &amp; Selesai pada tahapan untuk melihat visual Gantt.</div>';
+    return;
+  }
+  const rentangMulai = withDates.reduce((m, t) => t.tanggalMulai < m ? t.tanggalMulai : m, withDates[0].tanggalMulai);
+  const rentangSelesai = withDates.reduce((m, t) => t.tanggalSelesai > m ? t.tanggalSelesai : m, withDates[0].tanggalSelesai);
+  const totalHari = Math.max(1, daysBetweenIso(rentangMulai, rentangSelesai));
+  ganttEl.innerHTML = withDates.map(t => {
+    const offsetHari = Math.max(0, daysBetweenIso(rentangMulai, t.tanggalMulai));
+    const durasiHari = Math.max(1, daysBetweenIso(t.tanggalMulai, t.tanggalSelesai));
+    const left = (offsetHari / totalHari) * 100;
+    const width = Math.max(2, (durasiHari / totalHari) * 100);
+    const telat = t.tanggalSelesai < today && (t.persenSelesai || 0) < 100;
+    const warna = (t.persenSelesai || 0) >= 100 ? "var(--good)" : telat ? "var(--critical)" : "var(--series-1)";
+    return `
+    <div class="bar-row">
+      <div class="bar-label" title="${escapeHtml(t.nama)}">${escapeHtml(t.nama)}</div>
+      <div class="bar-track" style="position:relative;">
+        <div style="position:absolute; left:${left}%; width:${width}%; height:100%; border-radius:4px; background:${warna};" title="${t.persenSelesai || 0}%"></div>
+      </div>
+      <div class="bar-value">${t.persenSelesai || 0}%</div>
+    </div>
+  `;
+  }).join("");
+}
+document.getElementById("jp_addBtn").addEventListener("click", () => {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) return;
+  const nama = document.getElementById("jp_nama").value.trim();
+  const tanggalMulai = document.getElementById("jp_mulai").value;
+  const tanggalSelesai = document.getElementById("jp_selesai").value;
+  if (!nama) { alert("Isi nama tahapan pekerjaan terlebih dahulu."); return; }
+  if (tanggalMulai && tanggalSelesai && tanggalSelesai < tanggalMulai) { alert("Tanggal Selesai tidak boleh sebelum Tanggal Mulai."); return; }
+  if (!p.jadwalPekerjaan) p.jadwalPekerjaan = [];
+  p.jadwalPekerjaan.push({
+    id: uid(), nama, tanggalMulai, tanggalSelesai,
+    persenSelesai: Math.max(0, Math.min(100, parseFloat(document.getElementById("jp_persen").value) || 0))
+  });
+  saveState();
+  mirrorProyekUpsert(p);
+  document.getElementById("jp_nama").value = "";
+  document.getElementById("jp_mulai").value = "";
+  document.getElementById("jp_selesai").value = "";
+  document.getElementById("jp_persen").value = "";
+  renderProyekDetail();
+});
+document.getElementById("pj_jadwalTable").addEventListener("click", e => {
+  const delBtn = e.target.closest("[data-delete-jadwal]");
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (delBtn && p && confirm("Hapus tahapan pekerjaan ini?")) {
+    p.jadwalPekerjaan = (p.jadwalPekerjaan || []).filter(t => t.id !== delBtn.dataset.deleteJadwal);
+    saveState();
+    mirrorProyekUpsert(p);
+    renderProyekDetail();
+  }
+});
+
+// ----- Laporan Harian Lapangan -----
+const laporanHarianModal = document.getElementById("laporanHarianModal");
+function openLaporanHarianModal(existing) {
+  document.getElementById("lap_id").value = existing ? existing.id : "";
+  document.getElementById("laporanHarianModalTitle").textContent = existing ? "Edit Laporan Harian" : "Tambah Laporan Harian";
+  document.getElementById("lap_tanggal").value = existing ? existing.tanggal : new Date().toISOString().slice(0, 10);
+  document.getElementById("lap_cuaca").value = existing ? existing.cuaca : "Cerah";
+  document.getElementById("lap_tenagaKerja").value = existing ? existing.tenagaKerja : "";
+  document.getElementById("lap_uraian").value = existing ? (existing.uraian || "") : "";
+  document.getElementById("lap_kendala").value = existing ? (existing.kendala || "") : "";
+  laporanHarianModal.classList.add("open");
+}
+document.getElementById("lap_addBtn").addEventListener("click", () => openLaporanHarianModal(null));
+document.getElementById("laporanHarianForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) { closeModals(); return; }
+  if (!p.laporanHarian) p.laporanHarian = [];
+  const id = document.getElementById("lap_id").value;
+  const lap = {
+    id: id || uid(),
+    tanggal: document.getElementById("lap_tanggal").value,
+    cuaca: document.getElementById("lap_cuaca").value,
+    tenagaKerja: Math.max(0, parseInt(document.getElementById("lap_tenagaKerja").value, 10) || 0),
+    uraian: document.getElementById("lap_uraian").value.trim(),
+    kendala: document.getElementById("lap_kendala").value.trim()
+  };
+  const idx = p.laporanHarian.findIndex(l => l.id === id);
+  if (idx >= 0) p.laporanHarian[idx] = lap; else p.laporanHarian.push(lap);
+  saveState();
+  mirrorProyekUpsert(p);
+  renderProyekDetail();
+  closeModals();
+});
+document.getElementById("pj_laporanTable").addEventListener("click", e => {
+  const editBtn = e.target.closest("[data-edit-laporan]");
+  const delBtn = e.target.closest("[data-delete-laporan]");
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) return;
+  if (editBtn) {
+    const lap = (p.laporanHarian || []).find(l => l.id === editBtn.dataset.editLaporan);
+    if (lap) openLaporanHarianModal(lap);
+  } else if (delBtn) {
+    if (confirm("Hapus laporan harian ini?")) {
+      p.laporanHarian = (p.laporanHarian || []).filter(l => l.id !== delBtn.dataset.deleteLaporan);
+      saveState();
+      mirrorProyekUpsert(p);
+      renderProyekDetail();
+    }
+  }
+});
+function renderLaporanHarian(p) {
+  const rows = p.laporanHarian.slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
+  document.querySelector("#pj_laporanTable tbody").innerHTML = rows.length ? rows.map(l => `
+    <tr>
+      <td>${formatTanggal(l.tanggal)}</td>
+      <td>${escapeHtml(l.cuaca || "-")}</td>
+      <td class="num">${l.tenagaKerja || 0}</td>
+      <td>${escapeHtml(l.uraian || "-")}</td>
+      <td>${escapeHtml(l.kendala || "-")}</td>
+      <td><div class="row-actions"><button class="icon-btn" data-edit-laporan="${l.id}" title="Edit">✏️</button><button class="icon-btn" data-delete-laporan="${l.id}" title="Hapus">🗑️</button></div></td>
+    </tr>
+  `).join("") : '<tr class="empty-row"><td colspan="6">Belum ada laporan harian</td></tr>';
+}
+
+// ----- Perubahan Pekerjaan (Adendum) -----
+// Menyesuaikan Nilai Kontrak proyek dengan tepat, apapun urutan
+// kejadiannya: dibuat langsung disetujui, disetujui belakangan, koreksi
+// nilai pada item yang sudah disetujui, dibatalkan lagi setelah
+// disetujui, atau dihapus -- dihitung sebagai "efek sebelum" (0 kalau
+// item lama belum/tidak disetujui) dikurangkan dan "efek sesudah"
+// ditambahkan, bukan menambah/mengurangi langsung, supaya tidak pernah
+// dobel-hitung atau lupa membatalkan.
+function applyPerubahanPekerjaanEffect(p, sebelum, sesudah) {
+  const efekSebelum = (sebelum && sebelum.status === "disetujui") ? (sebelum.nilaiPerubahan || 0) : 0;
+  const efekSesudah = (sesudah && sesudah.status === "disetujui") ? (sesudah.nilaiPerubahan || 0) : 0;
+  p.nilaiKontrak = (p.nilaiKontrak || 0) - efekSebelum + efekSesudah;
+}
+const perubahanPekerjaanModal = document.getElementById("perubahanPekerjaanModal");
+function openPerubahanPekerjaanModal(existing) {
+  document.getElementById("pp_id").value = existing ? existing.id : "";
+  document.getElementById("perubahanPekerjaanModalTitle").textContent = existing ? "Edit Perubahan Pekerjaan" : "Tambah Perubahan Pekerjaan";
+  document.getElementById("pp_tanggal").value = existing ? existing.tanggal : new Date().toISOString().slice(0, 10);
+  document.getElementById("pp_uraian").value = existing ? (existing.uraian || "") : "";
+  document.getElementById("pp_nilaiPerubahan").value = existing ? formatNumberInput(existing.nilaiPerubahan || 0) : "";
+  document.getElementById("pp_dampakHari").value = existing ? (existing.dampakHari || "") : "";
+  document.getElementById("pp_status").value = existing ? existing.status : "diajukan";
+  perubahanPekerjaanModal.classList.add("open");
+}
+attachSignedNumberFormatting(document.getElementById("pp_nilaiPerubahan"));
+document.getElementById("pp_addBtn").addEventListener("click", () => openPerubahanPekerjaanModal(null));
+document.getElementById("perubahanPekerjaanForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) { closeModals(); return; }
+  if (!p.perubahanPekerjaan) p.perubahanPekerjaan = [];
+  const id = document.getElementById("pp_id").value;
+  const existing = p.perubahanPekerjaan.find(x => x.id === id);
+  const item = {
+    id: id || uid(),
+    nomorAdendum: existing ? existing.nomorAdendum : p.perubahanPekerjaan.length + 1,
+    tanggal: document.getElementById("pp_tanggal").value,
+    uraian: document.getElementById("pp_uraian").value.trim(),
+    nilaiPerubahan: parseNumberInput(document.getElementById("pp_nilaiPerubahan").value),
+    dampakHari: parseInt(document.getElementById("pp_dampakHari").value, 10) || 0,
+    status: document.getElementById("pp_status").value
+  };
+  if (!item.uraian) { alert("Isi uraian perubahan pekerjaan terlebih dahulu."); return; }
+  applyPerubahanPekerjaanEffect(p, existing, item);
+  const idx = p.perubahanPekerjaan.findIndex(x => x.id === id);
+  if (idx >= 0) p.perubahanPekerjaan[idx] = item; else p.perubahanPekerjaan.push(item);
+  saveState();
+  mirrorProyekUpsert(p);
+  renderProyekDetail();
+  closeModals();
+});
+document.getElementById("pj_perubahanTable").addEventListener("click", e => {
+  const editBtn = e.target.closest("[data-edit-perubahan]");
+  const delBtn = e.target.closest("[data-delete-perubahan]");
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) return;
+  if (editBtn) {
+    const item = (p.perubahanPekerjaan || []).find(x => x.id === editBtn.dataset.editPerubahan);
+    if (item) openPerubahanPekerjaanModal(item);
+  } else if (delBtn) {
+    const item = (p.perubahanPekerjaan || []).find(x => x.id === delBtn.dataset.deletePerubahan);
+    if (item && confirm(`Hapus "${item.uraian}"? ${item.status === "disetujui" ? "Nilai Kontrak akan disesuaikan kembali." : ""}`)) {
+      applyPerubahanPekerjaanEffect(p, item, null);
+      p.perubahanPekerjaan = (p.perubahanPekerjaan || []).filter(x => x.id !== item.id);
+      saveState();
+      mirrorProyekUpsert(p);
+      renderProyekDetail();
+    }
+  }
+});
+function perubahanStatusBadge(status) {
+  if (status === "disetujui") return "good";
+  if (status === "ditolak") return "critical";
+  return "warning";
+}
+function renderPerubahanPekerjaan(p) {
+  const rows = p.perubahanPekerjaan.slice().sort((a, b) => (a.nomorAdendum || 0) - (b.nomorAdendum || 0));
+  document.querySelector("#pj_perubahanTable tbody").innerHTML = rows.length ? rows.map(item => `
+    <tr>
+      <td>Adendum ${item.nomorAdendum}</td>
+      <td>${formatTanggal(item.tanggal)}</td>
+      <td>${escapeHtml(item.uraian)}</td>
+      <td class="num ${item.nilaiPerubahan < 0 ? "bad" : "good"}">${item.nilaiPerubahan < 0 ? "-" : "+"}${rupiah(Math.abs(item.nilaiPerubahan))}</td>
+      <td class="num">${item.dampakHari ? (item.dampakHari > 0 ? "+" : "") + item.dampakHari + " hari" : "-"}</td>
+      <td><span class="badge-margin ${perubahanStatusBadge(item.status)}">${escapeHtml(item.status)}</span></td>
+      <td><div class="row-actions"><button class="icon-btn" data-edit-perubahan="${item.id}" title="Edit">✏️</button><button class="icon-btn" data-delete-perubahan="${item.id}" title="Hapus">🗑️</button></div></td>
+    </tr>
+  `).join("") : '<tr class="empty-row"><td colspan="7">Belum ada perubahan pekerjaan / adendum</td></tr>';
 }
 
 // ===== Klien (CRM/Pipeline) =====

@@ -919,6 +919,54 @@
             </table>
           </div>
         </div>
+
+        <div class="panel">
+          <div class="muted" style="margin-bottom:10px;">Jadwal Pekerjaan — tahapan pekerjaan dengan rentang tanggal, ditampilkan sebagai Gantt sederhana</div>
+          <div class="form-grid" style="margin-bottom:12px;">
+            <div class="field full"><label>Nama Tahapan</label><input type="text" id="jp_nama" placeholder="mis. Pemasangan Rangka Atap"></div>
+            <div class="field"><label>Tanggal Mulai</label><input type="date" id="jp_mulai"></div>
+            <div class="field"><label>Tanggal Selesai</label><input type="date" id="jp_selesai"></div>
+            <div class="field"><label>% Selesai</label><input type="number" id="jp_persen" min="0" max="100" step="1" placeholder="0"></div>
+            <div class="field" style="justify-content:flex-end;"><button type="button" class="btn-primary" id="jp_addBtn">+ Tambah Tahapan</button></div>
+          </div>
+          <div id="pj_gantt" class="bar-chart" style="margin-bottom:14px;"></div>
+          <div class="table-wrap">
+            <table class="tbl" id="pj_jadwalTable">
+              <thead><tr><th>Tahapan</th><th>Mulai</th><th>Selesai</th><th class="num">% Selesai</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="toolbar">
+            <div class="muted" style="flex:1">Laporan Harian Lapangan</div>
+            <button class="btn-primary" id="lap_addBtn">+ Tambah Laporan</button>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="pj_laporanTable">
+              <thead><tr>
+                <th>Tanggal</th><th>Cuaca</th><th class="num">Tenaga Kerja</th><th>Uraian Kegiatan</th><th>Kendala</th><th></th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="toolbar">
+            <div class="muted" style="flex:1">Perubahan Pekerjaan (Adendum) — penambahan/pengurangan pekerjaan dari klien; saat status "Disetujui", Nilai Kontrak otomatis menyesuaikan</div>
+            <button class="btn-primary" id="pp_addBtn">+ Tambah Perubahan</button>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="pj_perubahanTable">
+              <thead><tr>
+                <th>No.</th><th>Tanggal</th><th>Uraian</th><th class="num">Nilai Perubahan</th><th class="num">Dampak Jadwal</th><th>Status</th><th></th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -2162,6 +2210,94 @@
           <input type="text" id="dok_catatan" placeholder="opsional">
         </div>
       </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: laporan harian lapangan -->
+<div class="modal-backdrop" id="laporanHarianModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="laporanHarianModalTitle">Tambah Laporan Harian</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <form id="laporanHarianForm">
+      <input type="hidden" id="lap_id">
+      <div class="form-grid">
+        <div class="field">
+          <label>Tanggal</label>
+          <input type="date" id="lap_tanggal">
+        </div>
+        <div class="field">
+          <label>Cuaca</label>
+          <select id="lap_cuaca">
+            <option value="Cerah">Cerah</option>
+            <option value="Berawan">Berawan</option>
+            <option value="Hujan">Hujan</option>
+            <option value="Hujan Deras">Hujan Deras</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Jumlah Tenaga Kerja Hadir</label>
+          <input type="number" id="lap_tenagaKerja" min="0" step="1" placeholder="0">
+        </div>
+        <div class="field full">
+          <label>Uraian Kegiatan</label>
+          <input type="text" id="lap_uraian" placeholder="mis. Pemasangan rangka atap sisi utara">
+        </div>
+        <div class="field full">
+          <label>Kendala (opsional)</label>
+          <input type="text" id="lap_kendala" placeholder="mis. Material terlambat datang">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: perubahan pekerjaan (adendum) -->
+<div class="modal-backdrop" id="perubahanPekerjaanModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="perubahanPekerjaanModalTitle">Tambah Perubahan Pekerjaan</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <form id="perubahanPekerjaanForm">
+      <input type="hidden" id="pp_id">
+      <div class="form-grid">
+        <div class="field">
+          <label>Tanggal</label>
+          <input type="date" id="pp_tanggal">
+        </div>
+        <div class="field full">
+          <label>Uraian Perubahan</label>
+          <input type="text" id="pp_uraian" placeholder="mis. Penambahan pekerjaan partisi lantai 2 atas permintaan klien">
+        </div>
+        <div class="field">
+          <label>Nilai Perubahan (Rp)</label>
+          <input type="text" inputmode="numeric" id="pp_nilaiPerubahan" placeholder="Isi negatif kalau pengurangan pekerjaan">
+        </div>
+        <div class="field">
+          <label>Dampak Jadwal (hari, opsional)</label>
+          <input type="number" id="pp_dampakHari" step="1" placeholder="mis. 5">
+        </div>
+        <div class="field">
+          <label>Status</label>
+          <select id="pp_status">
+            <option value="diajukan">Diajukan</option>
+            <option value="disetujui">Disetujui</option>
+            <option value="ditolak">Ditolak</option>
+          </select>
+        </div>
+      </div>
+      <p class="muted" style="font-size:12px;">Saat status "Disetujui", Nilai Perubahan otomatis ditambahkan/dikurangkan ke Nilai Kontrak proyek ini.</p>
       <div class="modal-actions">
         <button type="button" class="btn-ghost" data-close-modal>Batal</button>
         <button type="submit" class="btn-primary">Simpan</button>
