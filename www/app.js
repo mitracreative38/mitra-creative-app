@@ -55,6 +55,8 @@ function withDefaults(s) {
   if (!s.pemasok) s.pemasok = [];
   if (!s.gudang) s.gudang = [];
   if (typeof s.approvalThreshold !== "number") s.approvalThreshold = 0;
+  if (typeof s.targetOmzetBulanan !== "number") s.targetOmzetBulanan = 0;
+  if (typeof s.targetLababersihBulanan !== "number") s.targetLababersihBulanan = 0;
   return s;
 }
 function saveState() {
@@ -1037,6 +1039,8 @@ function companyProfileToRow() {
     rab_counter: state.rabCounter || 0,
     mata_resolusi_markup_percent: state.mataResolusiMarkupPercent ?? 5,
     mata_resolusi_penawaran_counter: state.mataResolusiPenawaranCounter || 0,
+    target_omzet_bulanan: state.targetOmzetBulanan || 0,
+    target_laba_bersih_bulanan: state.targetLababersihBulanan || 0,
     updated_at: new Date().toISOString()
   };
 }
@@ -1339,6 +1343,8 @@ async function buildStateFromRelational(companyId) {
     rabCounter: (profileRow && profileRow.rab_counter) || 0,
     mataResolusiMarkupPercent: (profileRow && profileRow.mata_resolusi_markup_percent) ?? 5,
     mataResolusiPenawaranCounter: (profileRow && profileRow.mata_resolusi_penawaran_counter) || 0,
+    targetOmzetBulanan: (profileRow && profileRow.target_omzet_bulanan) || 0,
+    targetLababersihBulanan: (profileRow && profileRow.target_laba_bersih_bulanan) || 0,
     klien: klienRows.map(rowToKlien),
     ahsp: ahspRows.map(rowToAhsp),
     proyekRab: rabRows.map(rowToRab),
@@ -2033,19 +2039,19 @@ function renderProyekDetail() {
 
   const rencanaSorted = p.progressRencana.slice().sort((a, b) => (a.tanggal || "").localeCompare(b.tanggal || ""));
   const realisasiSorted = p.progressRealisasi.slice().sort((a, b) => (a.tanggal || "").localeCompare(b.tanggal || ""));
-  const realisasiTerakhir = realisasiSorted.length ? realisasiSorted[realisasiSorted.length - 1] : null;
-  const targetTerdekat = rencanaSorted.find(r => r.tanggal >= today) || rencanaSorted[rencanaSorted.length - 1] || null;
+  const progressStatus = proyekProgressStatus(p, today);
+  const realisasiTerakhir = progressStatus ? progressStatus.realisasiTerakhir : null;
+  const targetTerdekat = progressStatus ? progressStatus.targetTerdekat : null;
 
   document.getElementById("pf_realisasiTerakhir").textContent = realisasiTerakhir ? `${realisasiTerakhir.persen}%` : "0%";
   document.getElementById("pf_targetTerdekat").textContent = targetTerdekat ? `${targetTerdekat.persen}% (${formatTanggal(targetTerdekat.tanggal)})` : "-";
   const statusEl = document.getElementById("pf_statusProgress");
-  if (!targetTerdekat || !realisasiTerakhir) {
+  if (!progressStatus) {
     statusEl.textContent = "-";
     statusEl.className = "stat-value";
   } else {
-    const telat = targetTerdekat.tanggal <= today && realisasiTerakhir.persen < targetTerdekat.persen;
-    statusEl.textContent = telat ? "Telat dari Rencana" : "Sesuai/Lebih Cepat";
-    statusEl.className = "stat-value " + (telat ? "bad" : "good");
+    statusEl.textContent = progressStatus.telat ? "Telat dari Rencana" : "Sesuai/Lebih Cepat";
+    statusEl.className = "stat-value " + (progressStatus.telat ? "bad" : "good");
   }
 
   document.querySelector("#pf_rencanaTable tbody").innerHTML = rencanaSorted.length ? rencanaSorted.map(r => `
@@ -2575,6 +2581,190 @@ document.getElementById("lk_printBtn").addEventListener("click", () => {
   window.print();
 });
 
+// ===== KPI =====
+// Bucket 6 bulan kalender berturut-turut, berakhir di bulan yang memuat
+// endDateStr (atau bulan berjalan kalau kosong) -- dipakai semua grafik
+// tren di halaman KPI supaya konsisten.
+function monthBuckets(endDateStr, n) {
+  const end = endDateStr ? new Date(endDateStr + "T00:00:00") : new Date();
+  const buckets = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(end.getFullYear(), end.getMonth() - i, 1);
+    const start = new Date(d.getFullYear(), d.getMonth(), 1);
+    const finish = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+    buckets.push({
+      label: start.toLocaleDateString("id-ID", { month: "short", year: "2-digit" }),
+      start: start.toISOString().slice(0, 10),
+      end: finish.toISOString().slice(0, 10)
+    });
+  }
+  return buckets;
+}
+// Diekstrak dari renderProyekDetail() supaya bisa dipakai ulang di KPI --
+// logikanya sama persis: bandingkan realisasi progress terakhir terhadap
+// target rencana terdekat (atau target terakhir kalau semua sudah lewat).
+function proyekProgressStatus(p, today) {
+  const rencanaSorted = (p.progressRencana || []).slice().sort((a, b) => (a.tanggal || "").localeCompare(b.tanggal || ""));
+  const realisasiSorted = (p.progressRealisasi || []).slice().sort((a, b) => (a.tanggal || "").localeCompare(b.tanggal || ""));
+  const realisasiTerakhir = realisasiSorted.length ? realisasiSorted[realisasiSorted.length - 1] : null;
+  const targetTerdekat = rencanaSorted.find(r => r.tanggal >= today) || rencanaSorted[rencanaSorted.length - 1] || null;
+  if (!targetTerdekat || !realisasiTerakhir) return null;
+  const telat = targetTerdekat.tanggal <= today && realisasiTerakhir.persen < targetTerdekat.persen;
+  return { telat, realisasiTerakhir, targetTerdekat };
+}
+function computeKpiPenjualan(mulai, selesai) {
+  const pwPeriode = state.penawaran.filter(p => p.status !== "draft" && p.tanggal >= mulai && p.tanggal <= selesai);
+  const disetujui = pwPeriode.filter(p => p.status === "disetujui");
+  const ditolak = pwPeriode.filter(p => p.status === "ditolak");
+  const winRate = (disetujui.length + ditolak.length) ? (disetujui.length / (disetujui.length + ditolak.length)) * 100 : null;
+  const nilaiDisetujui = disetujui.reduce((s, p) => s + penawaranTotals(p).total, 0);
+  const pipelineAktif = state.penawaran.filter(p => p.status === "draft" || p.status === "terkirim");
+  const nilaiPipeline = pipelineAktif.reduce((s, p) => s + penawaranTotals(p).total, 0);
+  const funnel = KLIEN_TAHAP.map(t => ({ tahap: t, jumlah: state.klien.filter(k => k.tahap === t).length }));
+  const trend = monthBuckets(selesai, 6).map(b => {
+    const d = state.penawaran.filter(p => p.status === "disetujui" && p.tanggal >= b.start && p.tanggal <= b.end);
+    return { label: b.label, jumlah: d.length, nilai: d.reduce((s, p) => s + penawaranTotals(p).total, 0) };
+  });
+  return { terkirim: pwPeriode.length, disetujui: disetujui.length, ditolak: ditolak.length, winRate, nilaiDisetujui, pipelineCount: pipelineAktif.length, nilaiPipeline, funnel, trend };
+}
+function computeKpiProyek(mulai, selesai) {
+  const today = new Date().toISOString().slice(0, 10);
+  const semua = state.proyek;
+  const baruPeriode = semua.filter(p => p.tanggalMulai && p.tanggalMulai >= mulai && p.tanggalMulai <= selesai).length;
+  const calcs = semua.map(p => projectCalc(p));
+  const marginRata = calcs.length ? (calcs.reduce((s, c) => s + c.marginPct, 0) / calcs.length) * 100 : null;
+  const progresses = semua.map(p => proyekProgressStatus(p, today)).filter(Boolean);
+  const tepatWaktu = progresses.length ? (progresses.filter(x => !x.telat).length / progresses.length) * 100 : null;
+  const totalAnggaran = calcs.reduce((s, c) => s + c.anggaranBahan + c.anggaranUpah + c.anggaranLain + c.anggaranSubkon, 0);
+  const totalRealisasi = calcs.reduce((s, c) => s + c.totalBiaya, 0);
+  const deviasiAnggaran = totalAnggaran ? ((totalRealisasi - totalAnggaran) / totalAnggaran) * 100 : null;
+  const trend = monthBuckets(selesai, 6).map(b => {
+    const cohort = semua.filter(p => p.tanggalMulai && p.tanggalMulai >= b.start && p.tanggalMulai <= b.end).map(p => projectCalc(p).marginPct);
+    return { label: b.label, marginRata: cohort.length ? (cohort.reduce((s, v) => s + v, 0) / cohort.length) * 100 : 0 };
+  });
+  return { totalProyek: semua.length, baruPeriode, marginRata, tepatWaktu, deviasiAnggaran, trend };
+}
+function computeKpiKeuangan(mulai, selesai) {
+  const { pendapatan, beban, labaBersih } = computeLabaRugi(mulai, selesai);
+  const ku = kasSummary("kasUsaha");
+  const rasioPiutang = pendapatan ? (ku.pending / pendapatan) * 100 : null;
+  const now = new Date();
+  const bulanIniMulai = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+  const bulanIniSelesai = now.toISOString().slice(0, 10);
+  const bulanIni = computeLabaRugi(bulanIniMulai, bulanIniSelesai);
+  const trend = monthBuckets(selesai, 6).map(b => {
+    const masuk = state.kasUsaha.transactions.filter(t => t.tipe === "Masuk" && (t.status || "lunas") === "lunas" && t.tanggal >= b.start && t.tanggal <= b.end).reduce((s, t) => s + (t.jumlah || 0), 0);
+    const keluar = state.kasUsaha.transactions.filter(t => t.tipe === "Keluar" && (t.status || "lunas") !== "menunggu_persetujuan" && t.tanggal >= b.start && t.tanggal <= b.end).reduce((s, t) => s + Math.max(0, t.jumlah || 0), 0);
+    return { label: b.label, masuk, keluar };
+  });
+  return {
+    pendapatan, beban, labaBersih, rasioPiutang,
+    omzetBulanIni: bulanIni.pendapatan, targetOmzet: state.targetOmzetBulanan || 0,
+    labaBulanIni: bulanIni.labaBersih, targetLaba: state.targetLababersihBulanan || 0,
+    trend
+  };
+}
+function computeKpiTim(mulai, selesai) {
+  const aktif = state.karyawan.filter(k => k.aktif !== false);
+  let hadirCount = 0, totalRecord = 0, totalLembur = 0;
+  aktif.forEach(k => {
+    (k.absensi || []).filter(a => a.tanggal >= mulai && a.tanggal <= selesai).forEach(a => {
+      totalRecord++;
+      if (a.hadir) hadirCount++;
+      totalLembur += a.jamLembur || 0;
+    });
+  });
+  const tingkatKehadiran = totalRecord ? (hadirCount / totalRecord) * 100 : null;
+  const calcs = state.proyek.map(p => ({ upah: projectCalc(p).realisasiUpah, kontrak: p.nilaiKontrak || 0 }));
+  const totalUpahRealisasi = calcs.reduce((s, c) => s + c.upah, 0);
+  const totalNilaiKontrak = calcs.reduce((s, c) => s + c.kontrak, 0);
+  const rasioBiayaTenagaKerja = totalNilaiKontrak ? (totalUpahRealisasi / totalNilaiKontrak) * 100 : null;
+  const trend = monthBuckets(selesai, 6).map(b => {
+    let lembur = 0;
+    aktif.forEach(k => (k.absensi || []).filter(a => a.tanggal >= b.start && a.tanggal <= b.end).forEach(a => { lembur += a.jamLembur || 0; }));
+    return { label: b.label, lembur };
+  });
+  return { karyawanAktif: aktif.length, tingkatKehadiran, totalLembur, rasioBiayaTenagaKerja, trend };
+}
+function kpiPeriode() {
+  const mulaiInput = document.getElementById("kpi_mulai");
+  const selesaiInput = document.getElementById("kpi_selesai");
+  if (!mulaiInput.value) {
+    const now = new Date();
+    mulaiInput.value = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+  }
+  if (!selesaiInput.value) selesaiInput.value = new Date().toISOString().slice(0, 10);
+  return { mulai: mulaiInput.value, selesai: selesaiInput.value };
+}
+function pct1(v) { return v == null ? "-" : v.toFixed(1) + "%"; }
+function renderKpiPenjualan() {
+  const { mulai, selesai } = kpiPeriode();
+  const k = computeKpiPenjualan(mulai, selesai);
+  document.getElementById("kpi_pwTerkirim").textContent = k.terkirim;
+  document.getElementById("kpi_pwDisetujui").textContent = k.disetujui;
+  document.getElementById("kpi_winRate").textContent = pct1(k.winRate);
+  document.getElementById("kpi_nilaiDisetujui").textContent = rupiah(k.nilaiDisetujui);
+  document.getElementById("kpi_pipelineAktif").textContent = `${rupiah(k.nilaiPipeline)} (${k.pipelineCount})`;
+  document.getElementById("kpi_funnelRows").innerHTML = k.funnel.map(f => `
+    <div class="summary-row"><span>${escapeHtml(f.tahap)}</span><strong>${f.jumlah}</strong></div>
+  `).join("");
+  renderBarChart(document.getElementById("kpi_trendPenjualan"), k.trend.map(t => ({
+    label: t.label, value: t.jumlah, color: "var(--series-1)", formattedValue: `${t.jumlah} (${rupiah(t.nilai)})`
+  })));
+}
+function renderKpiProyek() {
+  const { mulai, selesai } = kpiPeriode();
+  const k = computeKpiProyek(mulai, selesai);
+  document.getElementById("kpi_totalProyek").textContent = k.totalProyek;
+  document.getElementById("kpi_proyekBaru").textContent = k.baruPeriode;
+  document.getElementById("kpi_marginRata").textContent = pct1(k.marginRata);
+  document.getElementById("kpi_tepatWaktu").textContent = pct1(k.tepatWaktu);
+  const deviasiEl = document.getElementById("kpi_deviasiAnggaran");
+  deviasiEl.textContent = pct1(k.deviasiAnggaran);
+  deviasiEl.className = "stat-value " + (k.deviasiAnggaran == null ? "" : (k.deviasiAnggaran > 0 ? "bad" : "good"));
+  renderBarChart(document.getElementById("kpi_trendProyek"), k.trend.map(t => ({
+    label: t.label, value: t.marginRata, color: t.marginRata >= 0 ? "var(--good)" : "var(--critical)", formattedValue: t.marginRata.toFixed(1) + "%"
+  })));
+}
+function renderKpiKeuangan() {
+  const { mulai, selesai } = kpiPeriode();
+  const k = computeKpiKeuangan(mulai, selesai);
+  document.getElementById("kpi_pendapatan").textContent = rupiah(k.pendapatan);
+  const labaEl = document.getElementById("kpi_labaBersih");
+  labaEl.textContent = rupiah(k.labaBersih);
+  labaEl.className = "stat-value " + (k.labaBersih >= 0 ? "good" : "bad");
+  document.getElementById("kpi_rasioPiutang").textContent = pct1(k.rasioPiutang);
+  document.getElementById("kpi_omzetBulanIni").textContent = rupiah(k.omzetBulanIni);
+  document.getElementById("kpi_targetOmzet").textContent = rupiah(k.targetOmzet);
+  document.getElementById("kpi_labaBulanIni").textContent = rupiah(k.labaBulanIni);
+  document.getElementById("kpi_targetLaba").textContent = rupiah(k.targetLaba);
+  renderBarChart(document.getElementById("kpi_trendKeuangan"), k.trend.flatMap(t => [
+    { label: `${t.label} - Masuk`, value: t.masuk, color: "var(--series-1)", formattedValue: rupiah(t.masuk) },
+    { label: `${t.label} - Keluar`, value: t.keluar, color: "var(--series-2)", formattedValue: rupiah(t.keluar) }
+  ]));
+}
+function renderKpiTim() {
+  const { mulai, selesai } = kpiPeriode();
+  const k = computeKpiTim(mulai, selesai);
+  document.getElementById("kpi_karyawanAktif").textContent = k.karyawanAktif;
+  document.getElementById("kpi_tingkatKehadiran").textContent = pct1(k.tingkatKehadiran);
+  document.getElementById("kpi_totalLembur").textContent = `${k.totalLembur.toLocaleString("id-ID")} jam`;
+  document.getElementById("kpi_rasioTenagaKerja").textContent = pct1(k.rasioBiayaTenagaKerja);
+  renderBarChart(document.getElementById("kpi_trendTim"), k.trend.map(t => ({
+    label: t.label, value: t.lembur, color: "var(--series-2)", formattedValue: `${t.lembur.toLocaleString("id-ID")} jam`
+  })));
+}
+function renderKpiActiveSubtab() {
+  const activeSubtab = document.querySelector('.subtab-item[data-subtab-page="kpi"].active');
+  const name = activeSubtab ? activeSubtab.dataset.subtab : "penjualan";
+  if (name === "penjualan") renderKpiPenjualan();
+  else if (name === "proyek") renderKpiProyek();
+  else if (name === "keuangan") renderKpiKeuangan();
+  else if (name === "tim") renderKpiTim();
+}
+document.getElementById("kpi_mulai").addEventListener("change", renderKpiActiveSubtab);
+document.getElementById("kpi_selesai").addEventListener("change", renderKpiActiveSubtab);
+
 // ===== Gudang / Lokasi Stok =====
 const gudangManagerModal = document.getElementById("gudangManagerModal");
 function renderGudangManagerTable() {
@@ -3016,7 +3206,7 @@ function hitungBonusTarget(target, realisasi, persen) {
 }
 
 // ----- Subtab switching (scoped by data-subtab-page so different pages don't clash) -----
-const SUBTAB_PANEL_PREFIX = { ky: "ky_", lk: "lk_" };
+const SUBTAB_PANEL_PREFIX = { ky: "ky_", lk: "lk_", kpi: "kpi_" };
 document.querySelectorAll(".subtab-item").forEach(btn => {
   btn.addEventListener("click", () => showSubtab(btn.dataset.subtabPage, btn.dataset.subtab));
 });
@@ -3033,6 +3223,7 @@ function showSubtab(pagePrefix, name) {
     if (name === "labarugi") renderLabaRugi();
     if (name === "neraca") renderNeraca();
   }
+  if (pagePrefix === "kpi") renderKpiActiveSubtab();
 }
 
 // ----- Daftar Karyawan -----
@@ -6428,6 +6619,7 @@ function renderAll() {
     if (activeSubtab && activeSubtab.dataset.subtab === "penggajian") renderPenggajianPanel(); }
   { const activeLkSubtab = document.querySelector('.subtab-item[data-subtab-page="lk"].active');
     if (!activeLkSubtab || activeLkSubtab.dataset.subtab === "labarugi") renderLabaRugi(); else renderNeraca(); }
+  renderKpiActiveSubtab();
   document.getElementById("stok_listView").style.display = currentStokId ? "none" : "block";
   document.getElementById("stok_riwayatView").style.display = currentStokId ? "block" : "none";
   if (currentStokId) renderStokRiwayat(); else renderStokList();
@@ -6451,6 +6643,10 @@ function renderAll() {
   if (document.activeElement !== approvalInput) approvalInput.value = formatNumberInput(state.approvalThreshold || 0);
   const mrMarkupInput = document.getElementById("settingsMataResolusiMarkup");
   if (document.activeElement !== mrMarkupInput) mrMarkupInput.value = state.mataResolusiMarkupPercent ?? 5;
+  const targetOmzetInput = document.getElementById("settingsTargetOmzet");
+  if (document.activeElement !== targetOmzetInput) targetOmzetInput.value = formatNumberInput(state.targetOmzetBulanan || 0);
+  const targetLabaInput = document.getElementById("settingsTargetLaba");
+  if (document.activeElement !== targetLabaInput) targetLabaInput.value = formatNumberInput(state.targetLababersihBulanan || 0);
   document.title = `${state.company || "Laporan Keuangan"} — Laporan Keuangan`;
 }
 
@@ -6459,7 +6655,7 @@ function renderAll() {
 // hanya halaman yang terdaftar di sini yang boleh diakses.
 const ROLE_PAGE_ACCESS = {
   owner: null,
-  admin: ["dashboard", "klien", "kasUsaha", "laporan", "proyek", "karyawan", "stok", "pemasok", "ahsp", "rab", "penawaran", "pengaturan"],
+  admin: ["dashboard", "klien", "kasUsaha", "laporan", "kpi", "proyek", "karyawan", "stok", "pemasok", "ahsp", "rab", "penawaran", "pengaturan"],
   marketing: ["klien", "ahsp", "rab", "penawaran", "pengaturan"]
 };
 function canAccessPage(name) {
@@ -7231,6 +7427,10 @@ document.getElementById("settingsOwnerNama").addEventListener("input", e => { st
 document.getElementById("settingsOwnerJabatan").addEventListener("input", e => { state.ownerJabatan = e.target.value; saveState(); mirrorCompanyProfileUpsert(); });
 attachNumberFormatting(document.getElementById("settingsApprovalThreshold"));
 document.getElementById("settingsApprovalThreshold").addEventListener("input", e => { state.approvalThreshold = parseNumberInput(e.target.value); saveState(); mirrorCompanyProfileUpsert(); });
+attachNumberFormatting(document.getElementById("settingsTargetOmzet"));
+document.getElementById("settingsTargetOmzet").addEventListener("input", e => { state.targetOmzetBulanan = parseNumberInput(e.target.value); saveState(); mirrorCompanyProfileUpsert(); });
+attachNumberFormatting(document.getElementById("settingsTargetLaba"));
+document.getElementById("settingsTargetLaba").addEventListener("input", e => { state.targetLababersihBulanan = parseNumberInput(e.target.value); saveState(); mirrorCompanyProfileUpsert(); });
 document.getElementById("settingsMataResolusiMarkup").addEventListener("input", e => {
   const v = parseFloat((e.target.value || "0").replace(",", "."));
   state.mataResolusiMarkupPercent = isFinite(v) && v >= 0 ? v : 0;

@@ -47,6 +47,10 @@
         <svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v13a2 2 0 01-2 2H6a2 2 0 01-2-2V4a2 2 0 012-2zm8 1.5V8h4.5L14 3.5zM8 13h8v1.5H8V13zm0 3h8v1.5H8V16zm0-6h4v1.5H8V10z"/></svg>
         Laporan Keuangan
       </button>
+      <button class="nav-item" data-page="kpi">
+        <svg viewBox="0 0 24 24"><path d="M3 3v18h18v-2H5V3H3zm4 14h2V9H7v8zm4 0h2V5h-2v12zm4 0h2v-6h-2v6z"/></svg>
+        KPI
+      </button>
       <button class="nav-item" data-page="proyek">
         <svg viewBox="0 0 24 24"><path d="M4 4h16v4H4V4zm0 6h10v10H4V10zm12 0h4v10h-4V10z"/></svg>
         Margin Proyek
@@ -414,6 +418,149 @@
           <div class="summary-rows">
             <div class="summary-row total"><span>Total Modal (= Total Aset)</span><strong id="nr_modal">Rp 0</strong></div>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- KPI -->
+    <section class="page" id="page-kpi">
+      <header class="page-header">
+        <div>
+          <h1>KPI</h1>
+          <p class="page-sub">Indikator kinerja utama Penjualan, Proyek, Keuangan, dan Tim — dihitung otomatis dari data yang sudah ada di aplikasi ini.</p>
+        </div>
+      </header>
+
+      <div class="panel">
+        <div class="form-grid">
+          <div class="field"><label>Periode Mulai</label><input type="date" id="kpi_mulai"></div>
+          <div class="field"><label>Periode Selesai</label><input type="date" id="kpi_selesai"></div>
+        </div>
+        <p class="muted" style="font-size:12px;">Grafik tren selalu menampilkan 6 bulan terakhir sampai dengan bulan pada Periode Selesai.</p>
+      </div>
+
+      <div class="subtabs">
+        <button class="subtab-item active" data-subtab="penjualan" data-subtab-page="kpi">Penjualan/Marketing</button>
+        <button class="subtab-item" data-subtab="proyek" data-subtab-page="kpi">Proyek/Operasional</button>
+        <button class="subtab-item" data-subtab="keuangan" data-subtab-page="kpi">Keuangan</button>
+        <button class="subtab-item" data-subtab="tim" data-subtab-page="kpi">Tim/Karyawan</button>
+      </div>
+
+      <div class="subtab-panel active" id="kpi_penjualanPanel">
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-label">Penawaran Dikirim (Periode)</div>
+            <div class="stat-value" id="kpi_pwTerkirim">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Penawaran Disetujui (Periode)</div>
+            <div class="stat-value good" id="kpi_pwDisetujui">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Win Rate</div>
+            <div class="stat-value" id="kpi_winRate">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Nilai Disetujui (Periode)</div>
+            <div class="stat-value good" id="kpi_nilaiDisetujui">Rp 0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Pipeline Aktif (saat ini)</div>
+            <div class="stat-value" id="kpi_pipelineAktif">Rp 0</div>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Funnel Klien (saat ini)</h3>
+          <div class="summary-rows" id="kpi_funnelRows"></div>
+        </div>
+        <div class="panel">
+          <h3>Tren Penawaran Disetujui (6 bulan terakhir)</h3>
+          <div id="kpi_trendPenjualan" class="bar-chart"></div>
+        </div>
+      </div>
+
+      <div class="subtab-panel" id="kpi_proyekPanel">
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-label">Total Proyek (saat ini)</div>
+            <div class="stat-value" id="kpi_totalProyek">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Proyek Baru (Periode)</div>
+            <div class="stat-value" id="kpi_proyekBaru">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Margin Rata-rata (saat ini)</div>
+            <div class="stat-value" id="kpi_marginRata">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Proyek Tepat Waktu (saat ini)</div>
+            <div class="stat-value" id="kpi_tepatWaktu">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Deviasi Anggaran (saat ini)</div>
+            <div class="stat-value" id="kpi_deviasiAnggaran">-</div>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Tren Margin Rata-rata per Bulan (6 bulan terakhir)</h3>
+          <div id="kpi_trendProyek" class="bar-chart"></div>
+        </div>
+      </div>
+
+      <div class="subtab-panel" id="kpi_keuanganPanel">
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-label">Pendapatan (Periode)</div>
+            <div class="stat-value good" id="kpi_pendapatan">Rp 0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Laba Bersih (Periode)</div>
+            <div class="stat-value" id="kpi_labaBersih">Rp 0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Rasio Piutang (Periode)</div>
+            <div class="stat-value" id="kpi_rasioPiutang">-</div>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Target vs Realisasi Bulan Ini</h3>
+          <div class="summary-rows">
+            <div class="summary-row"><span>Omzet Bulan Ini</span><strong id="kpi_omzetBulanIni">Rp 0</strong></div>
+            <div class="summary-row"><span>Target Omzet Bulanan</span><strong id="kpi_targetOmzet">Rp 0</strong></div>
+            <div class="summary-row"><span>Laba Bersih Bulan Ini</span><strong id="kpi_labaBulanIni">Rp 0</strong></div>
+            <div class="summary-row"><span>Target Laba Bersih Bulanan</span><strong id="kpi_targetLaba">Rp 0</strong></div>
+          </div>
+          <p class="muted" style="font-size:12px;">Atur target di halaman Pengaturan.</p>
+        </div>
+        <div class="panel">
+          <h3>Tren Cash Flow per Bulan (6 bulan terakhir)</h3>
+          <div id="kpi_trendKeuangan" class="bar-chart"></div>
+        </div>
+      </div>
+
+      <div class="subtab-panel" id="kpi_timPanel">
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-label">Karyawan Aktif</div>
+            <div class="stat-value" id="kpi_karyawanAktif">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Tingkat Kehadiran (Periode)</div>
+            <div class="stat-value" id="kpi_tingkatKehadiran">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Total Jam Lembur (Periode)</div>
+            <div class="stat-value" id="kpi_totalLembur">0 jam</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Rasio Biaya Tenaga Kerja (saat ini)</div>
+            <div class="stat-value" id="kpi_rasioTenagaKerja">-</div>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Tren Jam Lembur per Bulan (6 bulan terakhir)</h3>
+          <div id="kpi_trendTim" class="bar-chart"></div>
         </div>
       </div>
     </section>
@@ -1540,6 +1687,15 @@
         <p class="muted">Transaksi Keluar di Kas Perusahaan dengan jumlah di atas batas ini otomatis berstatus "Menunggu Persetujuan" dan tidak mengurangi saldo sampai disetujui. Isi 0 untuk mematikan fitur ini.</p>
         <label class="field-label">Batas Nominal Perlu Persetujuan (Rp)</label>
         <input type="text" inputmode="numeric" id="settingsApprovalThreshold" class="text-input" style="width:100%">
+      </div>
+
+      <div class="panel narrow" id="settingsKpiTargetPanel">
+        <h3>Target KPI Bulanan</h3>
+        <p class="muted">Dipakai di halaman KPI untuk membandingkan realisasi Omzet dan Laba Bersih bulan berjalan terhadap target. Isi 0 kalau belum mau pakai target.</p>
+        <label class="field-label">Target Omzet Bulanan (Rp)</label>
+        <input type="text" inputmode="numeric" id="settingsTargetOmzet" class="text-input" style="width:100%; margin-bottom:12px;">
+        <label class="field-label">Target Laba Bersih Bulanan (Rp)</label>
+        <input type="text" inputmode="numeric" id="settingsTargetLaba" class="text-input" style="width:100%">
       </div>
 
       <div class="panel narrow" id="settingsMataResolusiPanel">
