@@ -75,7 +75,7 @@ function penawaranTotals(pw) {
   const dpp = subtotal - diskonValue;
   const ppnValue = dpp * (pw.ppn || 0) / 100;
   const pphValue = dpp * (pw.pph || 0) / 100;
-  const total = dpp + ppnValue;
+  const total = dpp + ppnValue + (pw.biaya_lain || 0);
   return { subtotal, diskonValue, dpp, ppnValue, pphValue, total };
 }
 
@@ -176,6 +176,7 @@ function buildPenawaranPrintHtml(pw, profilMitra) {
         <tr><td>Subtotal</td><td class="r">${rupiah(subtotal)}</td></tr>
         ${pw.diskon ? `<tr><td>Diskon (${pw.diskon}%)</td><td class="r">- ${rupiah(diskonValue)}</td></tr>` : ""}
         ${pw.ppn ? `<tr><td>PPN (${pw.ppn}%)</td><td class="r">${rupiah(ppnValue)}</td></tr>` : ""}
+        ${pw.biaya_lain ? `<tr><td>Biaya Lain-lain</td><td class="r">${rupiah(pw.biaya_lain)}</td></tr>` : ""}
         <tr class="pwmc-total-row"><td>Total Penawaran</td><td class="r">${rupiah(total)}</td></tr>
       </table>
       ${pw.pph ? `<p class="pwmc-p" style="font-size:11px; color:#777;">*Sudah termasuk PPh Final (${pw.pph}%) sebesar ${rupiah(pphValue)} sesuai Syarat &amp; Ketentuan di bawah.</p>` : ""}
@@ -255,11 +256,12 @@ function buildMataResolusiPenawaranHtml(pw) {
       <table class="mr-summary">
         ${pw.diskon ? `<tr><td>Diskon (${pw.diskon}%)</td><td class="r">- ${rupiah(diskonValue)}</td></tr>` : ""}
         ${pw.ppn ? `<tr><td>PPN (${pw.ppn}%)</td><td class="r">${rupiah(ppnValue)}</td></tr>` : ""}
+        ${pw.biaya_lain ? `<tr><td>Biaya Lain-lain</td><td class="r">${rupiah(pw.biaya_lain)}</td></tr>` : ""}
         <tr class="mr-total-row"><td>TOTAL HARGA PEKERJAAN</td><td class="r">${rupiah(total)}</td></tr>
       </table>
 
       <div class="mr-catatan">
-        <strong>CATATAN:</strong> Harga di atas belum termasuk PPN dan PPh.
+        <strong>CATATAN:</strong> Harga di atas belum termasuk PPN${pw.pph ? "" : " dan PPh"}.
         ${pw.pph ? `<br>*Sudah termasuk PPh Final (${pw.pph}%) sebesar ${rupiah(pphValue)} sesuai Syarat &amp; Ketentuan di bawah.` : ""}
       </div>
 

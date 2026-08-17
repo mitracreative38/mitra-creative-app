@@ -1218,8 +1218,12 @@
             <h1>Edit RAB</h1>
             <p class="page-sub">Isi data proyek dan item pekerjaan. Total dihitung otomatis dari volume × harga satuan.</p>
           </div>
-          <button class="btn-ghost" id="rab_backBtn">← Kembali ke Daftar</button>
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button class="btn-ghost" id="rab_backBtn">← Kembali ke Daftar</button>
+            <button class="btn-ghost" id="rab_duplicateBtn">🔁 Duplikat sebagai Revisi</button>
+          </div>
         </header>
+        <p class="muted" id="rab_revisiNote" style="display:none; font-size:12px; margin:-8px 0 12px;"></p>
 
         <div class="panel">
           <div class="form-grid">
@@ -1473,6 +1477,10 @@
               <input type="number" id="pw_pph" min="0" max="100" step="0.1" style="width:80px">
             </div>
             <div class="summary-row"><span>Nilai PPh (sudah termasuk di atas)</span><strong id="pw_pphValue">Rp 0</strong></div>
+            <div class="summary-row">
+              <span>Biaya Lain-lain (Rp)</span>
+              <input type="text" inputmode="numeric" id="pw_biayaLain" style="width:140px" placeholder="0">
+            </div>
             <div class="summary-row total"><span>Total Penawaran</span><strong id="pw_total">Rp 0</strong></div>
           </div>
           <p class="muted" style="font-size:11px; margin-top:8px;">PPN ditambahkan ke Total. PPh Final <strong>tidak</strong> ditambahkan lagi ke Total karena sudah termasuk dalam harga satuan (sesuai Syarat &amp; Ketentuan) — nilainya hanya informasi untuk perhitungan setoran pajak Anda.</p>
