@@ -1726,10 +1726,14 @@ function renderDashboard() {
     { label: "Pribadi - Keluar", value: kp.keluarLunas, color: "var(--series-2)", formattedValue: rupiah(kp.keluarLunas) }
   ]);
 
+  // value TIDAK di-clamp ke 0 -- renderBarChart() sudah menangani nilai
+  // negatif dengan benar lewat Math.abs() saat menghitung lebar batang,
+  // supaya proyek rugi parah (mis. -60%) tetap kelihatan beda dari yang
+  // nyaris impas (-2%), bukan sama-sama jadi batang minimum.
   const marginRows = projects
     .slice().sort((a, b) => b.marginPct - a.marginPct)
     .map(p => ({
-      label: p.nama, value: Math.max(0, p.marginPct * 100),
+      label: p.nama, value: p.marginPct * 100,
       color: p.marginStatus === "good" ? "var(--good)" : p.marginStatus === "warning" ? "var(--warning)" : "var(--critical)",
       formattedValue: (p.marginPct * 100).toFixed(1) + "%"
     }));
@@ -2384,7 +2388,7 @@ document.getElementById("pic_addBtn").addEventListener("click", () => {
 document.getElementById("kld_picTable").addEventListener("click", e => {
   const delBtn = e.target.closest("[data-delete-pic]");
   const k = state.klien.find(x => x.id === currentKlienId);
-  if (delBtn && k) {
+  if (delBtn && k && confirm("Hapus kontak PIC ini?")) {
     k.kontakList = (k.kontakList || []).filter(p => p.id !== delBtn.dataset.deletePic);
     saveState();
     mirrorKlienUpsert(k);
@@ -2408,7 +2412,7 @@ document.getElementById("rk_addBtn").addEventListener("click", () => {
 document.getElementById("kld_kontakTable").addEventListener("click", e => {
   const delBtn = e.target.closest("[data-delete-kontak]");
   const k = state.klien.find(x => x.id === currentKlienId);
-  if (delBtn && k) {
+  if (delBtn && k && confirm("Hapus riwayat kontak ini?")) {
     k.riwayatKontak = (k.riwayatKontak || []).filter(r => r.id !== delBtn.dataset.deleteKontak);
     saveState();
     mirrorKlienUpsert(k);
@@ -2457,7 +2461,13 @@ function computeLabaRugi(mulai, selesai) {
   txns.forEach(t => {
     const key = t.kategori || "(Tanpa Kategori)";
     if (!byKategori[key]) byKategori[key] = { tipe: t.tipe, jumlah: 0 };
-    byKategori[key].jumlah += t.jumlah || 0;
+    // Sama seperti kasSummary(): transaksi Keluar otomatis dari slip gaji bisa
+    // bernilai negatif kalau potongan karyawan melebihi upah kotornya di
+    // periode itu (keputusan bisnis yang sah, lihat www/app.js sekitar
+    // syncSlipGajiKasTxn). Diabaikan (dianggap 0) di sini, bukan dikurangi
+    // jadi negatif -- kalau tidak, beban kategori itu malah berkurang dan
+    // labaBersih jadi lebih besar dari yang seharusnya.
+    byKategori[key].jumlah += t.tipe === "Keluar" ? Math.max(0, t.jumlah || 0) : (t.jumlah || 0);
   });
   const rows = Object.entries(byKategori)
     .map(([kategori, v]) => ({ kategori, kelompok: v.tipe === "Masuk" ? "Pendapatan" : "Beban", jumlah: v.jumlah }))
@@ -2469,7 +2479,10 @@ function computeLabaRugi(mulai, selesai) {
 function computeNeraca(tanggal) {
   const txnsUpTo = state.kasUsaha.transactions.filter(t => t.tanggal <= tanggal);
   const masukLunas = txnsUpTo.filter(t => t.tipe === "Masuk" && (t.status || "lunas") === "lunas").reduce((s, t) => s + (t.jumlah || 0), 0);
-  const keluar = txnsUpTo.filter(t => t.tipe === "Keluar" && (t.status || "lunas") !== "menunggu_persetujuan").reduce((s, t) => s + (t.jumlah || 0), 0);
+  // Math.max(0, ...): sama seperti kasSummary(), transaksi Keluar otomatis
+  // dari slip gaji bisa bernilai negatif -- diabaikan di sini supaya tidak
+  // salah tafsir jadi PENAMBAH saldoKas.
+  const keluar = txnsUpTo.filter(t => t.tipe === "Keluar" && (t.status || "lunas") !== "menunggu_persetujuan").reduce((s, t) => s + Math.max(0, t.jumlah || 0), 0);
   const saldoKas = (state.kasUsaha.saldoAwal || 0) + masukLunas - keluar;
   const piutangUsaha = txnsUpTo.filter(t => t.tipe === "Masuk" && (t.status || "lunas") === "pending").reduce((s, t) => s + (t.jumlah || 0), 0);
   const nilaiStok = state.stok.reduce((s, item) => s + stokValue(item), 0);
@@ -2665,8 +2678,10 @@ document.getElementById("stok_pendingTable").addEventListener("click", e => {
   } else if (approveBtn) {
     const t = state.kasUsaha.transactions.find(x => x.id === approveBtn.dataset.approvePending);
     if (t && confirm(`Setujui pengeluaran ${rupiah(t.jumlah)} ini? Saldo Kas Perusahaan akan langsung berkurang.`)) {
+      const sebelum = { ...t };
       t.status = "lunas";
       saveState();
+      mirrorKasTxnUpsert("kasUsaha", t, sebelum);
       renderAll();
     }
   }
@@ -3218,7 +3233,7 @@ document.getElementById("ab_saveBtn").addEventListener("click", () => {
     const k = state.karyawan.find(x => x.id === kId);
     if (!k) return;
     const hadir = tr.querySelector(".ab-hadir").checked;
-    const jamLembur = parseFloat((tr.querySelector(".ab-lembur").value || "").replace(",", ".")) || 0;
+    const jamLembur = Math.max(0, parseFloat((tr.querySelector(".ab-lembur").value || "").replace(",", ".")) || 0);
     if (!k.absensi) k.absensi = [];
     const idx = k.absensi.findIndex(a => a.tanggal === tanggal);
     const rec = { ...(idx >= 0 ? k.absensi[idx] : {}), id: idx >= 0 ? k.absensi[idx].id : uid(), tanggal, hadir, jamLembur };
@@ -4072,6 +4087,7 @@ function syncAllUpahHarga() {
   let komponenBerubah = 0;
   state.ahsp.forEach(a => {
     if (a.mode !== "detail" || !Array.isArray(a.komponen)) return;
+    const hargaLama = ahspHarga(a);
     let changed = false;
     a.komponen.forEach(k => {
       if (k.jenis !== "Upah") return;
@@ -4093,6 +4109,14 @@ function syncAllUpahHarga() {
     });
     if (changed) {
       itemBerubah++;
+      // Sama seperti simpan manual lewat modal edit AHSP -- catat ke
+      // Riwayat Harga supaya audit trail tetap lengkap walau harga diubah
+      // lewat sinkronisasi massal, bukan cuma edit satu-satu.
+      const hargaBaruTotal = ahspHarga(a);
+      if (hargaBaruTotal !== hargaLama) {
+        if (!a.riwayatHarga) a.riwayatHarga = [];
+        a.riwayatHarga.push({ id: uid(), tanggal: new Date().toISOString().slice(0, 10), hargaLama, hargaBaru: hargaBaruTotal });
+      }
       mirrorAhspUpsert(a);
     }
   });
@@ -4192,7 +4216,7 @@ document.querySelector("#ah_komponenTable tbody").addEventListener("input", e =>
   row.jenis = tr.querySelector(".komp-jenis").value;
   row.uraian = tr.querySelector(".komp-uraian").value;
   row.satuan = tr.querySelector(".komp-satuan").value;
-  row.koefisien = parseFloat(tr.querySelector(".komp-koef").value.replace(",", ".")) || 0;
+  row.koefisien = Math.max(0, parseFloat(tr.querySelector(".komp-koef").value.replace(",", ".")) || 0);
   row.harga = parseNumberInput(tr.querySelector(".komp-harga").value);
   tr.querySelector(".komp-jumlah").textContent = rupiah(row.koefisien * row.harga);
   recalcAhspTotals();
@@ -4485,7 +4509,19 @@ document.getElementById("ah_importInput").addEventListener("change", async e => 
 document.getElementById("ahi_confirmBtn").addEventListener("click", () => {
   const toImport = ahImportRows.filter(r => r.checked && (r.uraian || "").trim());
   if (!toImport.length) { alert("Tidak ada baris yang dicentang untuk diimpor."); return; }
+  const negatifCount = toImport.filter(r => (r.harga || 0) < 0).length;
+  if (negatifCount) {
+    alert(`${negatifCount} baris punya Harga negatif -- perbaiki dulu (kemungkinan kolom di file Excel tergeser/salah baca) sebelum impor.`);
+    return;
+  }
+  // Kode yang sama dengan item AHSP yang sudah ada dilewati (bukan
+  // diimpor sebagai item baru/duplikat) -- kalau memang mau memperbarui
+  // harga item lama, edit langsung item itu, bukan lewat impor massal.
+  const existingKode = new Set(state.ahsp.map(a => a.kode).filter(Boolean));
+  const dupKode = [];
+  let imported = 0;
   toImport.forEach(r => {
+    if (r.kode && existingKode.has(r.kode)) { dupKode.push(r.kode); return; }
     const item = {
       id: uid(),
       kategori: r.kategori || KATEGORI_PEKERJAAN[0],
@@ -4501,11 +4537,13 @@ document.getElementById("ahi_confirmBtn").addEventListener("click", () => {
     };
     state.ahsp.push(item);
     mirrorAhspUpsert(item, null);
+    if (r.kode) existingKode.add(r.kode);
+    imported++;
   });
   saveState();
   renderAll();
   closeModals();
-  alert(`${toImport.length} item AHSP berhasil diimpor.`);
+  alert(`${imported} item AHSP berhasil diimpor.` + (dupKode.length ? `\n${dupKode.length} baris dilewati karena kode sudah dipakai item AHSP lain: ${dupKode.join(", ")}.` : ""));
 });
 
 // ===== Template AHSP standar (per kategori: advertising, konstruksi, sipil, interior, eksterior, CCTV, AC, dst) =====
@@ -6421,7 +6459,7 @@ function renderAll() {
 // hanya halaman yang terdaftar di sini yang boleh diakses.
 const ROLE_PAGE_ACCESS = {
   owner: null,
-  admin: ["klien", "kasUsaha", "proyek", "karyawan", "stok", "pemasok", "ahsp", "rab", "penawaran", "pengaturan"],
+  admin: ["dashboard", "klien", "kasUsaha", "laporan", "proyek", "karyawan", "stok", "pemasok", "ahsp", "rab", "penawaran", "pengaturan"],
   marketing: ["klien", "ahsp", "rab", "penawaran", "pengaturan"]
 };
 function canAccessPage(name) {
@@ -6433,7 +6471,7 @@ function applyRoleAccess() {
     btn.style.display = canAccessPage(btn.dataset.page) ? "" : "none";
   });
   const hideAngkaSensitif = currentTeamRole !== "owner";
-  document.querySelectorAll("#ku_saldoAwal, #ku_saldoAkhir").forEach(el => {
+  document.querySelectorAll("#ku_saldoAwal, #ku_saldoAkhir, #dashSaldoPribadi").forEach(el => {
     const card = el.closest(".stat-card");
     if (card) card.style.display = hideAngkaSensitif ? "none" : "";
   });
@@ -6821,11 +6859,13 @@ document.getElementById("belanjaForm").addEventListener("submit", e => {
   const p = state.proyek.find(x => x.id === currentProyekId);
   if (!p) { closeModals(); return; }
   if (!p.belanjaMaterial) p.belanjaMaterial = [];
+  const bmQty = parseFloat((document.getElementById("bm_qty").value || "").replace(",", ".")) || 0;
+  if (bmQty < 0) { alert("Qty tidak boleh negatif."); return; }
   const id = document.getElementById("bm_id").value;
   const item = {
     id: id || uid(),
     nama: document.getElementById("bm_nama").value.trim(),
-    qty: parseFloat((document.getElementById("bm_qty").value || "").replace(",", ".")) || 0,
+    qty: bmQty,
     satuan: document.getElementById("bm_satuan").value.trim(),
     hargaSatuan: parseNumberInput(document.getElementById("bm_harga").value),
     tanggal: document.getElementById("bm_tanggal").value,
@@ -6973,7 +7013,7 @@ document.getElementById("pfr_addBtn").addEventListener("click", () => {
 document.getElementById("pf_rencanaTable").addEventListener("click", e => {
   const delBtn = e.target.closest("[data-delete-rencana]");
   const p = state.proyek.find(x => x.id === currentProyekId);
-  if (delBtn && p) {
+  if (delBtn && p && confirm("Hapus target progress ini?")) {
     p.progressRencana = (p.progressRencana || []).filter(r => r.id !== delBtn.dataset.deleteRencana);
     saveState();
     mirrorProyekUpsert(p);
@@ -6998,7 +7038,7 @@ document.getElementById("pfa_addBtn").addEventListener("click", () => {
 document.getElementById("pf_realisasiTable").addEventListener("click", e => {
   const delBtn = e.target.closest("[data-delete-realisasi]");
   const p = state.proyek.find(x => x.id === currentProyekId);
-  if (delBtn && p) {
+  if (delBtn && p && confirm("Hapus laporan realisasi progress ini?")) {
     p.progressRealisasi = (p.progressRealisasi || []).filter(r => r.id !== delBtn.dataset.deleteRealisasi);
     saveState();
     mirrorProyekUpsert(p);
