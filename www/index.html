@@ -371,6 +371,7 @@
       <div class="subtabs">
         <button class="subtab-item active" data-subtab="labarugi" data-subtab-page="lk">Laba Rugi</button>
         <button class="subtab-item" data-subtab="neraca" data-subtab-page="lk">Neraca (Ringkasan)</button>
+        <button class="subtab-item" data-subtab="proyeksi" data-subtab-page="lk">Proyeksi Arus Kas</button>
       </div>
 
       <div class="subtab-panel active" id="lk_labarugiPanel">
@@ -420,6 +421,34 @@
           <h3>Modal / Ekuitas Pemilik</h3>
           <div class="summary-rows">
             <div class="summary-row total"><span>Total Modal (= Total Aset)</span><strong id="nr_modal">Rp 0</strong></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="subtab-panel" id="lk_proyeksiPanel">
+        <div class="panel">
+          <div class="form-grid">
+            <div class="field">
+              <label>Jendela Proyeksi</label>
+              <select id="paK_periode">
+                <option value="4">4 Minggu</option>
+                <option value="8" selected>8 Minggu</option>
+                <option value="12">12 Minggu</option>
+              </select>
+            </div>
+          </div>
+          <p class="muted" style="font-size:12px;">Proyeksi dihitung dari saldo kas saat ini, ditambah piutang termin yang belum cair, dikurangi transaksi Kas Keluar yang masih menunggu persetujuan dan sisa kontrak subkontraktor pada proyek yang masih berjalan (diperkirakan cair mendekati tanggal selesai proyek). Ini gambaran risiko berdasarkan data yang sudah tercatat, bukan prediksi pasti.</p>
+          <p class="muted" id="paK_warning" style="display:none; font-weight:600;"></p>
+          <div class="summary-rows">
+            <div class="summary-row"><span>Saldo Kas Saat Ini</span><strong id="paK_saldoAwal">Rp 0</strong></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="table-wrap">
+            <table class="tbl" id="paK_table">
+              <thead><tr><th>Periode</th><th class="num">Perkiraan Masuk</th><th class="num">Perkiraan Keluar</th><th class="num">Perkiraan Saldo Akhir</th></tr></thead>
+              <tbody></tbody>
+            </table>
           </div>
         </div>
       </div>

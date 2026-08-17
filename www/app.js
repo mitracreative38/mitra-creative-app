@@ -2784,6 +2784,90 @@ function renderNeraca() {
   `;
   document.getElementById("nr_modal").textContent = rupiah(n.totalAset);
 }
+
+// ===== Proyeksi Arus Kas =====
+// Bukan prediksi statistik -- murni menjumlahkan 3 sumber yang SUDAH
+// tercatat di data (tidak menambah field tanggal baru yang belum ada):
+// (1) piutang termin (Kas Masuk berstatus pending, dibucket ke tanggal
+// transaksinya), (2) Kas Keluar yang masih menunggu persetujuan
+// (Pattern 2 approval bertingkat, dibucket ke tanggalnya), (3) sisa
+// kontrak subkontraktor pada proyek yang masih "berjalan" (diperkirakan
+// cair mendekati tanggalSelesai proyek, karena memang tidak ada tanggal
+// jatuh tempo per-item untuk kewajiban subkontraktor). Item yang
+// tanggalnya sudah lewat hari ini dianggap "segera" dan masuk minggu
+// pertama; item di luar jendela proyeksi diabaikan (bukan ditumpuk di
+// minggu terakhir, supaya minggu terakhir tidak menyesatkan).
+function computeCashFlowForecast(weeks) {
+  const today = new Date().toISOString().slice(0, 10);
+  const saldoAwal = computeNeraca(today).saldoKas;
+  const buckets = [];
+  for (let i = 0; i < weeks; i++) {
+    buckets.push({
+      label: `Minggu ${i + 1}`,
+      mulai: addDaysIso(today, i * 7),
+      selesai: addDaysIso(today, i * 7 + 6),
+      masuk: 0,
+      keluar: 0
+    });
+  }
+  const horizonEnd = addDaysIso(today, weeks * 7 - 1);
+  function bucketFor(tanggal) {
+    if (!tanggal) return null;
+    if (tanggal < today) return buckets[0];
+    if (tanggal > horizonEnd) return null;
+    const idx = Math.min(weeks - 1, Math.floor(daysBetweenIso(today, tanggal) / 7));
+    return buckets[idx];
+  }
+
+  state.kasUsaha.transactions.filter(t => t.tipe === "Masuk" && (t.status || "lunas") === "pending").forEach(t => {
+    const b = bucketFor(t.tanggal);
+    if (b) b.masuk += (t.jumlah || 0);
+  });
+  state.kasUsaha.transactions.filter(t => t.tipe === "Keluar" && t.status === "menunggu_persetujuan").forEach(t => {
+    const b = bucketFor(t.tanggal);
+    if (b) b.keluar += Math.max(0, t.jumlah || 0);
+  });
+  state.proyek.filter(p => p.status === "berjalan").forEach(p => {
+    (p.subkontraktor || []).forEach(sk => {
+      const sisa = (sk.nilaiKontrak || 0) - subkonDibayar(p, sk.id);
+      if (sisa > 0) {
+        const b = bucketFor(p.tanggalSelesai);
+        if (b) b.keluar += sisa;
+      }
+    });
+  });
+
+  let running = saldoAwal;
+  buckets.forEach(b => {
+    b.saldoAwal = running;
+    running += b.masuk - b.keluar;
+    b.saldoAkhir = running;
+  });
+  const berpotensiMinus = buckets.some(b => b.saldoAkhir < 0);
+  return { saldoAwal, buckets, berpotensiMinus };
+}
+function renderProyeksiArusKas() {
+  const weeks = parseInt(document.getElementById("paK_periode").value, 10) || 8;
+  const f = computeCashFlowForecast(weeks);
+  document.getElementById("paK_saldoAwal").textContent = rupiah(f.saldoAwal);
+  const warnEl = document.getElementById("paK_warning");
+  if (f.berpotensiMinus) {
+    warnEl.style.display = "block";
+    warnEl.className = "muted bad";
+    warnEl.textContent = "⚠️ Berdasarkan piutang termin, Kas Keluar menunggu persetujuan, dan sisa kontrak subkontraktor yang tercatat, saldo kas berpotensi MINUS dalam periode ini.";
+  } else {
+    warnEl.style.display = "none";
+  }
+  document.querySelector("#paK_table tbody").innerHTML = f.buckets.map(b => `
+    <tr>
+      <td>${b.label} (${formatTanggal(b.mulai)} - ${formatTanggal(b.selesai)})</td>
+      <td class="num">${rupiah(b.masuk)}</td>
+      <td class="num">${rupiah(b.keluar)}</td>
+      <td class="num ${b.saldoAkhir < 0 ? "bad" : ""}">${rupiah(b.saldoAkhir)}</td>
+    </tr>
+  `).join("");
+}
+document.getElementById("paK_periode").addEventListener("change", renderProyeksiArusKas);
 document.getElementById("lr_mulai").addEventListener("change", renderLabaRugi);
 document.getElementById("lr_selesai").addEventListener("change", renderLabaRugi);
 document.getElementById("nr_tanggal").addEventListener("change", renderNeraca);
@@ -2864,6 +2948,10 @@ document.getElementById("lk_exportExcelBtn").addEventListener("click", () => {
     { Pos: "Total Aset", Jumlah: neraca.totalAset },
     { Pos: "Total Modal (= Total Aset)", Jumlah: neraca.totalAset }
   ]), "Neraca");
+  const forecast = computeCashFlowForecast(8);
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
+    forecast.buckets.map(b => ({ Periode: `${b.label} (${b.mulai} - ${b.selesai})`, "Perkiraan Masuk": b.masuk, "Perkiraan Keluar": b.keluar, "Perkiraan Saldo Akhir": b.saldoAkhir }))
+  ), "Proyeksi Arus Kas");
   XLSX.writeFile(wb, `laporan-keuangan-${mulai}_${selesai}.xlsx`);
 });
 
@@ -3554,6 +3642,7 @@ function showSubtab(pagePrefix, name) {
   if (pagePrefix === "lk") {
     if (name === "labarugi") renderLabaRugi();
     if (name === "neraca") renderNeraca();
+    if (name === "proyeksi") renderProyeksiArusKas();
   }
   if (pagePrefix === "kpi") renderKpiActiveSubtab();
 }
@@ -6951,7 +7040,10 @@ function renderAll() {
     if (activeSubtab && activeSubtab.dataset.subtab === "absensi") renderAbsensiPanel();
     if (activeSubtab && activeSubtab.dataset.subtab === "penggajian") renderPenggajianPanel(); }
   { const activeLkSubtab = document.querySelector('.subtab-item[data-subtab-page="lk"].active');
-    if (!activeLkSubtab || activeLkSubtab.dataset.subtab === "labarugi") renderLabaRugi(); else renderNeraca(); }
+    const lkName = activeLkSubtab ? activeLkSubtab.dataset.subtab : "labarugi";
+    if (lkName === "neraca") renderNeraca();
+    else if (lkName === "proyeksi") renderProyeksiArusKas();
+    else renderLabaRugi(); }
   renderKpiActiveSubtab();
   document.getElementById("stok_listView").style.display = currentStokId ? "none" : "block";
   document.getElementById("stok_riwayatView").style.display = currentStokId ? "block" : "none";
