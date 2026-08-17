@@ -189,31 +189,6 @@ async function pushStateToCloud() {
     setSyncStatus("Gagal sinkron ke cloud: " + err.message);
   }
 }
-// Migrasi satu-kali: pindahkan saldoAwal Kas Perusahaan/Kas Pribadi yang
-// lama tersimpan di blob ke tabel kas_saldo_awal (Owner-only), SEBELUM
-// hydrateSensitiveFields() pertama kali membaca tabel itu -- supaya
-// saldoAwal Owner yang sudah ada tidak sempat "hilang" (kebaca 0) di
-// login pertama setelah pembaruan ini. Owner-only karena tabelnya memang
-// Owner-only, dan supaya tidak salah tandai kalau kebetulan Admin yang
-// login duluan.
-async function migrateSaldoAwalIfNeeded(rawBlobData) {
-  if (!sb || !targetCompanyId) return;
-  if (!currentSyncUser || currentSyncUser.id !== targetCompanyId) return;
-  try {
-    const { data, error } = await sb.from("kas_saldo_awal").select("buku").eq("company_id", targetCompanyId).limit(1);
-    if (error) throw error;
-    if ((data || []).length > 0) return;
-    const kuSaldo = (rawBlobData && rawBlobData.kasUsaha && rawBlobData.kasUsaha.saldoAwal) || 0;
-    const kpSaldo = (rawBlobData && rawBlobData.kasPribadi && rawBlobData.kasPribadi.saldoAwal) || 0;
-    const { error: insertErr } = await sb.from("kas_saldo_awal").insert([
-      { company_id: targetCompanyId, buku: "kasUsaha", nilai: kuSaldo },
-      { company_id: targetCompanyId, buku: "kasPribadi", nilai: kpSaldo }
-    ]);
-    if (insertErr) throw insertErr;
-  } catch (err) {
-    setSyncStatus("Gagal migrasi data saldo awal ke tabel relasional: " + err.message);
-  }
-}
 async function mirrorSaldoAwalUpsert(book, nilai) {
   if (!sb || !targetCompanyId) return;
   try {
@@ -1220,8 +1195,10 @@ function mirrorKasTxnDelete(book, id, deletedRecord) {
 // proyek/karyawan/stok/gudang/pemasok) benar-benar ditegakkan di jalur
 // baca, bukan cuma disembunyikan di UI. Setiap rowToX() adalah kebalikan
 // persis dari XToRow() yang sudah ada di atas. Jalur TULIS (mirrorXUpsert,
-// pushStateToCloud ke blob) sama sekali tidak berubah -- blob tetap
-// tertulis sebagai cadangan bayangan / jalan mundur.
+// pushStateToCloud ke blob) sama sekali tidak berubah. Sejak Fase 0.4
+// Tahap 2, blob app_state TIDAK PERNAH lagi dibaca aplikasi ini (lihat
+// handlePostLoginSync) -- penulisannya tetap dipertahankan murni untuk
+// memberi makan Backup Otomatis di server (server/lib/backup.js).
 function rowToKlien(r) {
   return {
     id: r.id, nama: r.nama || "", kontakNama: r.kontak_nama || "", telepon: r.telepon || "",
@@ -1395,29 +1372,48 @@ async function handlePostLoginSync(user) {
   applyRoleAccess();
   subscribeRealtime(targetCompanyId);
   try {
-    const { data, error } = await sb.from("app_state").select("data, updated_at").eq("user_id", targetCompanyId).maybeSingle();
-    if (error) throw error;
-    if (!data) {
+    // Fase 0.4 Tahap 2: "data cloud" dibangun LANGSUNG dari tabel
+    // relasional, tidak lagi lewat blob app_state sama sekali -- selain
+    // menutup 1 titik baca terakhir yang masih bisa berbeda dari sumber
+    // kebenaran, ini juga memperbaiki celah untuk Admin/Marketing: RLS
+    // app_state sudah Owner-only sejak Fase D, jadi query blob mereka
+    // sebelumnya selalu kosong (bukan error, RLS diam-diam menolak) dan
+    // login mereka diam-diam TIDAK pernah benar dapat "data cloud" lewat
+    // jalur ini -- mereka cuma tertolong Realtime yang belakangan
+    // reload data. buildStateFromRelational() sudah menegakkan RLS
+    // per-peran yang benar untuk SEMUA peran, jadi jalur ini sekarang
+    // konsisten untuk Owner maupun Admin/Marketing.
+    // (Blob app_state TETAP ditulis di latar belakang oleh
+    // pushStateToCloud/scheduleCloudPush -- itu sengaja dibiarkan, murni
+    // untuk memberi makan Backup Otomatis di server, bukan lagi dibaca
+    // aplikasi ini sama sekali.)
+    const cloudState = await buildStateFromRelational(targetCompanyId);
+    // "ahsp" sengaja TIDAK dicek di sini -- withDefaults() (dipanggil di
+    // dalam buildStateFromRelational sebelum return) selalu membackfill
+    // SEED_AHSP kalau array-nya kosong, jadi cloudState.ahsp tidak pernah
+    // benar-benar 0 walau tabel relasionalnya memang kosong total untuk
+    // perusahaan baru -- modul lain di bawah ini tidak punya seed data
+    // seperti itu, jadi tetap indikator yang benar.
+    const cloudKosong = !cloudState.klien.length && !cloudState.proyekRab.length &&
+      !cloudState.penawaran.length && !cloudState.proyek.length && !cloudState.karyawan.length &&
+      !cloudState.stok.length && !cloudState.gudang.length && !cloudState.pemasok.length;
+    if (cloudKosong) {
       state = await hydrateSensitiveFields(state);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      await mirrorAllToRelational();
+      // pushStateToCloud() dipanggil eksplisit juga di sini (bukan cuma
+      // lewat scheduleCloudPush() yang dipicu saveState() nanti) supaya
+      // blob app_state langsung terisi saat itu juga untuk Backup
+      // Otomatis, bukan menunggu edit berikutnya.
       await pushStateToCloud();
       setSyncStatus("Data awal berhasil diunggah ke cloud.");
       return;
     }
-    // Migrasi saldoAwal HARUS jalan sebelum hydrateSensitiveFields() di
-    // bawah membaca kas_saldo_awal -- kalau belum ada isinya (login
-    // pertama Owner setelah pembaruan Fase D), pindahkan dulu dari nilai
-    // lama yang masih ada di blob, supaya tidak sempat kebaca 0.
-    await migrateSaldoAwalIfNeeded(data.data);
-    const cloudTanggal = data.updated_at ? `${formatTanggal(data.updated_at.slice(0, 10))} ${new Date(data.updated_at).toLocaleTimeString("id-ID")}` : "-";
-    const pakaiCloud = confirm(`Ditemukan data yang sudah tersinkron di cloud (terakhir disimpan: ${cloudTanggal}).\n\nKlik OK untuk memakai data dari CLOUD (data di perangkat ini akan diganti dengan data cloud).\nKlik Batal untuk tetap memakai data di PERANGKAT INI (data di cloud akan ditimpa dengan data perangkat ini).`);
+    const pakaiCloud = confirm(`Ditemukan data yang sudah tersinkron di cloud.\n\nKlik OK untuk memakai data dari CLOUD (data di perangkat ini akan diganti dengan data cloud).\nKlik Batal untuk tetap memakai data di PERANGKAT INI (data perangkat ini akan digabungkan ke cloud).`);
     if (pakaiCloud) {
-      // Fase 0.4: "data cloud" sekarang dibangun dari tabel relasional
-      // (yang RLS-nya sudah benar per peran), bukan dari blob app_state
-      // lagi -- buildStateFromRelational() sudah termasuk memanggil
-      // hydrateSensitiveFields() di dalamnya, jadi tidak perlu dipanggil
-      // ulang di bawah untuk jalur ini.
-      state = await buildStateFromRelational(targetCompanyId);
+      // buildStateFromRelational() sudah termasuk memanggil
+      // hydrateSensitiveFields() di dalamnya.
+      state = cloudState;
     } else {
       // Fase D: state lokal yang sudah tersimpan di perangkat (misalnya
       // dari sesi Owner sebelumnya di perangkat yang sama) tidak boleh
@@ -1431,8 +1427,9 @@ async function handlePostLoginSync(user) {
     if (pakaiCloud) {
       setSyncStatus("Data dari cloud berhasil dimuat ke perangkat ini.");
     } else {
+      await mirrorAllToRelational();
       await pushStateToCloud();
-      setSyncStatus("Data perangkat ini berhasil disimpan ke cloud.");
+      setSyncStatus("Data perangkat ini berhasil digabungkan ke cloud.");
     }
   } catch (err) {
     setSyncStatus("Gagal memeriksa data cloud: " + err.message);
