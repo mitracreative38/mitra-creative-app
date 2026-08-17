@@ -62,12 +62,18 @@ function supabaseAsCaller(accessToken) {
 // Profil perusahaan (nama, alamat, dst.) masih di blob app_state, RLS
 // tabel itu sudah mengizinkan anggota tim aktif membacanya (Fase D cuma
 // mengosongkan field Kas/gaji dari blob, bukan field ini).
+// Dulu baca dari app_state (blob JSON, RLS Owner-only) -- sejak Fase D
+// mempersempit RLS app_state, Admin/Marketing yang minta unduh PDF selalu
+// mendapat baris kosong dari situ (RLS menolak sesi mereka membaca baris
+// milik Owner), jadi kop surat PDF-nya tampil kosong sama sekali. Dipindah
+// ke tabel company_profile (Fase 0.4) yang RLS-nya memang didesain supaya
+// Admin & Marketing bisa BACA (lihat supabase_relational_schema_fix12.sql).
 async function getProfil(sbUser, companyId) {
-  const { data: stateRow } = await sbUser.from("app_state").select("data").eq("user_id", companyId).maybeSingle();
-  const blob = (stateRow && stateRow.data) || {};
+  const { data: row } = await sbUser.from("company_profile").select("*").eq("company_id", companyId).maybeSingle();
+  const r = row || {};
   return {
-    company: blob.company, alamat: blob.alamat, telepon: blob.telepon,
-    ownerNama: blob.ownerNama, ownerJabatan: blob.ownerJabatan
+    company: r.company, alamat: r.alamat, telepon: r.telepon,
+    ownerNama: r.owner_nama, ownerJabatan: r.owner_jabatan
   };
 }
 

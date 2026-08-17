@@ -40,7 +40,7 @@ function withDefaults(s) {
   }
   if (!s.proyekRab) s.proyekRab = [];
   if (!s.penawaran) s.penawaran = [];
-  s.penawaran.forEach(p => { if (!p.brand) p.brand = "mitra"; });
+  s.penawaran.forEach(p => { if (!p.brand) p.brand = "mitra"; if (typeof p.biayaLain !== "number") p.biayaLain = 0; });
   if (typeof s.penawaranCounter !== "number") s.penawaranCounter = 0;
   if (typeof s.rabCounter !== "number") s.rabCounter = 0;
   if (typeof s.mataResolusiMarkupPercent !== "number") s.mataResolusiMarkupPercent = 5;
@@ -591,6 +591,8 @@ function rabToRow(r) {
     pph: r.pph || 0,
     biaya_lain: r.biayaLain || 0,
     proyek_id: r.proyekId || null,
+    revisi_dari_id: r.revisiDariId || null,
+    revisi_ke: r.revisiKe || 0,
     items: r.items || [],
     total: rabTotals(r).total,
     updated_at: new Date().toISOString()
@@ -655,6 +657,7 @@ function penawaranToRow(p) {
     diskon: p.diskon || 0,
     ppn: p.ppn || 0,
     pph: p.pph || 0,
+    biaya_lain: p.biayaLain || 0,
     syarat: p.syarat || "",
     penutup: p.penutup || "",
     ttd_nama: p.ttdNama || "",
@@ -1236,7 +1239,8 @@ function rowToRab(r) {
     id: r.id, nomor: r.nomor || "", klienId: r.klien_id || "", klien: r.klien || "",
     nama: r.nama_proyek || "", lokasi: r.lokasi || "", kategori: r.kategori || "",
     tanggal: r.tanggal || "", ppn: r.ppn || 0, pph: r.pph || 0, biayaLain: r.biaya_lain || 0,
-    proyekId: r.proyek_id || "", items: r.items || []
+    proyekId: r.proyek_id || "", revisiDariId: r.revisi_dari_id || "", revisiKe: r.revisi_ke || 0,
+    items: r.items || []
   };
 }
 function rowToPenawaran(r) {
@@ -1244,7 +1248,7 @@ function rowToPenawaran(r) {
     id: r.id, nomor: r.nomor || "", klienId: r.klien_id || "", kepada: r.kepada || "",
     alamatKlien: r.alamat_klien || "", perihal: r.perihal || "", kategori: r.kategori || "",
     status: r.status || "", tanggal: r.tanggal || "", diskon: r.diskon || 0, ppn: r.ppn || 0,
-    pph: r.pph || 0, syarat: r.syarat || "", penutup: r.penutup || "", ttdNama: r.ttd_nama || "",
+    pph: r.pph || 0, biayaLain: r.biaya_lain || 0, syarat: r.syarat || "", penutup: r.penutup || "", ttdNama: r.ttd_nama || "",
     ttdJabatan: r.ttd_jabatan || "", proyekId: r.proyek_id || "", revisiDariId: r.revisi_dari_id || "",
     revisiKe: r.revisi_ke || 0, brand: r.brand || "mitra", markupPercent: r.markup_percent ?? null,
     sourcePenawaranId: r.source_penawaran_id || "", items: r.items || []
@@ -1488,6 +1492,15 @@ function formatNumberInput(n) {
   n = Number(n) || 0;
   return n.toLocaleString("id-ID");
 }
+// Dipakai untuk field persen (PPN/PPh/Diskon) yang HTML-nya sudah punya
+// min="0" max="100" tapi listener "input" langsung baca value tanpa lewat
+// validasi form submit, jadi browser tidak menegakkan batas itu saat user
+// mengetik langsung -- clamp manual di sini supaya nilai di luar 0-100 tidak
+// pernah tersimpan ke state.
+function clampPercent(v) {
+  if (!Number.isFinite(v)) return 0;
+  return Math.min(100, Math.max(0, v));
+}
 const BULAN_ID = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
 function formatTanggal(iso) {
   if (!iso) return "-";
@@ -1568,8 +1581,16 @@ function kasSummary(book) {
       if (status === "pending") pending += t.jumlah;
       else masukLunas += t.jumlah;
     } else if (t.tipe === "Keluar") {
-      if (status === "menunggu_persetujuan") menungguPersetujuan += t.jumlah;
-      else keluarLunas += t.jumlah;
+      // Math.max(0, ...): transaksi Keluar otomatis dari slip gaji (lihat
+      // pg_simpanCetakBtn/syncSlipGajiKasTxn) BISA bernilai negatif kalau
+      // total potongan karyawan melebihi upah kotornya di periode itu --
+      // keputusan bisnis yang sah, nilai aslinya tetap disimpan apa adanya
+      // di transaksi. Tapi di sini, di titik penjumlahan saldo, nilai
+      // negatif itu HARUS diabaikan (dianggap 0) -- kalau tidak, "+= t.jumlah"
+      // pada transaksi Keluar negatif justru MENAMBAH saldoAkhir, kebalikan
+      // dari makna "pengeluaran".
+      if (status === "menunggu_persetujuan") menungguPersetujuan += Math.max(0, t.jumlah);
+      else keluarLunas += Math.max(0, t.jumlah);
     }
   });
   const saldoAkhir = (b.saldoAwal || 0) + masukLunas - keluarLunas;
@@ -1820,7 +1841,7 @@ function renderKasBook(book) {
       <td class="num">${rupiah(t.jumlah)}</td>
       <td>
         <div class="row-actions">
-          ${status === "menunggu_persetujuan" ? `<button class="icon-btn" data-approve="${t.id}" data-book="${book}" title="Setujui">✅</button>` : ""}
+          ${status === "menunggu_persetujuan" && t.tipe === "Keluar" ? `<button class="icon-btn" data-approve="${t.id}" data-book="${book}" title="Setujui">✅</button>` : ""}
           <button class="icon-btn" data-edit="${t.id}" data-book="${book}" title="Edit">✏️</button>
           <button class="icon-btn" data-delete="${t.id}" data-book="${book}" title="Hapus">🗑️</button>
         </div>
@@ -2420,7 +2441,7 @@ document.getElementById("kld_toPwBtn").addEventListener("click", () => {
   const pw = {
     id: uid(), nomor: nextPenawaranNomor(), tanggal: new Date().toISOString().slice(0, 10),
     kepada: k.nama, klienId: k.id, alamatKlien: k.alamat || "", perihal: "", kategori: KATEGORI_PEKERJAAN[0], status: "draft",
-    diskon: 0, ppn: 11, pph: 0.5, items: [], syarat: defaultSyarat(), penutup: defaultPenutup(),
+    diskon: 0, ppn: 11, pph: 0.5, biayaLain: 0, items: [], syarat: defaultSyarat(), penutup: defaultPenutup(),
     ttdNama: state.ownerNama, ttdJabatan: state.ownerJabatan
   };
   state.penawaran.push(pw);
@@ -2899,16 +2920,31 @@ document.getElementById("stokTxnForm").addEventListener("submit", e => {
   const item = state.stok.find(s => s.id === currentStokId);
   if (!item) { closeModals(); return; }
   const id = document.getElementById("st_id").value;
+  const qty = parseFloat((document.getElementById("st_qty").value || "").replace(",", ".")) || 0;
+  if (qty < 0) { alert("Qty tidak boleh negatif."); return; }
   const txn = {
     id: id || uid(),
     tipe: document.getElementById("st_tipe").value,
     tanggal: document.getElementById("st_tanggal").value,
-    qty: parseFloat((document.getElementById("st_qty").value || "").replace(",", ".")) || 0,
+    qty,
     pemasokId: document.getElementById("st_pemasokId").value || "",
     hargaSatuan: parseNumberInput(document.getElementById("st_harga").value),
     gudangId: document.getElementById("st_gudangId").value || "",
     keterangan: document.getElementById("st_keterangan").value.trim()
   };
+  if (txn.tipe === "Keluar") {
+    // Hitung stok tersedia TANPA transaksi ini (kalau sedang edit transaksi
+    // lama, efeknya dikeluarkan dulu supaya tidak salah tolak saat cuma
+    // ubah keterangan/harga tanpa ubah qty).
+    const otherTxns = item.transactions.filter(t => t.id !== txn.id);
+    const available = txn.gudangId
+      ? otherTxns.filter(t => t.gudangId === txn.gudangId).reduce((s, t) => s + (t.tipe === "Masuk" ? (t.qty || 0) : -(t.qty || 0)), 0)
+      : (item.stokAwal || 0) + otherTxns.reduce((s, t) => s + (t.tipe === "Masuk" ? (t.qty || 0) : -(t.qty || 0)), 0);
+    if (txn.qty > available) {
+      alert(`Qty keluar (${txn.qty}) melebihi stok tersedia${txn.gudangId ? " di gudang ini" : ""} (${available}).`);
+      return;
+    }
+  }
   const idx = item.transactions.findIndex(t => t.id === id);
   if (idx >= 0) item.transactions[idx] = txn; else item.transactions.push(txn);
   saveState();
@@ -3395,9 +3431,16 @@ document.getElementById("slipGajiEditForm").addEventListener("submit", e => {
   if (!k) { closeModals(); return; }
   const sl = (k.slipGaji || []).find(s => s.id === document.getElementById("sge_id").value);
   if (!sl) { closeModals(); return; }
-  sl.uangMakan = parseNumberInput(document.getElementById("sge_uangMakan").value);
-  sl.bon = parseNumberInput(document.getElementById("sge_bon").value);
-  sl.potonganPinjaman = parseNumberInput(document.getElementById("sge_potonganPinjaman").value);
+  const newUangMakan = parseNumberInput(document.getElementById("sge_uangMakan").value);
+  const newBon = parseNumberInput(document.getElementById("sge_bon").value);
+  const newPotonganPinjaman = parseNumberInput(document.getElementById("sge_potonganPinjaman").value);
+  if (newPotonganPinjaman > (sl.sisaSebelum || 0)) {
+    alert(`Potongan pinjaman (${rupiah(newPotonganPinjaman)}) melebihi sisa pinjaman karyawan saat itu (${rupiah(sl.sisaSebelum || 0)}).`);
+    return;
+  }
+  sl.uangMakan = newUangMakan;
+  sl.bon = newBon;
+  sl.potonganPinjaman = newPotonganPinjaman;
   recomputeSlipGajiChain(k);
   syncSlipGajiKasTxn(k, sl);
   saveState();
@@ -3468,8 +3511,19 @@ document.getElementById("pg_simpanCetakBtn").addEventListener("click", () => {
     slip.upahKotor = pgComputed.upahKotor;
   }
   slip.sisaSesudah = slip.sisaSebelum - slip.potonganPinjaman;
+  if (slip.potonganPinjaman > slip.sisaSebelum) {
+    alert(`Potongan pinjaman (${rupiah(slip.potonganPinjaman)}) melebihi sisa pinjaman karyawan (${rupiah(slip.sisaSebelum)}).`);
+    return;
+  }
   if (!k.slipGaji) k.slipGaji = [];
   k.slipGaji.push(slip);
+  // Total potongan (uang makan/bon/pinjaman) BOLEH melebihi upah kotor
+  // (mis. karyawan harian tanpa jam hadir di periode ini tapi tetap ada
+  // cicilan pinjaman berjalan) -- keputusan bisnis yang sah, jumlah
+  // transaksi Kas-nya dicatat apa adanya (bisa negatif) supaya tetap bisa
+  // dilacak/dikoreksi. kasSummary() sendiri yang menjaga supaya nilai
+  // negatif ini tidak salah tafsir jadi penambah saldo (lihat catatan di
+  // sana), bukan di titik penyimpanan ini.
   state.kasUsaha.transactions.push({
     id: uid(),
     sumberSlipId: slip.id,
@@ -3864,7 +3918,7 @@ function penawaranTotals(pw) {
   // PPh Final sudah termasuk dalam harga satuan (sesuai Syarat & Ketentuan), jadi TIDAK
   // ditambahkan lagi ke Total — hanya ditampilkan sebagai info berapa yang perlu disetor pajak.
   const pphValue = dpp * (pw.pph || 0) / 100;
-  const total = dpp + ppnValue;
+  const total = dpp + ppnValue + (pw.biayaLain || 0);
   return { subtotal, diskonValue, dpp, ppnValue, pphValue, total };
 }
 const ROMAWI_BULAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
@@ -4690,11 +4744,13 @@ document.getElementById("itemForm").addEventListener("submit", e => {
   e.preventDefault();
   const doc = getDoc(itemModalCtx);
   if (!doc) { closeModals(); return; }
+  const volume = parseFloat((document.getElementById("it_volume").value || "").replace(",", ".")) || 0;
+  if (volume < 0) { alert("Volume tidak boleh negatif."); return; }
   const item = {
     id: itemModalCtx.itemId || uid(),
     uraian: document.getElementById("it_uraian").value.trim(),
     satuan: document.getElementById("it_satuan").value.trim(),
-    volume: parseFloat((document.getElementById("it_volume").value || "").replace(",", ".")) || 0,
+    volume,
     hargaSatuan: parseNumberInput(document.getElementById("it_harga").value),
     ahspId: itemModalCtx.ahspId || ""
   };
@@ -5316,7 +5372,7 @@ function renderRabList() {
     const { total } = rabTotals(r);
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${escapeHtml(r.nomor || "-")}</td>
+      <td>${escapeHtml(r.nomor || "-")}${r.revisiDariId ? ` <span class="muted" style="font-size:11px;">(Revisi ${r.revisiKe || 1})</span>` : ""}</td>
       <td>${escapeHtml(r.nama || "(Tanpa nama)")}${r.klien ? " — " + escapeHtml(r.klien) : ""}</td>
       <td>${escapeHtml(r.kategori || "-")}</td>
       <td>${formatTanggal(r.tanggal)}</td>
@@ -5351,6 +5407,16 @@ function renderRabEditor() {
   if (!rab) { showRabList(); return; }
   const kategoriSel = document.getElementById("rab_kategori");
   if (kategoriSel.options.length === 0) kategoriSel.innerHTML = KATEGORI_PEKERJAAN.map(k => `<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`).join("");
+
+  const rabRevisiNote = document.getElementById("rab_revisiNote");
+  const rabAsal = rab.revisiDariId ? state.proyekRab.find(r => r.id === rab.revisiDariId) : null;
+  if (rabAsal) {
+    rabRevisiNote.style.display = "block";
+    rabRevisiNote.innerHTML = `🔁 Revisi ke-${rab.revisiKe || 1} dari <a href="#" data-open-rab-asal="${rabAsal.id}">${escapeHtml(rabAsal.nomor)}</a>`;
+  } else {
+    rabRevisiNote.style.display = "none";
+    rabRevisiNote.innerHTML = "";
+  }
 
   if (document.activeElement.id !== "rab_nomor") document.getElementById("rab_nomor").value = rab.nomor || "";
   if (document.activeElement.id !== "rab_nama") document.getElementById("rab_nama").value = rab.nama || "";
@@ -5551,11 +5617,11 @@ document.getElementById("rab_tanggal").addEventListener("change", () => {
 });
 document.getElementById("rab_ppn").addEventListener("input", () => {
   const rab = state.proyekRab.find(r => r.id === currentRabId);
-  if (rab) { rab.ppn = parseFloat(document.getElementById("rab_ppn").value) || 0; saveState(); mirrorRabUpsert(rab, false); refreshRabTotals(); }
+  if (rab) { rab.ppn = clampPercent(parseFloat(document.getElementById("rab_ppn").value) || 0); saveState(); mirrorRabUpsert(rab, false); refreshRabTotals(); }
 });
 document.getElementById("rab_pph").addEventListener("input", () => {
   const rab = state.proyekRab.find(r => r.id === currentRabId);
-  if (rab) { rab.pph = parseFloat(document.getElementById("rab_pph").value) || 0; saveState(); mirrorRabUpsert(rab, false); refreshRabTotals(); }
+  if (rab) { rab.pph = clampPercent(parseFloat(document.getElementById("rab_pph").value) || 0); saveState(); mirrorRabUpsert(rab, false); refreshRabTotals(); }
 });
 attachNumberFormatting(document.getElementById("rab_biayaLain"));
 document.getElementById("rab_biayaLain").addEventListener("input", () => {
@@ -5585,6 +5651,7 @@ function createPenawaranFromRab(rab) {
     id: uid(), nomor: nextPenawaranNomor(), tanggal: new Date().toISOString().slice(0, 10),
     kepada: rab.klien || "", alamatKlien: "", perihal: rab.nama || "", kategori: rab.kategori || KATEGORI_PEKERJAAN[0],
     status: "draft", diskon: 0, ppn: rab.ppn || 0, pph: typeof rab.pph === "number" ? rab.pph : 0.5,
+    biayaLain: rab.biayaLain || 0,
     items: rab.items.map(it => ({ id: uid(), uraian: it.uraian, satuan: it.satuan, volume: it.volume, hargaSatuan: it.hargaSatuan, ahspId: it.ahspId || "" })),
     syarat: defaultSyarat(), penutup: defaultPenutup(), ttdNama: state.ownerNama, ttdJabatan: state.ownerJabatan
   };
@@ -5602,6 +5669,29 @@ document.getElementById("rab_toPenawaranBtn").addEventListener("click", () => {
 document.getElementById("rab_toProyekBtn").addEventListener("click", () => {
   const rab = state.proyekRab.find(r => r.id === currentRabId);
   if (rab) offerCreateProyekFromDoc("rab", rab);
+});
+document.getElementById("rab_duplicateBtn").addEventListener("click", () => {
+  const rab = state.proyekRab.find(r => r.id === currentRabId);
+  if (!rab) return;
+  if (!confirm(`Buat revisi baru dari RAB "${rab.nomor}"? Item dan data lain akan disalin — RAB asli tidak berubah.`)) return;
+  const revisi = {
+    ...rab,
+    id: uid(),
+    nomor: nextRabNomor(),
+    tanggal: new Date().toISOString().slice(0, 10),
+    proyekId: "",
+    revisiDariId: rab.id,
+    revisiKe: (rab.revisiKe || 0) + 1,
+    items: rab.items.map(it => ({ ...it, id: uid() }))
+  };
+  state.proyekRab.push(revisi);
+  saveState();
+  mirrorRabUpsert(revisi, true);
+  showRabEditor(revisi.id);
+});
+document.getElementById("rab_revisiNote").addEventListener("click", e => {
+  const link = e.target.closest("[data-open-rab-asal]");
+  if (link) { e.preventDefault(); showRabEditor(link.dataset.openRabAsal); }
 });
 
 // ===== RAB/Penawaran -> Proyek (anggaran otomatis dari komponen AHSP) =====
@@ -5779,6 +5869,8 @@ function renderPwEditor() {
   document.getElementById("pw_diskon").value = pw.diskon ?? 0;
   document.getElementById("pw_ppn").value = pw.ppn ?? 0;
   document.getElementById("pw_pph").value = pw.pph ?? 0;
+  const pwBiayaLainInput = document.getElementById("pw_biayaLain");
+  if (document.activeElement !== pwBiayaLainInput) pwBiayaLainInput.value = formatNumberInput(pw.biayaLain || 0);
   if (focusedId !== "pw_syarat") document.getElementById("pw_syarat").value = pw.syarat || "";
   if (focusedId !== "pw_penutup") document.getElementById("pw_penutup").value = pw.penutup || "";
   if (focusedId !== "pw_ttdNama") document.getElementById("pw_ttdNama").value = pw.ttdNama || state.ownerNama;
@@ -5828,7 +5920,7 @@ document.getElementById("pw_addBtn").addEventListener("click", () => {
   const pw = {
     id: uid(), nomor: isMr ? nextMataResolusiPenawaranNomor() : nextPenawaranNomor(), tanggal: new Date().toISOString().slice(0, 10),
     kepada: "", alamatKlien: "", perihal: "", kategori: KATEGORI_PEKERJAAN[0], status: "draft",
-    diskon: 0, ppn: 11, pph: 0.5, items: [], syarat: defaultSyarat(), penutup: defaultPenutup(),
+    diskon: 0, ppn: 11, pph: 0.5, biayaLain: 0, items: [], syarat: defaultSyarat(), penutup: defaultPenutup(),
     brand,
     ttdNama: isMr ? MATA_RESOLUSI_INFO.ownerNama : state.ownerNama,
     ttdJabatan: isMr ? MATA_RESOLUSI_INFO.ownerJabatan : state.ownerJabatan
@@ -5922,15 +6014,20 @@ document.getElementById("pw_status").addEventListener("change", () => {
 });
 document.getElementById("pw_diskon").addEventListener("input", () => {
   const pw = state.penawaran.find(p => p.id === currentPwId);
-  if (pw) { pw.diskon = parseFloat(document.getElementById("pw_diskon").value) || 0; saveState(); mirrorPenawaranUpsert(pw, false); refreshPwTotals(); }
+  if (pw) { pw.diskon = clampPercent(parseFloat(document.getElementById("pw_diskon").value) || 0); saveState(); mirrorPenawaranUpsert(pw, false); refreshPwTotals(); }
 });
 document.getElementById("pw_ppn").addEventListener("input", () => {
   const pw = state.penawaran.find(p => p.id === currentPwId);
-  if (pw) { pw.ppn = parseFloat(document.getElementById("pw_ppn").value) || 0; saveState(); mirrorPenawaranUpsert(pw, false); refreshPwTotals(); }
+  if (pw) { pw.ppn = clampPercent(parseFloat(document.getElementById("pw_ppn").value) || 0); saveState(); mirrorPenawaranUpsert(pw, false); refreshPwTotals(); }
 });
 document.getElementById("pw_pph").addEventListener("input", () => {
   const pw = state.penawaran.find(p => p.id === currentPwId);
-  if (pw) { pw.pph = parseFloat(document.getElementById("pw_pph").value) || 0; saveState(); mirrorPenawaranUpsert(pw, false); refreshPwTotals(); }
+  if (pw) { pw.pph = clampPercent(parseFloat(document.getElementById("pw_pph").value) || 0); saveState(); mirrorPenawaranUpsert(pw, false); refreshPwTotals(); }
+});
+attachNumberFormatting(document.getElementById("pw_biayaLain"));
+document.getElementById("pw_biayaLain").addEventListener("input", () => {
+  const pw = state.penawaran.find(p => p.id === currentPwId);
+  if (pw) { pw.biayaLain = parseNumberInput(document.getElementById("pw_biayaLain").value); saveState(); mirrorPenawaranUpsert(pw, false); refreshPwTotals(); }
 });
 document.getElementById("pw_importRab").addEventListener("change", () => {
   const sel = document.getElementById("pw_importRab");
@@ -6047,6 +6144,7 @@ function buildPenawaranPrintHtml(pw) {
         <tr><td>Subtotal</td><td class="r">${rupiah(subtotal)}</td></tr>
         ${pw.diskon ? `<tr><td>Diskon (${pw.diskon}%)</td><td class="r">- ${rupiah(diskonValue)}</td></tr>` : ""}
         ${pw.ppn ? `<tr><td>PPN (${pw.ppn}%)</td><td class="r">${rupiah(ppnValue)}</td></tr>` : ""}
+        ${pw.biayaLain ? `<tr><td>Biaya Lain-lain</td><td class="r">${rupiah(pw.biayaLain)}</td></tr>` : ""}
         <tr class="pwmc-total-row"><td>Total Penawaran</td><td class="r">${rupiah(total)}</td></tr>
       </table>
       ${pw.pph ? `<p class="pwmc-p" style="font-size:11px; color:#777;">*Sudah termasuk PPh Final (${pw.pph}%) sebesar ${rupiah(pphValue)} sesuai Syarat &amp; Ketentuan di bawah.</p>` : ""}
@@ -6131,11 +6229,12 @@ function buildMataResolusiPenawaranHtml(pw) {
       <table class="mr-summary">
         ${pw.diskon ? `<tr><td>Diskon (${pw.diskon}%)</td><td class="r">- ${rupiah(diskonValue)}</td></tr>` : ""}
         ${pw.ppn ? `<tr><td>PPN (${pw.ppn}%)</td><td class="r">${rupiah(ppnValue)}</td></tr>` : ""}
+        ${pw.biayaLain ? `<tr><td>Biaya Lain-lain</td><td class="r">${rupiah(pw.biayaLain)}</td></tr>` : ""}
         <tr class="mr-total-row"><td>TOTAL HARGA PEKERJAAN</td><td class="r">${rupiah(total)}</td></tr>
       </table>
 
       <div class="mr-catatan">
-        <strong>CATATAN:</strong> Harga di atas belum termasuk PPN dan PPh.
+        <strong>CATATAN:</strong> Harga di atas belum termasuk PPN${pw.pph ? "" : " dan PPh"}.
         ${pw.pph ? `<br>*Sudah termasuk PPh Final (${pw.pph}%) sebesar ${rupiah(pphValue)} sesuai Syarat &amp; Ketentuan di bawah.` : ""}
       </div>
 
@@ -6387,7 +6486,10 @@ function openTxnModal(book, existing) {
   document.getElementById("txn_id").value = existing ? existing.id : "";
   document.getElementById("txnModalTitle").textContent = existing ? "Edit Transaksi" : "Tambah Transaksi";
   document.getElementById("txn_tipe").value = existing ? existing.tipe : "Masuk";
-  document.getElementById("txn_status").value = existing ? (existing.status || "lunas") : "lunas";
+  refreshTxnStatusOptions();
+  const desiredStatus = existing ? (existing.status || "lunas") : "lunas";
+  const statusSel = document.getElementById("txn_status");
+  if ([...statusSel.options].some(o => o.value === desiredStatus)) statusSel.value = desiredStatus;
   document.getElementById("txn_tanggal").value = existing ? existing.tanggal : new Date().toISOString().slice(0, 10);
   document.getElementById("txn_jumlah").value = existing ? formatNumberInput(existing.jumlah) : "";
   document.getElementById("txn_keterangan").value = existing ? existing.keterangan : "";
@@ -6425,6 +6527,23 @@ document.querySelectorAll("[data-open-modal='txn']").forEach(btn => {
   btn.addEventListener("click", () => openTxnModal(btn.dataset.book, null));
 });
 
+// Opsi status dibatasi sesuai Tipe supaya kombinasi yang tidak masuk akal
+// tidak pernah bisa dipilih -- "Piutang/Pending (belum cair)" cuma relevan
+// untuk transaksi Masuk (uang belum diterima), dan "Menunggu Persetujuan"
+// cuma relevan untuk transaksi Keluar (pengeluaran besar perlu approval
+// Owner). Tanpa ini, kasSummary() bisa salah tafsir kombinasi yang tidak
+// wajar (mis. Keluar+Pending tetap langsung mengurangi saldo walau
+// labelnya bilang "belum cair").
+function refreshTxnStatusOptions() {
+  const tipe = document.getElementById("txn_tipe").value;
+  const statusSel = document.getElementById("txn_status");
+  const current = statusSel.value;
+  const options = tipe === "Keluar"
+    ? [["lunas", "Lunas / Dibayar"], ["menunggu_persetujuan", "Menunggu Persetujuan (Keluar besar)"]]
+    : [["lunas", "Lunas / Diterima"], ["pending", "Piutang / Pending (belum cair)"]];
+  statusSel.innerHTML = options.map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
+  statusSel.value = options.some(([v]) => v === current) ? current : "lunas";
+}
 function maybeSuggestApprovalStatus() {
   const book = document.getElementById("txn_book").value;
   const tipe = document.getElementById("txn_tipe").value;
@@ -6436,11 +6555,14 @@ function maybeSuggestApprovalStatus() {
   }
 }
 document.getElementById("txn_jumlah").addEventListener("input", maybeSuggestApprovalStatus);
+document.getElementById("txn_tipe").addEventListener("change", refreshTxnStatusOptions);
 document.getElementById("txn_tipe").addEventListener("change", maybeSuggestApprovalStatus);
 attachNumberFormatting(document.getElementById("txn_jumlah"));
 
 document.getElementById("txnForm").addEventListener("submit", e => {
   e.preventDefault();
+  const jumlah = parseNumberInput(document.getElementById("txn_jumlah").value);
+  if (jumlah <= 0) { alert("Jumlah harus lebih dari 0."); return; }
   const book = document.getElementById("txn_book").value;
   const id = document.getElementById("txn_id").value;
   const arr = state[book].transactions;
@@ -6451,7 +6573,7 @@ document.getElementById("txnForm").addEventListener("submit", e => {
     tipe: document.getElementById("txn_tipe").value,
     status: document.getElementById("txn_status").value,
     tanggal: document.getElementById("txn_tanggal").value,
-    jumlah: parseNumberInput(document.getElementById("txn_jumlah").value),
+    jumlah,
     keterangan: document.getElementById("txn_keterangan").value.trim(),
     kategori: document.getElementById("txn_kategori").value.trim(),
     extra: document.getElementById("txn_extra").value.trim(),
