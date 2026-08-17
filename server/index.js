@@ -5,6 +5,7 @@ const { createClient } = require("@supabase/supabase-js");
 const { buildPenawaranPrintHtml, buildRabPrintHtml, buildSlipGajiPrintHtml, wrapPrintPage } = require("./lib/print");
 const { getBrowser } = require("./lib/browser");
 const { checkAndRunBackups } = require("./lib/backup");
+const { checkAndSendReminders, REMINDER_CHECK_INTERVAL_MS } = require("./lib/reminders");
 
 const PORT = process.env.PORT || 3000;
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -199,6 +200,18 @@ if (supabaseAdmin) {
   setInterval(() => { checkAndRunBackups(supabaseAdmin).catch(err => console.error("[backup] gagal:", err.message)); }, BACKUP_CHECK_INTERVAL_MS);
   // Jalan sekali singkat setelah startup juga, supaya tidak perlu nunggu 1 jam pertama.
   setTimeout(() => { checkAndRunBackups(supabaseAdmin).catch(err => console.error("[backup] gagal:", err.message)); }, 30 * 1000);
+}
+
+// Pengingat WhatsApp/Email otomatis (Fase 1.0): follow-up Klien jatuh
+// tempo & Kas Perusahaan menunggu persetujuan -- dicek setiap jam, tapi
+// tiap perusahaan cuma benar-benar dikirimi pengingat kalau sudah lewat
+// ~20 jam sejak pengingat jenis yang sama terakhir dikirim (lihat
+// lib/reminders.js). Kalau FONNTE_TOKEN/RESEND_API_KEY belum diisi,
+// pengecekan tetap jalan tapi pengirimannya gagal-lembut (dicatat ke
+// console, tidak pernah mengganggu fitur lain).
+if (supabaseAdmin) {
+  setInterval(() => { checkAndSendReminders(supabaseAdmin).catch(err => console.error("[reminders] gagal:", err.message)); }, REMINDER_CHECK_INTERVAL_MS);
+  setTimeout(() => { checkAndSendReminders(supabaseAdmin).catch(err => console.error("[reminders] gagal:", err.message)); }, 45 * 1000);
 }
 
 app.listen(PORT, () => {
