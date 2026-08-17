@@ -810,8 +810,9 @@
                 <option value="pending">Piutang / Pending</option>
               </select>
             </div>
-            <div class="field" style="justify-content:flex-end;">
+            <div class="field" style="justify-content:flex-end; display:flex; gap:8px;">
               <button type="button" class="btn-primary" id="tm_addBtn">+ Tambah Termin</button>
+              <button type="button" class="btn-ghost" id="tm_paymentLinkBtn">💳 Buat Link Pembayaran</button>
             </div>
           </div>
           <div class="table-wrap">
@@ -819,6 +820,18 @@
               <thead><tr><th>Tanggal</th><th>Keterangan</th><th>Status</th><th class="num">Jumlah</th><th></th></tr></thead>
               <tbody></tbody>
             </table>
+          </div>
+          <div style="margin-top:14px;">
+            <div class="muted" style="margin-bottom:8px; display:flex; align-items:center; gap:8px;">
+              <span style="flex:1;">Link Pembayaran Online (Xendit)</span>
+              <button type="button" class="icon-btn" id="pd_paymentRefreshBtn" title="Refresh Status">🔄</button>
+            </div>
+            <div class="table-wrap">
+              <table class="tbl" id="pd_paymentTable">
+                <thead><tr><th>Dibuat</th><th>Deskripsi</th><th class="num">Jumlah</th><th>Status</th><th></th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
           </div>
         </div>
 
@@ -1586,9 +1599,23 @@
             <button class="btn-primary" id="pw_toProyekBtn">🏗️ Buat Proyek dari Penawaran Ini</button>
             <button class="btn-primary" id="pw_printBtn">🖨️ Cetak Penawaran</button>
             <button class="btn-ghost" id="pw_pdfBtn">⬇️ Unduh PDF</button>
+            <button class="btn-ghost" id="pw_paymentLinkBtn">💳 Kirim Link DP</button>
           </div>
         </header>
         <p class="muted" id="pw_revisiNote" style="display:none; font-size:12px; margin:-8px 0 12px;"></p>
+
+        <div class="panel">
+          <div class="muted" style="margin-bottom:8px; display:flex; align-items:center; gap:8px;">
+            <span style="flex:1;">Link Pembayaran DP Online (Xendit)</span>
+            <button type="button" class="icon-btn" id="pw_paymentRefreshBtn" title="Refresh Status">🔄</button>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="pw_paymentTable">
+              <thead><tr><th>Dibuat</th><th>Deskripsi</th><th class="num">Jumlah</th><th>Status</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
 
         <div class="panel">
           <div class="form-grid">
@@ -2797,6 +2824,35 @@
         <button type="submit" class="btn-primary">Simpan</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- Modal: Payment Gateway (link pembayaran online) -->
+<div class="modal-backdrop" id="paymentLinkModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="pl_title">Buat Link Pembayaran</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <div id="pl_formSection">
+      <div class="form-grid">
+        <div class="field full"><label>Deskripsi</label><input type="text" id="pl_deskripsi" placeholder="mis. Termin 2 - Proyek A"></div>
+        <div class="field full"><label>Jumlah (Rp)</label><input type="text" inputmode="numeric" id="pl_jumlah" placeholder="0"></div>
+      </div>
+      <p class="muted" id="pl_error" style="display:none; color:#c0392b;"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="button" class="btn-primary" id="pl_createBtn">Buat Link</button>
+      </div>
+    </div>
+    <div id="pl_resultSection" style="display:none;">
+      <p class="muted">Link pembayaran berhasil dibuat. Kirim ke klien untuk membayar online:</p>
+      <div class="field full"><input type="text" id="pl_resultUrl" readonly></div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" id="pl_copyBtn">📋 Salin Link</button>
+        <button type="button" class="btn-primary" id="pl_waBtn">💬 Kirim via WhatsApp</button>
+      </div>
+    </div>
   </div>
 </div>
 

@@ -2013,6 +2013,7 @@ function renderProyekDetail() {
       <td><div class="row-actions"><button class="icon-btn" data-delete-termin="${t.id}" title="Hapus">🗑️</button></div></td>
     </tr>
   `).join("") : '<tr class="empty-row"><td colspan="5">Belum ada termin pembayaran</td></tr>';
+  renderPaymentLinksForProyek(p.id);
 
   const belanjaTbody = document.querySelector("#pd_belanjaTable tbody");
   belanjaTbody.innerHTML = p.belanjaMaterial.length ? p.belanjaMaterial.slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || "")).map(b => `
@@ -6392,6 +6393,7 @@ function showPwEditor(id) {
   document.getElementById("pw_listView").style.display = "none";
   document.getElementById("pw_editorView").style.display = "block";
   renderPwEditor();
+  renderPaymentLinksForPenawaran(id);
 }
 function renderPwEditor() {
   const pw = state.penawaran.find(p => p.id === currentPwId);
@@ -7320,6 +7322,162 @@ document.getElementById("pd_terminTable").addEventListener("click", e => {
     mirrorKasUsahaDelete(delBtn.dataset.deleteTermin);
     renderAll();
   }
+});
+
+// ===== Payment Gateway (Fase 1.1): link pembayaran online via Xendit =====
+// Beda dari modul lain -- baris payment_transactions TIDAK PERNAH ditulis
+// langsung ke state/blob lokal (bukan bagian dari cloudSync), murni
+// dibuat & dibaca lewat server (server/lib/payment.js + endpoint
+// /api/payment/create) supaya Secret Key Xendit tidak pernah ada di
+// browser. Tabel dibaca langsung lewat sb.from() (read-only dari sisi
+// klien, sama seperti renderBackupHistory/renderActivityLog) untuk
+// menampilkan status terkini.
+let plContext = null; // { jenis, proyekId, penawaranId, waNomor, paymentUrl }
+
+async function createPaymentLink(jenis, proyekId, penawaranId, jumlah, deskripsi) {
+  if (!sb || !currentSyncUser) throw new Error("Fitur ini butuh login cloud (Pengaturan > Sinkronisasi Cloud) supaya server bisa membuat link dengan aman.");
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) throw new Error("Sesi login sudah habis, silakan login ulang.");
+  const res = await fetch(`${PDF_SERVER_URL}/api/payment/create`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ jenis, proyekId, penawaranId, jumlah, deskripsi, companyId: targetCompanyId })
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `Server membalas status ${res.status}`);
+  return body; // { id, paymentUrl }
+}
+
+function openPaymentLinkModal({ jenis, proyekId, penawaranId, defaultDeskripsi, defaultJumlah, waNomor }) {
+  plContext = { jenis, proyekId: proyekId || null, penawaranId: penawaranId || null, waNomor: waNomor || "", paymentUrl: "" };
+  document.getElementById("pl_title").textContent = "Buat Link Pembayaran";
+  document.getElementById("pl_deskripsi").value = defaultDeskripsi || "";
+  document.getElementById("pl_jumlah").value = defaultJumlah ? Number(defaultJumlah).toLocaleString("id-ID") : "";
+  document.getElementById("pl_error").style.display = "none";
+  document.getElementById("pl_formSection").style.display = "block";
+  document.getElementById("pl_resultSection").style.display = "none";
+  document.getElementById("paymentLinkModal").classList.add("open");
+}
+document.getElementById("pl_createBtn").addEventListener("click", async () => {
+  if (!plContext) return;
+  const deskripsi = document.getElementById("pl_deskripsi").value.trim();
+  const jumlah = parseNumberInput(document.getElementById("pl_jumlah").value);
+  const errEl = document.getElementById("pl_error");
+  errEl.style.display = "none";
+  if (!deskripsi || !jumlah) {
+    errEl.textContent = "Isi deskripsi dan jumlah (lebih dari 0) terlebih dahulu.";
+    errEl.style.display = "block";
+    return;
+  }
+  const btn = document.getElementById("pl_createBtn");
+  btn.disabled = true;
+  btn.textContent = "Membuat Link...";
+  try {
+    const result = await createPaymentLink(plContext.jenis, plContext.proyekId, plContext.penawaranId, jumlah, deskripsi);
+    plContext.paymentUrl = result.paymentUrl;
+    document.getElementById("pl_resultUrl").value = result.paymentUrl;
+    document.getElementById("pl_formSection").style.display = "none";
+    document.getElementById("pl_resultSection").style.display = "block";
+    if (plContext.proyekId && currentProyekId === plContext.proyekId) renderPaymentLinksForProyek(currentProyekId);
+    if (plContext.penawaranId && currentPwId === plContext.penawaranId) renderPaymentLinksForPenawaran(currentPwId);
+  } catch (err) {
+    errEl.textContent = "Gagal membuat link: " + err.message;
+    errEl.style.display = "block";
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Buat Link";
+  }
+});
+document.getElementById("pl_copyBtn").addEventListener("click", async () => {
+  if (!plContext || !plContext.paymentUrl) return;
+  const ok = await copyToClipboard(plContext.paymentUrl);
+  alert(ok ? "Link pembayaran disalin ke clipboard." : "Gagal menyalin otomatis, silakan salin manual dari kolom di atas.");
+});
+document.getElementById("pl_waBtn").addEventListener("click", () => {
+  if (!plContext || !plContext.paymentUrl) return;
+  const pesan = `Halo, berikut link pembayaran untuk ${document.getElementById("pl_deskripsi").value || "tagihan Anda"}:\n${plContext.paymentUrl}`;
+  const link = waLink(plContext.waNomor, pesan);
+  if (link) { window.open(link, "_blank"); return; }
+  copyToClipboard(pesan);
+  alert("Nomor WhatsApp klien belum tercatat -- pesan & link sudah disalin ke clipboard, silakan kirim manual.");
+});
+
+const PAYMENT_STATUS_LABEL = { pending: "Menunggu Bayar", paid: "Lunas", expired: "Kadaluarsa", failed: "Gagal" };
+const PAYMENT_STATUS_BADGE = { pending: "badge-pending", paid: "badge-lunas", expired: "badge-pending", failed: "badge-pending" };
+function paymentRowsHtml(data) {
+  if (!data || !data.length) return '<tr class="empty-row"><td colspan="5">Belum ada link pembayaran</td></tr>';
+  return data.map(row => `
+    <tr>
+      <td>${new Date(row.created_at).toLocaleString("id-ID")}</td>
+      <td>${escapeHtml(row.deskripsi)}</td>
+      <td class="num">${rupiah(row.jumlah)}</td>
+      <td><span class="badge ${PAYMENT_STATUS_BADGE[row.status] || "badge-pending"}">${PAYMENT_STATUS_LABEL[row.status] || row.status}</span></td>
+      <td>${row.status === "pending" && row.payment_url ? `<button type="button" class="icon-btn" data-copy-payment-url="${escapeHtml(row.payment_url)}" title="Salin Link">📋</button>` : ""}</td>
+    </tr>
+  `).join("");
+}
+async function renderPaymentLinksForProyek(proyekId) {
+  const tbody = document.querySelector("#pd_paymentTable tbody");
+  if (!tbody) return;
+  if (!sb || !targetCompanyId) { tbody.innerHTML = '<tr class="empty-row"><td colspan="5">Login cloud untuk melihat status link pembayaran</td></tr>'; return; }
+  try {
+    const { data, error } = await sb.from("payment_transactions").select("*").eq("company_id", targetCompanyId).eq("proyek_id", proyekId).order("created_at", { ascending: false });
+    if (error) throw error;
+    tbody.innerHTML = paymentRowsHtml(data);
+  } catch (err) {
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="5">Gagal memuat: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+async function renderPaymentLinksForPenawaran(penawaranId) {
+  const tbody = document.querySelector("#pw_paymentTable tbody");
+  if (!tbody) return;
+  if (!sb || !targetCompanyId) { tbody.innerHTML = '<tr class="empty-row"><td colspan="5">Login cloud untuk melihat status link pembayaran</td></tr>'; return; }
+  try {
+    const { data, error } = await sb.from("payment_transactions").select("*").eq("company_id", targetCompanyId).eq("penawaran_id", penawaranId).order("created_at", { ascending: false });
+    if (error) throw error;
+    tbody.innerHTML = paymentRowsHtml(data);
+  } catch (err) {
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="5">Gagal memuat: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+document.getElementById("pd_paymentTable").addEventListener("click", e => {
+  const btn = e.target.closest("[data-copy-payment-url]");
+  if (!btn) return;
+  copyToClipboard(btn.dataset.copyPaymentUrl).then(ok => alert(ok ? "Link disalin ke clipboard." : "Gagal menyalin, silakan salin manual."));
+});
+document.getElementById("pw_paymentTable").addEventListener("click", e => {
+  const btn = e.target.closest("[data-copy-payment-url]");
+  if (!btn) return;
+  copyToClipboard(btn.dataset.copyPaymentUrl).then(ok => alert(ok ? "Link disalin ke clipboard." : "Gagal menyalin, silakan salin manual."));
+});
+document.getElementById("pd_paymentRefreshBtn").addEventListener("click", () => { if (currentProyekId) renderPaymentLinksForProyek(currentProyekId); });
+document.getElementById("pw_paymentRefreshBtn").addEventListener("click", () => { if (currentPwId) renderPaymentLinksForPenawaran(currentPwId); });
+
+document.getElementById("tm_paymentLinkBtn").addEventListener("click", () => {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) return;
+  const klien = p.klienId ? state.klien.find(k => k.id === p.klienId) : null;
+  const deskripsi = document.getElementById("tm_keterangan").value.trim() || `Termin - ${p.nama}`;
+  const jumlah = parseNumberInput(document.getElementById("tm_jumlah").value);
+  openPaymentLinkModal({
+    jenis: "termin_proyek",
+    proyekId: p.id,
+    defaultDeskripsi: deskripsi,
+    defaultJumlah: jumlah,
+    waNomor: klien ? klien.telepon : ""
+  });
+});
+document.getElementById("pw_paymentLinkBtn").addEventListener("click", () => {
+  const pw = state.penawaran.find(x => x.id === currentPwId);
+  if (!pw) return;
+  const klien = pw.klienId ? state.klien.find(k => k.id === pw.klienId) : null;
+  openPaymentLinkModal({
+    jenis: "dp_penawaran",
+    penawaranId: pw.id,
+    defaultDeskripsi: `DP Penawaran ${pw.nomor || ""}`.trim(),
+    defaultJumlah: null,
+    waNomor: klien ? klien.telepon : ""
+  });
 });
 
 // ----- Daftar Belanja Material (auto-post ke Kas Perusahaan + Stok) -----

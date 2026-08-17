@@ -6,6 +6,7 @@ const { buildPenawaranPrintHtml, buildRabPrintHtml, buildSlipGajiPrintHtml, wrap
 const { getBrowser } = require("./lib/browser");
 const { checkAndRunBackups } = require("./lib/backup");
 const { checkAndSendReminders, REMINDER_CHECK_INTERVAL_MS } = require("./lib/reminders");
+const { createInvoice, verifyCallbackToken, markPaymentPaid, checkPendingPayments, RECONCILE_INTERVAL_MS } = require("./lib/payment");
 
 const PORT = process.env.PORT || 3000;
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -17,6 +18,10 @@ const SUPABASE_ANON_KEY = "sb_publishable_Hlr2FaEP0WH0EWg9ECO2-A_qvAYcoKs";
 // Alamat stylesheet ASLI aplikasi -- dipakai supaya PDF yang dihasilkan
 // selalu identik dengan tampilan cetak di aplikasi, tanpa duplikasi CSS.
 const APP_STYLE_URL = (process.env.APP_STYLE_URL || "https://mitracreative38.github.io/mitra-creative-app/style.css");
+// Halaman yang dituju setelah klien selesai membayar lewat Xendit --
+// murni kosmetik (Xendit tetap menandai invoice lunas lewat webhook
+// terlepas dari apakah klien benar-benar diarahkan ke sini).
+const APP_PUBLIC_URL = (process.env.APP_PUBLIC_URL || "https://mitracreative38.github.io/mitra-creative-app/index.html");
 // Situs statis (GitHub Pages) yang boleh memanggil server ini. Bisa diisi
 // beberapa origin dipisah koma lewat env var, untuk dev lokal + produksi.
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGIN || "https://mitracreative38.github.io")
@@ -192,6 +197,101 @@ app.get("/api/pdf/slip-gaji/:id", async (req, res) => {
   }
 });
 
+// Payment Gateway (Fase 1.1): membuat link pembayaran Xendit untuk Termin
+// Proyek atau DP Penawaran. Baris payment_transactions dibuat lewat
+// sbUser (bukan supabaseAdmin) supaya kebijakan RLS "buat link
+// pembayaran" (Owner/Admin saja, lihat supabase_relational_schema_fix21.sql)
+// yang benar-benar menentukan siapa boleh membuat link -- kalau insert
+// itu ditolak RLS (mis. dipanggil Marketing), endpoint ini otomatis ikut
+// gagal, tidak perlu cek peran berulang di sini. Update baris dengan info
+// invoice (xendit_invoice_id/payment_url) sengaja lewat supabaseAdmin,
+// murni pencatatan lanjutan setelah insert di atas berhasil (jadi
+// otorisasinya sudah selesai di titik itu) -- desain ini sengaja TIDAK
+// pernah mengizinkan klien mengubah kolom "status" sama sekali (lihat
+// fix21.sql: tidak ada kebijakan update untuk klien).
+app.post("/api/payment/create", async (req, res) => {
+  const accessToken = requireAccessToken(req, res);
+  if (!accessToken) return;
+  if (!supabaseAdmin) {
+    return res.status(500).json({ error: "Server belum dikonfigurasi (SUPABASE_SERVICE_ROLE_KEY kosong)." });
+  }
+  try {
+    const sbUser = supabaseAsCaller(accessToken);
+    const { data: { user } } = await sbUser.auth.getUser();
+    if (!user) return res.status(401).json({ error: "Sesi tidak valid, silakan login ulang." });
+
+    const { jenis, proyekId, penawaranId, jumlah, deskripsi, companyId } = req.body || {};
+    if (!["termin_proyek", "dp_penawaran"].includes(jenis)) {
+      return res.status(400).json({ error: "jenis harus 'termin_proyek' atau 'dp_penawaran'." });
+    }
+    if (!companyId) return res.status(400).json({ error: "companyId wajib diisi." });
+    if (!Number(jumlah) || Number(jumlah) <= 0) return res.status(400).json({ error: "Jumlah harus lebih dari 0." });
+    if (!deskripsi || !String(deskripsi).trim()) return res.status(400).json({ error: "Deskripsi wajib diisi." });
+
+    const id = `pay-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const row = {
+      id,
+      company_id: companyId,
+      proyek_id: jenis === "termin_proyek" ? (proyekId || null) : null,
+      penawaran_id: jenis === "dp_penawaran" ? (penawaranId || null) : null,
+      jenis,
+      deskripsi: String(deskripsi).trim(),
+      jumlah: Number(jumlah),
+      status: "pending",
+      created_by: user.id
+    };
+    const { error: insertErr } = await sbUser.from("payment_transactions").insert(row);
+    if (insertErr) throw insertErr;
+
+    const inv = await createInvoice({
+      externalId: id,
+      amount: row.jumlah,
+      description: row.deskripsi,
+      successRedirectUrl: APP_PUBLIC_URL
+    });
+    if (inv.skipped) {
+      return res.status(503).json({ error: "Payment gateway belum dikonfigurasi (XENDIT_SECRET_KEY belum diisi di server)." });
+    }
+
+    const { error: updateErr } = await supabaseAdmin.from("payment_transactions")
+      .update({ xendit_invoice_id: inv.id, payment_url: inv.invoice_url, updated_at: new Date().toISOString() })
+      .eq("id", id);
+    if (updateErr) throw updateErr;
+
+    res.json({ id, paymentUrl: inv.invoice_url });
+  } catch (err) {
+    console.error("[payment/create] gagal:", err);
+    res.status(500).json({ error: "Gagal membuat link pembayaran: " + err.message });
+  }
+});
+
+// Webhook Xendit -- dipanggil server-ke-server (bukan dari browser aplikasi
+// ini), jadi TIDAK ada header Authorization Supabase sama sekali. Satu-
+// satunya penjaga di sini adalah header x-callback-token yang harus cocok
+// dengan XENDIT_CALLBACK_TOKEN (diset di dashboard Xendit & env server) --
+// tanpa ini, siapa pun yang tahu URL endpoint ini bisa memalsukan
+// notifikasi "sudah dibayar" dan memicu pencatatan Kas palsu.
+app.post("/api/payment/webhook", async (req, res) => {
+  if (!verifyCallbackToken(req.headers["x-callback-token"])) {
+    return res.status(401).json({ error: "Token webhook tidak valid." });
+  }
+  if (!supabaseAdmin) return res.status(500).json({ error: "Server belum dikonfigurasi." });
+  try {
+    const { external_id: paymentId, status, id: xenditInvoiceId } = req.body || {};
+    if (status !== "PAID" && status !== "SETTLED") {
+      return res.json({ ok: true, ignored: true });
+    }
+    const { data: payment, error } = await supabaseAdmin.from("payment_transactions").select("*").eq("id", paymentId).maybeSingle();
+    if (error) throw error;
+    if (!payment) return res.status(404).json({ error: "Payment tidak ditemukan." });
+    await markPaymentPaid(supabaseAdmin, payment, xenditInvoiceId);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[payment/webhook] gagal:", err);
+    res.status(500).json({ error: "Gagal memproses webhook: " + err.message });
+  }
+});
+
 // Backup otomatis (Fase 0.2): dicek setiap jam, tapi tiap perusahaan cuma
 // benar-benar di-backup kalau sudah lewat ~24 jam sejak backup terakhirnya
 // (dicek dari database, jadi tahan restart/redeploy -- lihat lib/backup.js).
@@ -212,6 +312,13 @@ if (supabaseAdmin) {
 if (supabaseAdmin) {
   setInterval(() => { checkAndSendReminders(supabaseAdmin).catch(err => console.error("[reminders] gagal:", err.message)); }, REMINDER_CHECK_INTERVAL_MS);
   setTimeout(() => { checkAndSendReminders(supabaseAdmin).catch(err => console.error("[reminders] gagal:", err.message)); }, 45 * 1000);
+}
+
+// Pengecekan ulang berkala Payment Gateway (Fase 1.1): jaring pengaman
+// kalau webhook Xendit gagal terkirim -- lihat lib/payment.js.
+if (supabaseAdmin) {
+  setInterval(() => { checkPendingPayments(supabaseAdmin).catch(err => console.error("[payment] gagal cek ulang:", err.message)); }, RECONCILE_INTERVAL_MS);
+  setTimeout(() => { checkPendingPayments(supabaseAdmin).catch(err => console.error("[payment] gagal cek ulang:", err.message)); }, 60 * 1000);
 }
 
 app.listen(PORT, () => {
