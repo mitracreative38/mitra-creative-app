@@ -5,6 +5,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "build:mobile-init": "esbuild src/mobile-init.js --bundle --outfile=www/mobile-init.bundle.js --format=iife --minify",
+    "build:qrcode": "esbuild src/qrcode-init.js --bundle --outfile=www/qrcode.bundle.js --format=iife --minify",
     "sync": "npm run build:mobile-init && cap sync",
     "assets": "node resources/generate-source-images.js && capacitor-assets generate",
     "android:open": "npm run sync && cap open android",
@@ -29,7 +30,9 @@
     "@capacitor/core": "^8.5.0",
     "@capacitor/ios": "^8.5.0",
     "@capacitor/splash-screen": "^8.0.2",
-    "@capacitor/status-bar": "^8.0.3"
+    "@capacitor/status-bar": "^8.0.3",
+    "jsqr": "^1.4.0",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",

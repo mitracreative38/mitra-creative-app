@@ -1091,6 +1091,7 @@
             <label class="field-label" style="margin:0 8px 0 0;">Tanggal</label>
             <input type="date" id="ab_tanggal">
             <button class="btn-ghost" id="ab_loadBtn">Muat Data Tanggal Ini</button>
+            <button class="btn-primary" id="ab_scanQrBtn">📷 Scan QR Kehadiran</button>
           </div>
           <div class="table-wrap">
             <table class="tbl" id="ab_table">
@@ -3238,6 +3239,41 @@
   </div>
 </div>
 
+<!-- Modal: Kartu QR Absensi per Karyawan -->
+<div class="modal-backdrop" id="karyawanQrModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Kartu QR Absensi</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <div style="text-align:center;">
+      <canvas id="karyawanQrCanvas" width="220" height="220" style="margin:0 auto;"></canvas>
+      <p style="font-weight:600;margin:12px 0 4px;" id="karyawanQrNama">-</p>
+      <p class="muted" style="font-size:12px;">Cetak &amp; bawa kartu ini — pindai lewat "Scan QR Kehadiran" di halaman Absensi Harian.</p>
+      <button class="btn-ghost" id="karyawanQrPrintBtn" style="margin-top:12px;">🖨️ Cetak Kartu</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Scan QR Kehadiran (Absensi) -->
+<div class="modal-backdrop" id="absensiScanModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Scan QR Kehadiran</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <video id="absensiScanVideo" autoplay playsinline muted style="width:100%;border-radius:8px;background:#000;"></video>
+    <p class="muted" id="absensiScanError" style="display:none;color:#b91c1c;margin-top:8px;"></p>
+    <p style="margin-top:8px;font-weight:600;" id="absensiScanStatus">Arahkan kamera ke kartu QR pekerja...</p>
+    <div class="table-wrap" style="margin-top:12px;max-height:180px;overflow-y:auto;">
+      <table class="tbl">
+        <thead><tr><th>Waktu</th><th>Nama</th></tr></thead>
+        <tbody id="absensiScanLogTable"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: Lokasi Pekerja - kode pairing HP baru -->
 <div class="modal-backdrop" id="lokPairModal">
   <div class="modal">
@@ -3403,6 +3439,10 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <!-- Supabase client for optional cloud sync — app works fully offline/local if this fails to load -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<!-- Absensi QR Code (Fase 1.7): bundel LOKAL (bukan CDN) supaya kartu QR &
+     pemindai kamera tetap jalan walau jaringan lambat/CDN diblokir --
+     lihat src/qrcode-init.js. -->
+<script src="qrcode.bundle.js"></script>
 <script src="data.js"></script>
 <!-- Native-shell glue (status bar, splash screen, Android back button, plugin
      window.__pekerjaGeo bridge) — no-op outside the mobile app. Dimuat SEBELUM
