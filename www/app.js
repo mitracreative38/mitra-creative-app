@@ -3626,7 +3626,7 @@ function hitungBonusTarget(target, realisasi, persen) {
 }
 
 // ----- Subtab switching (scoped by data-subtab-page so different pages don't clash) -----
-const SUBTAB_PANEL_PREFIX = { ky: "ky_", lk: "lk_", kpi: "kpi_" };
+const SUBTAB_PANEL_PREFIX = { ky: "ky_", lk: "lk_", kpi: "kpi_", pm: "pm_" };
 document.querySelectorAll(".subtab-item").forEach(btn => {
   btn.addEventListener("click", () => showSubtab(btn.dataset.subtabPage, btn.dataset.subtab));
 });
@@ -3645,6 +3645,7 @@ function showSubtab(pagePrefix, name) {
     if (name === "proyeksi") renderProyeksiArusKas();
   }
   if (pagePrefix === "kpi") renderKpiActiveSubtab();
+  if (pagePrefix === "pm" && name === "performa") renderVendorPerforma();
 }
 
 // ----- Daftar Karyawan -----
@@ -4361,6 +4362,81 @@ function pemasokRiwayat(pm) {
 function pemasokTotal(pm) {
   return pemasokRiwayat(pm).reduce((s, r) => s + r.qty * r.harga, 0);
 }
+
+// ===== Performa Subkontraktor & Pemasok =====
+// Bukan skor tunggal (tidak ada field kualitas/ketepatan waktu yang
+// tercatat untuk Subkontraktor -- mereka cuma entri per-Proyek, tidak
+// punya master data terpisah seperti Pemasok) -- murni ringkasan riwayat
+// dari data yang SUDAH ada, supaya Owner bisa bandingkan vendor sebelum
+// memilih untuk proyek berikutnya, tanpa menambah input baru.
+//
+// Subkontraktor dikelompokkan lintas SEMUA Proyek berdasarkan nama (trim
+// + tanpa membedakan huruf besar/kecil), karena memang tidak ada id
+// master yang menyatukan entri subkontraktor yang sama di proyek berbeda.
+function computeSubkonPerformance() {
+  const map = new Map();
+  state.proyek.forEach(p => {
+    (p.subkontraktor || []).forEach(sk => {
+      const key = (sk.nama || "").trim().toLowerCase();
+      if (!key) return;
+      if (!map.has(key)) map.set(key, { nama: sk.nama.trim(), proyekSet: new Set(), totalNilaiKontrak: 0, totalDibayar: 0 });
+      const entry = map.get(key);
+      entry.proyekSet.add(p.nama || "(Tanpa nama)");
+      entry.totalNilaiKontrak += sk.nilaiKontrak || 0;
+      entry.totalDibayar += subkonDibayar(p, sk.id);
+    });
+  });
+  return Array.from(map.values()).map(e => ({
+    nama: e.nama,
+    jumlahProyek: e.proyekSet.size,
+    daftarProyek: Array.from(e.proyekSet),
+    totalNilaiKontrak: e.totalNilaiKontrak,
+    totalDibayar: e.totalDibayar,
+    sisa: e.totalNilaiKontrak - e.totalDibayar
+  })).sort((a, b) => b.jumlahProyek - a.jumlahProyek || b.totalNilaiKontrak - a.totalNilaiKontrak);
+}
+function computePemasokPerformance() {
+  return state.pemasok.map(pm => {
+    const riwayat = pemasokRiwayat(pm); // sudah terurut tanggal terbaru dulu
+    const totalPembelian = riwayat.reduce((s, r) => s + r.qty * r.harga, 0);
+    const hargaList = riwayat.map(r => r.harga).filter(h => h > 0);
+    return {
+      nama: pm.nama,
+      kategori: pm.kategori,
+      jumlahTransaksi: riwayat.length,
+      totalPembelian,
+      hargaMin: hargaList.length ? Math.min(...hargaList) : 0,
+      hargaMax: hargaList.length ? Math.max(...hargaList) : 0,
+      terakhirBeli: riwayat.length ? riwayat[0].tanggal : null
+    };
+  }).sort((a, b) => b.totalPembelian - a.totalPembelian);
+}
+function renderVendorPerforma() {
+  const subkon = computeSubkonPerformance();
+  document.querySelector("#pm_subkonPerfTable tbody").innerHTML = subkon.length ? subkon.map(d => `
+    <tr>
+      <td>${escapeHtml(d.nama)}</td>
+      <td class="num">${d.jumlahProyek}</td>
+      <td>${escapeHtml(d.daftarProyek.join(", "))}</td>
+      <td class="num">${rupiah(d.totalNilaiKontrak)}</td>
+      <td class="num">${rupiah(d.totalDibayar)}</td>
+      <td class="num">${rupiah(d.sisa)}</td>
+    </tr>
+  `).join("") : '<tr class="empty-row"><td colspan="6">Belum ada data subkontraktor</td></tr>';
+
+  const pemasok = computePemasokPerformance();
+  document.querySelector("#pm_pemasokPerfTable tbody").innerHTML = pemasok.length ? pemasok.map(d => `
+    <tr>
+      <td>${escapeHtml(d.nama)}</td>
+      <td>${escapeHtml(d.kategori || "-")}</td>
+      <td class="num">${d.jumlahTransaksi}</td>
+      <td class="num">${rupiah(d.totalPembelian)}</td>
+      <td>${d.jumlahTransaksi ? `${rupiah(d.hargaMin)} - ${rupiah(d.hargaMax)}` : "-"}</td>
+      <td>${d.terakhirBeli ? formatTanggal(d.terakhirBeli) : "-"}</td>
+    </tr>
+  `).join("") : '<tr class="empty-row"><td colspan="6">Belum ada pemasok</td></tr>';
+}
+
 let currentPemasokId = null;
 function showPemasokList() {
   currentPemasokId = null;
@@ -7051,6 +7127,8 @@ function renderAll() {
   document.getElementById("pm_listView").style.display = currentPemasokId ? "none" : "block";
   document.getElementById("pm_detailView").style.display = currentPemasokId ? "block" : "none";
   if (currentPemasokId) renderPemasokDetail(); else renderPemasokList();
+  { const activePmSubtab = document.querySelector('.subtab-item[data-subtab-page="pm"].active');
+    if (activePmSubtab && activePmSubtab.dataset.subtab === "performa") renderVendorPerforma(); }
   renderAhsp();
   document.getElementById("rab_listView").style.display = currentRabId ? "none" : "block";
   document.getElementById("rab_editorView").style.display = currentRabId ? "block" : "none";

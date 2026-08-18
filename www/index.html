@@ -1301,6 +1301,12 @@
 
     <!-- PEMASOK -->
     <section class="page" id="page-pemasok">
+      <div class="subtabs">
+        <button class="subtab-item active" data-subtab="pemasok" data-subtab-page="pm">Pemasok</button>
+        <button class="subtab-item" data-subtab="performa" data-subtab-page="pm">Performa Subkontraktor &amp; Pemasok</button>
+      </div>
+
+      <div class="subtab-panel active" id="pm_pemasokPanel">
       <div id="pm_listView">
         <header class="page-header">
           <div>
@@ -1352,6 +1358,31 @@
           <div class="table-wrap">
             <table class="tbl" id="pmd_riwayatTable">
               <thead><tr><th>Tanggal</th><th>Material</th><th class="num">Qty</th><th class="num">Harga Satuan</th><th>Sumber</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      </div>
+
+      <div class="subtab-panel" id="pm_performaPanel">
+        <div class="panel">
+          <p class="muted" style="font-size:12px;">Dikumpulkan otomatis dari data yang sudah tercatat -- Subkontraktor dari seluruh Proyek (dikelompokkan per nama), Pemasok dari riwayat pembelian Stok Material &amp; Belanja Material. Bukan skor tunggal, tapi ringkasan riwayat untuk bantu bandingkan vendor sebelum memilih untuk proyek berikutnya.</p>
+        </div>
+        <div class="panel">
+          <h3>Performa Subkontraktor</h3>
+          <div class="table-wrap">
+            <table class="tbl" id="pm_subkonPerfTable">
+              <thead><tr><th>Nama Subkontraktor</th><th class="num">Jumlah Proyek</th><th>Proyek</th><th class="num">Total Nilai Kontrak</th><th class="num">Total Dibayar</th><th class="num">Sisa Belum Dibayar</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Performa Pemasok</h3>
+          <div class="table-wrap">
+            <table class="tbl" id="pm_pemasokPerfTable">
+              <thead><tr><th>Nama Pemasok</th><th>Kategori</th><th class="num">Jumlah Transaksi</th><th class="num">Total Pembelian</th><th>Rentang Harga</th><th>Terakhir Beli</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
