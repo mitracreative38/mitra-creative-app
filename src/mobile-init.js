@@ -5,6 +5,8 @@ import { Capacitor, registerPlugin } from "@capacitor/core";
 import { StatusBar, Style } from "@capacitor/status-bar";
 import { SplashScreen } from "@capacitor/splash-screen";
 import { App } from "@capacitor/app";
+import { BiometricAuth } from "@aparajita/capacitor-biometric-auth";
+import { Camera, CameraResultType, CameraSource, CameraDirection } from "@capacitor/camera";
 
 // Lokasi Pekerja (Fase 1.5): @capacitor-community/background-geolocation
 // tidak menyertakan JS bridge sendiri (cuma kode native + tipe TS) --
@@ -23,6 +25,38 @@ window.__pekerjaGeo = {
   addWatcher: (options, callback) => BackgroundGeolocation.addWatcher(options, callback),
   removeWatcher: (id) => BackgroundGeolocation.removeWatcher({ id }),
   openSettings: () => BackgroundGeolocation.openSettings()
+};
+
+// Absen Masuk/Pulang (Fase 1.8): dua bridge kecil supaya app.js (skrip
+// biasa) bisa memakai konfirmasi biometrik & kamera selfie tanpa tahu
+// apa pun soal Capacitor. BEDA dengan window.__pekerjaGeo di atas --
+// kedua plugin ini PUNYA fallback web resminya sendiri (biometrik:
+// dialog confirm() simulasi; kamera: getUserMedia), jadi bridge ini
+// tetap berfungsi baik di aplikasi native MAUPUN di browser biasa.
+window.__pekerjaBiometric = {
+  async confirm(reason) {
+    try {
+      const check = await BiometricAuth.checkBiometry();
+      if (!check.isAvailable) return { ok: false, available: false };
+      await BiometricAuth.authenticate({ reason: reason || "Konfirmasi identitas untuk absen", allowDeviceCredential: true });
+      return { ok: true, available: true };
+    } catch (err) {
+      return { ok: false, available: true, error: (err && err.message) || String(err) };
+    }
+  }
+};
+window.__pekerjaCamera = {
+  async captureSelfie() {
+    const photo = await Camera.getPhoto({
+      quality: 70,
+      resultType: CameraResultType.Base64,
+      source: CameraSource.Camera,
+      direction: CameraDirection.Front,
+      saveToGallery: false,
+      allowEditing: false
+    });
+    return photo.base64String;
+  }
 };
 
 if (Capacitor.isNativePlatform()) {

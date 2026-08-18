@@ -32,6 +32,14 @@
 	<array>
 		<string>location</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Kamera dipakai untuk foto selfie bukti kehadiran saat absen masuk/pulang.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Dipakai untuk menyimpan foto selfie bukti kehadiran.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Dipakai untuk menyimpan foto selfie bukti kehadiran.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Face ID dipakai untuk konfirmasi identitas sebelum mencatat absen masuk/pulang.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

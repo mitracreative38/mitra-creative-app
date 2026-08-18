@@ -3935,7 +3935,7 @@ function renderAbsensiPanel() {
   const tbody = document.querySelector("#ab_table tbody");
   tbody.innerHTML = "";
   if (!aktif.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">Belum ada karyawan aktif</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Belum ada karyawan aktif</td></tr>';
     return;
   }
   aktif.forEach(k => {
@@ -3953,13 +3953,38 @@ function renderAbsensiPanel() {
       <td>${lokasi
         ? `<a href="https://www.google.com/maps?q=${lokasi.lat},${lokasi.lng}" target="_blank" rel="noopener">📍 ${new Date(lokasi.waktu).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}</a> <button type="button" class="icon-btn" data-catat-lokasi="${k.id}" title="Catat Ulang">🔄</button>`
         : `<button type="button" class="btn-ghost" data-catat-lokasi="${k.id}" style="padding:4px 10px; font-size:12px;">📍 Catat Lokasi</button>`}</td>
+      <td>${renderAbsenViaHpCell(existing)}</td>
     `;
     tbody.appendChild(tr);
   });
 }
+// Fase 1.8: kolom "Absen via HP" -- jam masuk/pulang + badge Biometrik +
+// tombol lihat selfie (dibuka lewat signed URL, karena bucketnya privat)
+// untuk record yang berasal dari absen mandiri lewat aplikasi pekerja.
+function renderAbsenViaHpCell(rec) {
+  if (!rec || (!rec.jamMasuk && !rec.jamPulang)) return "-";
+  const jamStr = iso => iso ? new Date(iso).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "-";
+  const parts = [];
+  if (rec.jamMasuk) parts.push(`Masuk ${jamStr(rec.jamMasuk)}${rec.selfieMasukPath ? ` <button type="button" class="icon-btn" data-lihat-selfie="${rec.selfieMasukPath}" title="Lihat Selfie">📷</button>` : ""}`);
+  if (rec.jamPulang) parts.push(`Pulang ${jamStr(rec.jamPulang)}${rec.selfiePulangPath ? ` <button type="button" class="icon-btn" data-lihat-selfie="${rec.selfiePulangPath}" title="Lihat Selfie">📷</button>` : ""}`);
+  const badge = rec.viaBiometrik ? ' <span class="badge-margin good">Biometrik</span>' : "";
+  return parts.join("<br>") + badge;
+}
 document.getElementById("ab_loadBtn").addEventListener("click", renderAbsensiPanel);
 document.getElementById("ab_tanggal").addEventListener("change", renderAbsensiPanel);
-document.getElementById("ab_table").addEventListener("click", e => {
+document.getElementById("ab_table").addEventListener("click", async e => {
+  const selfieBtn = e.target.closest("[data-lihat-selfie]");
+  if (selfieBtn) {
+    if (!sb) { alert("Login sebagai Owner/Admin dulu untuk melihat foto selfie."); return; }
+    try {
+      const { data, error } = await sb.storage.from("absensi-selfie").createSignedUrl(selfieBtn.dataset.lihatSelfie, 3600);
+      if (error) throw error;
+      window.open(data.signedUrl, "_blank", "noopener");
+    } catch (err) {
+      alert("Gagal membuka foto selfie: " + err.message);
+    }
+    return;
+  }
   const btn = e.target.closest("[data-catat-lokasi]");
   if (!btn) return;
   const tanggal = document.getElementById("ab_tanggal").value;
@@ -9350,6 +9375,59 @@ function bootPekerjaMode() {
   document.getElementById("pekerjaNama").textContent = device.karyawanNama || "Pekerja";
   startPekerjaTracking();
 }
+
+// ===== Fase 1.8: Absen Masuk/Pulang lewat HP pekerja =====
+// Dipisah jadi 2 lapis: pekerjaSubmitAbsenCore() murni membangun payload
+// & memanggil server -- bisa dites langsung tanpa plugin native
+// sungguhan. handlePekerjaAbsenClick() membungkusnya dengan konfirmasi
+// biometrik (window.__pekerjaBiometric) + pengambilan selfie
+// (window.__pekerjaCamera), dua bridge dari src/mobile-init.js.
+let pekerjaAbsenState = { masuk: false, pulang: false };
+async function pekerjaSubmitAbsenCore(jenis, selfieBase64) {
+  const device = getPekerjaDevice();
+  if (!device) return { error: "Perangkat belum dipasangkan." };
+  const res = await fetch(`${PDF_SERVER_URL}/api/pekerja/absen`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deviceToken: device.deviceToken, jenis, selfieBase64 })
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Gagal mencatat absen.");
+  return data;
+}
+async function handlePekerjaAbsenClick(jenis) {
+  const statusEl = document.getElementById("pekerjaAbsenStatus");
+  const btnMasuk = document.getElementById("pekerjaAbsenMasukBtn");
+  const btnPulang = document.getElementById("pekerjaAbsenPulangBtn");
+  btnMasuk.disabled = true;
+  btnPulang.disabled = true;
+  statusEl.textContent = "Memproses...";
+  try {
+    if (!window.__pekerjaBiometric) throw new Error("Bridge biometrik tidak tersedia.");
+    const bio = await window.__pekerjaBiometric.confirm(
+      jenis === "masuk" ? "Konfirmasi identitas untuk Absen Masuk" : "Konfirmasi identitas untuk Absen Pulang"
+    );
+    if (bio.available && !bio.ok) {
+      throw new Error("Konfirmasi identitas dibatalkan/gagal" + (bio.error ? ": " + bio.error : "."));
+    }
+    if (!window.__pekerjaCamera) throw new Error("Kamera tidak tersedia di perangkat ini.");
+    const selfieBase64 = await window.__pekerjaCamera.captureSelfie();
+    if (!selfieBase64) throw new Error("Gagal mengambil foto selfie.");
+    await pekerjaSubmitAbsenCore(jenis, selfieBase64);
+    pekerjaAbsenState[jenis] = true;
+    const jamText = new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+    statusEl.textContent = jenis === "masuk"
+      ? `✅ Absen Masuk tercatat jam ${jamText}${bio.ok ? " (terverifikasi biometrik)" : ""}.`
+      : `🚪 Absen Pulang tercatat jam ${jamText}${bio.ok ? " (terverifikasi biometrik)" : ""}.`;
+  } catch (err) {
+    statusEl.textContent = "⚠️ " + err.message;
+  } finally {
+    btnMasuk.disabled = pekerjaAbsenState.masuk;
+    btnPulang.disabled = pekerjaAbsenState.pulang;
+  }
+}
+document.getElementById("pekerjaAbsenMasukBtn").addEventListener("click", () => handlePekerjaAbsenClick("masuk"));
+document.getElementById("pekerjaAbsenPulangBtn").addEventListener("click", () => handlePekerjaAbsenClick("pulang"));
 document.getElementById("settingsPekerjaPairBtn").addEventListener("click", () => {
   document.getElementById("pjr_code").value = "";
   document.getElementById("pjr_error").style.display = "none";

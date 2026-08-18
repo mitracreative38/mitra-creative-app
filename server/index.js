@@ -7,7 +7,7 @@ const { getBrowser } = require("./lib/browser");
 const { checkAndRunBackups } = require("./lib/backup");
 const { checkAndSendReminders, REMINDER_CHECK_INTERVAL_MS } = require("./lib/reminders");
 const { createInvoice, verifyCallbackToken, markPaymentPaid, checkPendingPayments, RECONCILE_INTERVAL_MS } = require("./lib/payment");
-const { pairDevice, submitPing, cleanupOldLokasiPekerja } = require("./lib/pekerjaTracking");
+const { pairDevice, submitPing, submitAbsenApp, cleanupOldLokasiPekerja } = require("./lib/pekerjaTracking");
 
 const PORT = process.env.PORT || 3000;
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -43,7 +43,9 @@ const supabaseAdmin = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
 
 const app = express();
 app.use(cors({ origin: ALLOWED_ORIGINS }));
-app.use(express.json());
+// Limit default express.json() (100kb) dinaikkan supaya foto selfie
+// (base64, dikirim /api/pekerja/absen) tidak ditolak sebelum sempat diproses.
+app.use(express.json({ limit: "5mb" }));
 
 app.get("/health", (req, res) => {
   res.json({
@@ -320,6 +322,24 @@ app.post("/api/pekerja/ping", async (req, res) => {
   } catch (err) {
     console.error("[pekerja/ping] gagal:", err);
     res.status(500).json({ error: "Gagal mengirim lokasi: " + err.message });
+  }
+});
+
+// Absen Masuk/Pulang lewat aplikasi (Fase 1.8): sama seperti /api/pekerja/pair
+// & /ping, TIDAK memakai requireAccessToken -- device_token adalah
+// kredensialnya. Foto selfie diunggah ke Storage lewat service role
+// (satu-satunya cara menyentuh bucket "absensi-selfie" yang sengaja
+// tidak punya kebijakan insert untuk klien manapun -- lihat fix27.sql).
+app.post("/api/pekerja/absen", async (req, res) => {
+  if (!supabaseAdmin) return res.status(500).json({ error: "Server belum dikonfigurasi." });
+  try {
+    const { deviceToken, jenis, selfieBase64 } = req.body || {};
+    const result = await submitAbsenApp(supabaseAdmin, deviceToken, { jenis, selfieBase64 });
+    if (result.error) return res.status(400).json({ error: result.error });
+    res.json(result);
+  } catch (err) {
+    console.error("[pekerja/absen] gagal:", err);
+    res.status(500).json({ error: "Gagal mencatat absen: " + err.message });
   }
 });
 
