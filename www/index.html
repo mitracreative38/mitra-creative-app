@@ -26,7 +26,17 @@
     <p style="font-size:18px;font-weight:600;margin:0 0 16px;" id="pekerjaNama">-</p>
     <p style="margin:0 0 8px;">Status: <span class="badge-margin warning" id="pekerjaStatusBadge">Menyiapkan...</span></p>
     <p class="muted" style="margin:0 0 24px;">Update terakhir: <span id="pekerjaLastSent">-</span></p>
-    <p class="muted" style="font-size:12px;margin-bottom:32px;">Lokasi dikirim otomatis selama aplikasi ini terpasang, sebagai antisipasi kalau HP hilang di lapangan. Jangan hapus/uninstall aplikasi ini.</p>
+    <p class="muted" style="font-size:12px;margin-bottom:24px;">Lokasi dikirim otomatis selama aplikasi ini terpasang, sebagai antisipasi kalau HP hilang di lapangan. Jangan hapus/uninstall aplikasi ini.</p>
+
+    <hr style="border:none;border-top:1px solid #eee;margin:0 0 20px;">
+    <h2 style="font-size:16px;margin:0 0 12px;">Absen Masuk / Pulang</h2>
+    <p class="muted" style="font-size:12px;margin-bottom:16px;">Konfirmasi identitas (sidik jari/Face ID kalau tersedia di HP ini) + foto selfie sebagai bukti kehadiran.</p>
+    <div style="display:flex;gap:10px;margin-bottom:12px;">
+      <button class="btn-primary" id="pekerjaAbsenMasukBtn" style="flex:1;">✅ Absen Masuk</button>
+      <button class="btn-primary" id="pekerjaAbsenPulangBtn" style="flex:1;">🚪 Absen Pulang</button>
+    </div>
+    <p style="margin:0 0 24px;font-weight:600;" id="pekerjaAbsenStatus">Belum absen hari ini.</p>
+
     <button class="btn-ghost" id="pekerjaUnpairBtn">Lepas HP Ini</button>
   </div>
 </div>
@@ -1095,7 +1105,7 @@
           </div>
           <div class="table-wrap">
             <table class="tbl" id="ab_table">
-              <thead><tr><th>Nama</th><th>Jabatan</th><th>Hadir</th><th class="num">Jam Lembur</th><th>Lokasi Absen</th></tr></thead>
+              <thead><tr><th>Nama</th><th>Jabatan</th><th>Hadir</th><th class="num">Jam Lembur</th><th>Lokasi Absen</th><th>Absen via HP</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
