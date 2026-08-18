@@ -1170,6 +1170,13 @@
 
     <!-- STOK MATERIAL & ALAT -->
     <section class="page" id="page-stok">
+      <div class="subtabs">
+        <button class="subtab-item active" data-subtab="material" data-subtab-page="stok">Stok Material</button>
+        <button class="subtab-item" data-subtab="alat" data-subtab-page="stok">Alat</button>
+        <button class="subtab-item" data-subtab="opname" data-subtab-page="stok">Opname Harian</button>
+      </div>
+
+      <div class="subtab-panel active" id="stok_materialPanel">
       <div id="stok_listView">
         <header class="page-header">
           <div>
@@ -1292,6 +1299,122 @@
               <thead><tr>
                 <th>Tanggal</th><th>Tipe</th><th class="num">Qty</th><th>Gudang/Lokasi</th><th>Keterangan</th><th></th>
               </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      </div>
+
+      <div class="subtab-panel" id="stok_alatPanel">
+        <div id="alat_listView">
+          <header class="page-header">
+            <div>
+              <h1>Alat</h1>
+              <p class="page-sub">Alat/peralatan kerja yang dipinjam-kembalikan per proyek -- berbeda dari Stok Material yang dipakai habis, jadi dilacak terpisah lewat riwayat peminjaman per unit.</p>
+            </div>
+            <button class="btn-primary" id="alat_addBtn">+ Tambah Alat</button>
+          </header>
+          <div class="stat-grid">
+            <div class="stat-card">
+              <div class="stat-label">Total Jenis Alat</div>
+              <div class="stat-value" id="alat_totalJenis">0</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Total Unit</div>
+              <div class="stat-value" id="alat_totalUnit">0</div>
+            </div>
+            <div class="stat-card accent">
+              <div class="stat-label">Sedang Dipinjam</div>
+              <div class="stat-value warn" id="alat_totalDipinjam">0</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Terlambat Kembali</div>
+              <div class="stat-value bad" id="alat_totalTerlambat">0</div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="toolbar">
+              <input type="search" placeholder="Cari nama alat..." class="search-input" id="alat_search">
+            </div>
+            <div class="table-wrap">
+              <table class="tbl" id="alat_table">
+                <thead><tr>
+                  <th>Nama Alat</th><th>Kategori</th><th>Kondisi</th><th class="num">Total Unit</th>
+                  <th class="num">Dipinjam</th><th class="num">Tersedia</th><th></th>
+                </tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="alat_detailView" style="display:none;">
+          <header class="page-header">
+            <div>
+              <h1 id="alatd_nama">Detail Alat</h1>
+              <p class="page-sub" id="alatd_sub">-</p>
+            </div>
+            <button class="btn-ghost" id="alatd_backBtn">← Kembali ke Daftar</button>
+          </header>
+          <div class="stat-grid">
+            <div class="stat-card">
+              <div class="stat-label">Total Unit</div>
+              <div class="stat-value" id="alatd_totalUnit">0</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Sedang Dipinjam</div>
+              <div class="stat-value warn" id="alatd_dipinjam">0</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Tersedia</div>
+              <div class="stat-value good" id="alatd_tersedia">0</div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="toolbar">
+              <div class="muted" style="flex:1">Peminjaman</div>
+              <button class="btn-ghost" id="alatd_pinjamBtn">+ Catat Peminjaman</button>
+            </div>
+            <div class="table-wrap">
+              <table class="tbl" id="alatd_peminjamanTable">
+                <thead><tr>
+                  <th>Karyawan</th><th>Proyek</th><th class="num">Jumlah</th><th>Tgl Pinjam</th>
+                  <th>Rencana Kembali</th><th>Tgl Kembali</th><th>Status</th><th></th>
+                </tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="subtab-panel" id="stok_opnamePanel">
+        <div class="panel">
+          <div class="form-grid">
+            <div class="field"><label>Tanggal Opname</label><input type="date" id="opname_tanggal"></div>
+            <div class="field" style="justify-content:flex-end;">
+              <button type="button" class="btn-primary" id="opname_muatBtn">Muat Data untuk Dihitung</button>
+            </div>
+          </div>
+          <p class="muted" style="font-size:12px;">Hitung fisik langsung di lapangan/gudang, lalu isi kolom "Jumlah Fisik" di bawah. Selisih dihitung otomatis dan tersimpan di riwayat sebagai jejak audit -- tidak langsung mengubah stok tercatat (kalau memang ada selisih nyata, sesuaikan lewat transaksi Stok/Alat seperti biasa setelah tahu penyebabnya).</p>
+        </div>
+        <div class="panel" id="opname_inputPanelWrap" style="display:none;">
+          <div class="table-wrap">
+            <table class="tbl" id="opname_inputTable">
+              <thead><tr><th>Jenis</th><th>Nama</th><th class="num">Tercatat</th><th class="num">Jumlah Fisik</th><th>Catatan</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="modal-actions" style="justify-content:flex-end; margin-top:12px;">
+            <button type="button" class="btn-primary" id="opname_simpanBtn">Simpan Opname</button>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Riwayat Opname</h3>
+          <div class="table-wrap">
+            <table class="tbl" id="opname_riwayatTable">
+              <thead><tr><th>Tanggal</th><th class="num">Jumlah Item Dicek</th><th class="num">Jumlah Selisih</th><th></th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -2884,6 +3007,146 @@
         <button type="submit" class="btn-primary">Simpan</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- Modal: Alat (master data) -->
+<div class="modal-backdrop" id="alatModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="alatModalTitle">Tambah Alat</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <form id="alatForm">
+      <input type="hidden" id="al_id">
+      <div class="form-grid">
+        <div class="field full">
+          <label>Nama Alat</label>
+          <input type="text" id="al_nama" required placeholder="mis. Mesin Las">
+        </div>
+        <div class="field">
+          <label>Kategori</label>
+          <input type="text" id="al_kategori" placeholder="mis. Alat Berat">
+        </div>
+        <div class="field">
+          <label>Satuan</label>
+          <input type="text" id="al_satuan" placeholder="unit">
+        </div>
+        <div class="field">
+          <label>Kondisi</label>
+          <select id="al_kondisi">
+            <option>Baik</option>
+            <option>Rusak Ringan</option>
+            <option>Rusak Berat</option>
+            <option>Perlu Servis</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Total Unit</label>
+          <input type="text" inputmode="numeric" id="al_jumlahUnit" placeholder="0">
+        </div>
+        <div class="field full">
+          <label>Catatan</label>
+          <input type="text" id="al_catatan" placeholder="opsional">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: Catat Peminjaman Alat -->
+<div class="modal-backdrop" id="peminjamanModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Catat Peminjaman</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <form id="peminjamanForm">
+      <input type="hidden" id="pjm_alatId">
+      <div class="form-grid">
+        <div class="field full">
+          <label>Karyawan Peminjam</label>
+          <select id="pjm_karyawanId" required><option value="">Pilih karyawan</option></select>
+        </div>
+        <div class="field full">
+          <label>Proyek</label>
+          <select id="pjm_proyekId"><option value="">Tidak dikaitkan</option></select>
+        </div>
+        <div class="field">
+          <label>Jumlah</label>
+          <input type="text" inputmode="numeric" id="pjm_jumlah" placeholder="1">
+        </div>
+        <div class="field">
+          <label>Tanggal Pinjam</label>
+          <input type="date" id="pjm_tanggalPinjam">
+        </div>
+        <div class="field full">
+          <label>Rencana Kembali</label>
+          <input type="date" id="pjm_rencanaKembali">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: Kembalikan Alat -->
+<div class="modal-backdrop" id="kembaliModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Kembalikan Alat</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <form id="kembaliForm">
+      <input type="hidden" id="kb_alatId">
+      <input type="hidden" id="kb_peminjamanId">
+      <div class="form-grid">
+        <div class="field">
+          <label>Tanggal Kembali</label>
+          <input type="date" id="kb_tanggalKembali">
+        </div>
+        <div class="field">
+          <label>Kondisi Saat Kembali</label>
+          <select id="kb_kondisiKembali">
+            <option>Baik</option>
+            <option>Rusak Ringan</option>
+            <option>Rusak Berat</option>
+            <option>Hilang</option>
+          </select>
+        </div>
+        <div class="field full">
+          <label>Catatan</label>
+          <input type="text" id="kb_catatan" placeholder="opsional">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: Detail Opname -->
+<div class="modal-backdrop" id="opnameDetailModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="opnameDetailTitle">Detail Opname</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <div class="table-wrap">
+      <table class="tbl" id="opnameDetailTable">
+        <thead><tr><th>Jenis</th><th>Nama</th><th class="num">Tercatat</th><th class="num">Fisik</th><th class="num">Selisih</th><th>Catatan</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
   </div>
 </div>
 

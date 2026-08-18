@@ -613,5 +613,9 @@ SEED_DATA.pemasok = [];
 // ===== Gudang / Lokasi Stok =====
 SEED_DATA.gudang = [];
 
+// ===== Alat (peminjaman/kembali per proyek) & Stock Opname Harian =====
+SEED_DATA.alat = [];
+SEED_DATA.stokOpname = [];
+
 // ===== Approval pengeluaran besar =====
 SEED_DATA.approvalThreshold = 0;
