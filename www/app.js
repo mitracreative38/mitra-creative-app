@@ -54,6 +54,8 @@ function withDefaults(s) {
   if (!s.klien) s.klien = [];
   if (!s.pemasok) s.pemasok = [];
   if (!s.gudang) s.gudang = [];
+  if (!s.alat) s.alat = [];
+  if (!s.stokOpname) s.stokOpname = [];
   if (typeof s.approvalThreshold !== "number") s.approvalThreshold = 0;
   if (typeof s.targetOmzetBulanan !== "number") s.targetOmzetBulanan = 0;
   if (typeof s.targetLababersihBulanan !== "number") s.targetLababersihBulanan = 0;
@@ -235,7 +237,7 @@ async function resolveTeamMembership(user) {
 // jauh lebih dari cukup dibanding reducer per-tabel yang rumit.
 const REALTIME_RELATIONAL_TABLES = [
   "company_profile", "klien", "ahsp", "rab", "penawaran", "proyek", "karyawan",
-  "stok_material", "gudang", "pemasok",
+  "stok_material", "gudang", "pemasok", "alat", "stok_opname",
   "kas_usaha_transaksi", "kas_pribadi_transaksi", "karyawan_gaji", "kas_saldo_awal"
 ];
 let realtimeReloadTimer = null;
@@ -902,6 +904,78 @@ async function migrateStokIfNeeded() {
     setSyncStatus("Gagal migrasi data Stok ke tabel relasional: " + err.message);
   }
 }
+
+// ===== Alat (Fase 1.4) -- terpisah dari Stok Material karena sifatnya
+// dipinjam-kembalikan per proyek, bukan dipakai habis. Riwayat peminjaman
+// disimpan sebagai array bersarang di dalam baris Alat itu sendiri (pola
+// sama seperti "subkontraktor"/"belanjaMaterial" pada Proyek) -- tidak
+// perlu tabel terpisah, karena tidak butuh query lintas-Alat atas
+// peminjamannya (selalu diakses dalam konteks satu Alat).
+function alatDipinjam(a) {
+  return (a.peminjaman || []).filter(p => !p.tanggalKembali).reduce((s, p) => s + (p.jumlah || 0), 0);
+}
+function alatTersedia(a) {
+  return (a.jumlahUnit || 0) - alatDipinjam(a);
+}
+function alatToRow(a) {
+  return {
+    id: a.id,
+    company_id: targetCompanyId,
+    nama: a.nama || "",
+    kategori: a.kategori || "",
+    satuan: a.satuan || "unit",
+    kondisi: a.kondisi || "Baik",
+    jumlah_unit: a.jumlahUnit || 0,
+    catatan: a.catatan || "",
+    peminjaman: a.peminjaman || [],
+    updated_at: new Date().toISOString()
+  };
+}
+async function mirrorAlatUpsert(a, existing) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("alat").upsert(alatToRow(a));
+    if (error) throw error;
+    if (existing !== undefined) logActivityNow("alat", existing ? "update" : "create", a.id, existing, a);
+  } catch (err) {
+    setSyncStatus("Gagal menyimpan Alat ke tabel relasional: " + err.message);
+  }
+}
+async function mirrorAlatDelete(id, deletedRecord) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("alat").delete().eq("id", id).eq("company_id", targetCompanyId);
+    if (error) throw error;
+    if (deletedRecord) logActivityNow("alat", "delete", id, deletedRecord, null);
+  } catch (err) {
+    setSyncStatus("Gagal menghapus Alat di tabel relasional: " + err.message);
+  }
+}
+
+// ===== Stock Opname Harian (Fase 1.4) -- bandingkan jumlah fisik hasil
+// hitung langsung dengan jumlah tercatat, untuk Stok Material & Alat
+// sekaligus dalam satu sesi per tanggal. Append-only dari sisi UI (tidak
+// ada edit/hapus sesi lama) supaya riwayat opname tetap bisa diaudit.
+function opnameToRow(o) {
+  return {
+    id: o.id,
+    company_id: targetCompanyId,
+    tanggal: o.tanggal,
+    items: o.items || [],
+    updated_at: new Date().toISOString()
+  };
+}
+async function mirrorOpnameUpsert(o) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("stok_opname").upsert(opnameToRow(o));
+    if (error) throw error;
+    logActivityNow("opname", "create", o.id, null, o);
+  } catch (err) {
+    setSyncStatus("Gagal menyimpan Opname ke tabel relasional: " + err.message);
+  }
+}
+
 function gudangToRow(g) {
   return {
     id: g.id,
@@ -1276,6 +1350,16 @@ function rowToPemasok(r) {
     alamat: r.alamat || "", catatan: r.catatan || ""
   };
 }
+function rowToAlat(r) {
+  return {
+    id: r.id, nama: r.nama || "", kategori: r.kategori || "", satuan: r.satuan || "unit",
+    kondisi: r.kondisi || "Baik", jumlahUnit: r.jumlah_unit || 0, catatan: r.catatan || "",
+    peminjaman: r.peminjaman || []
+  };
+}
+function rowToOpname(r) {
+  return { id: r.id, tanggal: r.tanggal, items: r.items || [] };
+}
 async function buildStateFromRelational(companyId) {
   // company_profile diambil terpisah dengan try/catch sendiri -- ini
   // tabel yang PALING BARU (Fase 0.4), jadi selama jeda deploy sudah
@@ -1290,9 +1374,9 @@ async function buildStateFromRelational(companyId) {
   } catch (e) { /* tabel belum ada -- biarkan profileRow null */ }
 
   let klienRows = [], ahspRows = [], rabRows = [], penawaranRows = [], proyekRows = [],
-    karyawanRows = [], stokRows = [], gudangRows = [], pemasokRows = [];
+    karyawanRows = [], stokRows = [], gudangRows = [], pemasokRows = [], alatRows = [], opnameRows = [];
   try {
-    const [klienRes, ahspRes, rabRes, penawaranRes, proyekRes, karyawanRes, stokRes, gudangRes, pemasokRes] = await Promise.all([
+    const [klienRes, ahspRes, rabRes, penawaranRes, proyekRes, karyawanRes, stokRes, gudangRes, pemasokRes, alatRes, opnameRes] = await Promise.all([
       sb.from("klien").select("*").eq("company_id", companyId),
       sb.from("ahsp").select("*").eq("company_id", companyId),
       sb.from("rab").select("*").eq("company_id", companyId),
@@ -1301,7 +1385,9 @@ async function buildStateFromRelational(companyId) {
       sb.from("karyawan").select("*").eq("company_id", companyId),
       sb.from("stok_material").select("*").eq("company_id", companyId),
       sb.from("gudang").select("*").eq("company_id", companyId),
-      sb.from("pemasok").select("*").eq("company_id", companyId)
+      sb.from("pemasok").select("*").eq("company_id", companyId),
+      sb.from("alat").select("*").eq("company_id", companyId),
+      sb.from("stok_opname").select("*").eq("company_id", companyId).order("tanggal", { ascending: false })
     ]);
     klienRows = klienRes.error ? [] : (klienRes.data || []);
     ahspRows = ahspRes.error ? [] : (ahspRes.data || []);
@@ -1312,6 +1398,8 @@ async function buildStateFromRelational(companyId) {
     stokRows = stokRes.error ? [] : (stokRes.data || []);
     gudangRows = gudangRes.error ? [] : (gudangRes.data || []);
     pemasokRows = pemasokRes.error ? [] : (pemasokRes.data || []);
+    alatRows = alatRes.error ? [] : (alatRes.data || []);
+    opnameRows = opnameRes.error ? [] : (opnameRes.data || []);
   } catch (e) { /* biarkan semua kosong -- jaring pengaman di bawah akan pakai blob */ }
 
   let built = {
@@ -1336,6 +1424,8 @@ async function buildStateFromRelational(companyId) {
     stok: stokRows.map(rowToStok),
     gudang: gudangRows.map(rowToGudang),
     pemasok: pemasokRows.map(rowToPemasok),
+    alat: alatRows.map(rowToAlat),
+    stokOpname: opnameRows.map(rowToOpname),
     kasUsaha: { transactions: [], saldoAwal: 0 },
     kasPribadi: { transactions: [], saldoAwal: 0 }
   };
@@ -3626,7 +3716,7 @@ function hitungBonusTarget(target, realisasi, persen) {
 }
 
 // ----- Subtab switching (scoped by data-subtab-page so different pages don't clash) -----
-const SUBTAB_PANEL_PREFIX = { ky: "ky_", lk: "lk_", kpi: "kpi_", pm: "pm_" };
+const SUBTAB_PANEL_PREFIX = { ky: "ky_", lk: "lk_", kpi: "kpi_", pm: "pm_", stok: "stok_" };
 document.querySelectorAll(".subtab-item").forEach(btn => {
   btn.addEventListener("click", () => showSubtab(btn.dataset.subtabPage, btn.dataset.subtab));
 });
@@ -3646,6 +3736,10 @@ function showSubtab(pagePrefix, name) {
   }
   if (pagePrefix === "kpi") renderKpiActiveSubtab();
   if (pagePrefix === "pm" && name === "performa") renderVendorPerforma();
+  if (pagePrefix === "stok") {
+    if (name === "alat") showAlatList();
+    if (name === "opname") renderOpnameRiwayat();
+  }
 }
 
 // ----- Daftar Karyawan -----
@@ -4338,6 +4432,284 @@ function printProyekLaporan(p) {
 document.getElementById("pd_printBtn").addEventListener("click", () => {
   const p = state.proyek.find(x => x.id === currentProyekId);
   if (p) printProyekLaporan(p);
+});
+
+// ===== Alat (Fase 1.4) =====
+let currentAlatId = null;
+function showAlatList() {
+  currentAlatId = null;
+  document.getElementById("alat_listView").style.display = "block";
+  document.getElementById("alat_detailView").style.display = "none";
+  renderAlatList();
+}
+function showAlatDetail(id) {
+  currentAlatId = id;
+  document.getElementById("alat_listView").style.display = "none";
+  document.getElementById("alat_detailView").style.display = "block";
+  renderAlatDetail();
+}
+function renderAlatList() {
+  document.getElementById("alat_totalJenis").textContent = state.alat.length;
+  document.getElementById("alat_totalUnit").textContent = state.alat.reduce((s, a) => s + (a.jumlahUnit || 0), 0);
+  document.getElementById("alat_totalDipinjam").textContent = state.alat.reduce((s, a) => s + alatDipinjam(a), 0);
+  const today = new Date().toISOString().slice(0, 10);
+  const terlambat = state.alat.reduce((s, a) => s + (a.peminjaman || []).filter(p => !p.tanggalKembali && p.rencanaKembali && p.rencanaKembali < today).length, 0);
+  document.getElementById("alat_totalTerlambat").textContent = terlambat;
+
+  const search = (document.getElementById("alat_search").value || "").toLowerCase();
+  let rows = state.alat.slice().sort((a, b) => a.nama.localeCompare(b.nama));
+  if (search) rows = rows.filter(a => a.nama.toLowerCase().includes(search));
+  const tbody = document.querySelector("#alat_table tbody");
+  tbody.innerHTML = rows.length ? rows.map(a => `
+    <tr>
+      <td>${escapeHtml(a.nama)}</td>
+      <td>${escapeHtml(a.kategori || "-")}</td>
+      <td>${escapeHtml(a.kondisi || "-")}</td>
+      <td class="num">${a.jumlahUnit || 0}</td>
+      <td class="num">${alatDipinjam(a)}</td>
+      <td class="num">${alatTersedia(a)}</td>
+      <td>
+        <div class="row-actions">
+          <button class="icon-btn" data-open-alat="${a.id}" title="Buka Detail">📂</button>
+          <button class="icon-btn" data-edit-alat="${a.id}" title="Edit">✏️</button>
+          <button class="icon-btn" data-delete-alat="${a.id}" title="Hapus">🗑️</button>
+        </div>
+      </td>
+    </tr>
+  `).join("") : '<tr class="empty-row"><td colspan="7">Belum ada alat</td></tr>';
+}
+document.getElementById("alat_search").addEventListener("input", renderAlatList);
+document.getElementById("alat_addBtn").addEventListener("click", () => openAlatModal(null));
+document.getElementById("alat_table").addEventListener("click", e => {
+  const openBtn = e.target.closest("[data-open-alat]");
+  const editBtn = e.target.closest("[data-edit-alat]");
+  const delBtn = e.target.closest("[data-delete-alat]");
+  if (openBtn) showAlatDetail(openBtn.dataset.openAlat);
+  else if (editBtn) openAlatModal(state.alat.find(a => a.id === editBtn.dataset.editAlat));
+  else if (delBtn) {
+    const a = state.alat.find(x => x.id === delBtn.dataset.deleteAlat);
+    if (a && confirm(`Hapus alat "${a.nama}"? Riwayat peminjamannya juga akan terhapus.`)) {
+      state.alat = state.alat.filter(x => x.id !== a.id);
+      saveState();
+      mirrorAlatDelete(a.id, a);
+      renderAll();
+    }
+  }
+});
+document.getElementById("alatd_backBtn").addEventListener("click", showAlatList);
+
+const alatModal = document.getElementById("alatModal");
+attachNumberFormatting(document.getElementById("al_jumlahUnit"));
+function openAlatModal(existing) {
+  document.getElementById("al_id").value = existing ? existing.id : "";
+  document.getElementById("alatModalTitle").textContent = existing ? "Edit Alat" : "Tambah Alat";
+  document.getElementById("al_nama").value = existing ? existing.nama : "";
+  document.getElementById("al_kategori").value = existing ? (existing.kategori || "") : "";
+  document.getElementById("al_satuan").value = existing ? (existing.satuan || "unit") : "unit";
+  document.getElementById("al_kondisi").value = existing ? (existing.kondisi || "Baik") : "Baik";
+  document.getElementById("al_jumlahUnit").value = existing ? formatNumberInput(existing.jumlahUnit || 0) : "";
+  document.getElementById("al_catatan").value = existing ? (existing.catatan || "") : "";
+  alatModal.classList.add("open");
+}
+document.getElementById("alatForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const id = document.getElementById("al_id").value;
+  const idx = state.alat.findIndex(x => x.id === id);
+  const existing = idx >= 0 ? state.alat[idx] : null;
+  const jumlahUnitBaru = parseNumberInput(document.getElementById("al_jumlahUnit").value);
+  if (existing && jumlahUnitBaru < alatDipinjam(existing)) {
+    alert(`Total unit tidak boleh kurang dari yang sedang dipinjam (${alatDipinjam(existing)}).`);
+    return;
+  }
+  const a = {
+    id: id || uid(),
+    nama: document.getElementById("al_nama").value.trim(),
+    kategori: document.getElementById("al_kategori").value.trim(),
+    satuan: document.getElementById("al_satuan").value.trim() || "unit",
+    kondisi: document.getElementById("al_kondisi").value,
+    jumlahUnit: jumlahUnitBaru,
+    catatan: document.getElementById("al_catatan").value.trim(),
+    peminjaman: existing ? existing.peminjaman : []
+  };
+  if (idx >= 0) state.alat[idx] = a; else state.alat.push(a);
+  saveState();
+  mirrorAlatUpsert(a, existing);
+  renderAll();
+  closeModals();
+});
+
+function renderAlatDetail() {
+  const a = state.alat.find(x => x.id === currentAlatId);
+  if (!a) { showAlatList(); return; }
+  document.getElementById("alatd_nama").textContent = a.nama;
+  document.getElementById("alatd_sub").textContent = [a.kategori, a.kondisi].filter(Boolean).join(" · ") || "-";
+  document.getElementById("alatd_totalUnit").textContent = a.jumlahUnit || 0;
+  document.getElementById("alatd_dipinjam").textContent = alatDipinjam(a);
+  document.getElementById("alatd_tersedia").textContent = alatTersedia(a);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const rows = (a.peminjaman || []).slice().sort((x, y) => (y.tanggalPinjam || "").localeCompare(x.tanggalPinjam || ""));
+  document.querySelector("#alatd_peminjamanTable tbody").innerHTML = rows.length ? rows.map(p => {
+    const karyawan = state.karyawan.find(k => k.id === p.karyawanId);
+    const proyek = state.proyek.find(x => x.id === p.proyekId);
+    const overdue = !p.tanggalKembali && p.rencanaKembali && p.rencanaKembali < today;
+    const statusLabel = p.tanggalKembali ? "Sudah Kembali" : (overdue ? "Terlambat" : "Dipinjam");
+    const statusClass = p.tanggalKembali ? "good" : (overdue ? "critical" : "warning");
+    return `
+    <tr>
+      <td>${escapeHtml(karyawan ? karyawan.nama : "-")}</td>
+      <td>${escapeHtml(proyek ? proyek.nama : "-")}</td>
+      <td class="num">${p.jumlah || 0}</td>
+      <td>${p.tanggalPinjam ? formatTanggal(p.tanggalPinjam) : "-"}</td>
+      <td>${p.rencanaKembali ? formatTanggal(p.rencanaKembali) : "-"}</td>
+      <td>${p.tanggalKembali ? formatTanggal(p.tanggalKembali) : "-"}</td>
+      <td><span class="badge-margin ${statusClass}">${statusLabel}</span></td>
+      <td>${!p.tanggalKembali ? `<button class="icon-btn" data-kembalikan="${p.id}" title="Kembalikan">↩️</button>` : ""}</td>
+    </tr>`;
+  }).join("") : '<tr class="empty-row"><td colspan="8">Belum ada peminjaman</td></tr>';
+}
+
+const peminjamanModal = document.getElementById("peminjamanModal");
+attachNumberFormatting(document.getElementById("pjm_jumlah"));
+document.getElementById("alatd_pinjamBtn").addEventListener("click", () => {
+  const a = state.alat.find(x => x.id === currentAlatId);
+  if (!a) return;
+  if (alatTersedia(a) <= 0) { alert("Tidak ada unit yang tersedia untuk dipinjam."); return; }
+  document.getElementById("pjm_alatId").value = a.id;
+  const karyawanSel = document.getElementById("pjm_karyawanId");
+  karyawanSel.innerHTML = '<option value="">Pilih karyawan</option>' + state.karyawan.filter(k => k.aktif !== false).map(k => `<option value="${k.id}">${escapeHtml(k.nama)}</option>`).join("");
+  const proyekSel = document.getElementById("pjm_proyekId");
+  proyekSel.innerHTML = '<option value="">Tidak dikaitkan</option>' + state.proyek.map(p => `<option value="${p.id}">${escapeHtml(p.nama)}</option>`).join("");
+  document.getElementById("pjm_jumlah").value = "1";
+  document.getElementById("pjm_tanggalPinjam").value = new Date().toISOString().slice(0, 10);
+  document.getElementById("pjm_rencanaKembali").value = "";
+  peminjamanModal.classList.add("open");
+});
+document.getElementById("peminjamanForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const alatId = document.getElementById("pjm_alatId").value;
+  const a = state.alat.find(x => x.id === alatId);
+  if (!a) { closeModals(); return; }
+  const jumlah = parseNumberInput(document.getElementById("pjm_jumlah").value);
+  const karyawanId = document.getElementById("pjm_karyawanId").value;
+  if (!karyawanId) { alert("Pilih karyawan peminjam terlebih dahulu."); return; }
+  if (!jumlah || jumlah <= 0) { alert("Jumlah harus lebih dari 0."); return; }
+  if (jumlah > alatTersedia(a)) { alert(`Jumlah melebihi unit yang tersedia (${alatTersedia(a)}).`); return; }
+  const existing = { ...a };
+  const p = {
+    id: uid(), karyawanId, proyekId: document.getElementById("pjm_proyekId").value || "",
+    jumlah, tanggalPinjam: document.getElementById("pjm_tanggalPinjam").value,
+    rencanaKembali: document.getElementById("pjm_rencanaKembali").value || "",
+    tanggalKembali: "", kondisiKembali: "", catatan: ""
+  };
+  if (!a.peminjaman) a.peminjaman = [];
+  a.peminjaman.push(p);
+  saveState();
+  mirrorAlatUpsert(a, existing);
+  renderAll();
+  closeModals();
+});
+
+const kembaliModal = document.getElementById("kembaliModal");
+document.getElementById("alatd_peminjamanTable").addEventListener("click", e => {
+  const btn = e.target.closest("[data-kembalikan]");
+  if (!btn) return;
+  document.getElementById("kb_alatId").value = currentAlatId;
+  document.getElementById("kb_peminjamanId").value = btn.dataset.kembalikan;
+  document.getElementById("kb_tanggalKembali").value = new Date().toISOString().slice(0, 10);
+  document.getElementById("kb_kondisiKembali").value = "Baik";
+  document.getElementById("kb_catatan").value = "";
+  kembaliModal.classList.add("open");
+});
+document.getElementById("kembaliForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const a = state.alat.find(x => x.id === document.getElementById("kb_alatId").value);
+  if (!a) { closeModals(); return; }
+  const p = (a.peminjaman || []).find(x => x.id === document.getElementById("kb_peminjamanId").value);
+  if (!p) { closeModals(); return; }
+  const existing = { ...a };
+  p.tanggalKembali = document.getElementById("kb_tanggalKembali").value;
+  p.kondisiKembali = document.getElementById("kb_kondisiKembali").value;
+  p.catatan = document.getElementById("kb_catatan").value.trim();
+  saveState();
+  mirrorAlatUpsert(a, existing);
+  renderAll();
+  closeModals();
+});
+
+// ===== Stock Opname Harian (Fase 1.4) =====
+function computeOpnameItems() {
+  const items = [];
+  state.stok.forEach(s => items.push({ itemType: "material", itemId: s.id, nama: s.nama, tercatat: stokQty(s) }));
+  state.alat.forEach(a => items.push({ itemType: "alat", itemId: a.id, nama: a.nama, tercatat: a.jumlahUnit || 0 }));
+  return items;
+}
+function renderOpnameInputTable() {
+  const items = computeOpnameItems();
+  window.__opnameItemsCache = items;
+  document.querySelector("#opname_inputTable tbody").innerHTML = items.length ? items.map((it, idx) => `
+    <tr>
+      <td>${it.itemType === "material" ? "Material" : "Alat"}</td>
+      <td>${escapeHtml(it.nama)}</td>
+      <td class="num">${it.tercatat}</td>
+      <td class="num"><input type="text" inputmode="numeric" class="opname-fisik-input" data-idx="${idx}" value="${it.tercatat}" style="width:80px; text-align:right;"></td>
+      <td><input type="text" class="opname-catatan-input" data-idx="${idx}" placeholder="opsional"></td>
+    </tr>
+  `).join("") : '<tr class="empty-row"><td colspan="5">Belum ada Stok Material atau Alat untuk dicek</td></tr>';
+}
+document.getElementById("opname_muatBtn").addEventListener("click", () => {
+  if (!document.getElementById("opname_tanggal").value) document.getElementById("opname_tanggal").value = new Date().toISOString().slice(0, 10);
+  renderOpnameInputTable();
+  document.getElementById("opname_inputPanelWrap").style.display = "block";
+});
+document.getElementById("opname_simpanBtn").addEventListener("click", () => {
+  const tanggal = document.getElementById("opname_tanggal").value;
+  if (!tanggal) { alert("Isi tanggal opname terlebih dahulu."); return; }
+  const items = (window.__opnameItemsCache || []).map((it, idx) => {
+    const fisikInput = document.querySelector(`.opname-fisik-input[data-idx="${idx}"]`);
+    const catatanInput = document.querySelector(`.opname-catatan-input[data-idx="${idx}"]`);
+    const fisik = parseNumberInput(fisikInput ? fisikInput.value : it.tercatat);
+    return { itemType: it.itemType, itemId: it.itemId, nama: it.nama, tercatat: it.tercatat, fisik, selisih: fisik - it.tercatat, catatan: catatanInput ? catatanInput.value.trim() : "" };
+  });
+  const o = { id: uid(), tanggal, items };
+  state.stokOpname.push(o);
+  saveState();
+  mirrorOpnameUpsert(o);
+  const selisihCount = items.filter(it => it.selisih !== 0).length;
+  alert(selisihCount ? `Opname tersimpan. Ditemukan ${selisihCount} barang dengan selisih -- cek Riwayat Opname untuk detailnya.` : "Opname tersimpan. Semua barang sesuai catatan, tidak ada selisih.");
+  document.getElementById("opname_inputPanelWrap").style.display = "none";
+  renderAll();
+});
+function renderOpnameRiwayat() {
+  const rows = state.stokOpname.slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
+  document.querySelector("#opname_riwayatTable tbody").innerHTML = rows.length ? rows.map(o => {
+    const selisihCount = (o.items || []).filter(it => it.selisih !== 0).length;
+    return `
+    <tr>
+      <td>${formatTanggal(o.tanggal)}</td>
+      <td class="num">${(o.items || []).length}</td>
+      <td class="num ${selisihCount ? "bad" : ""}">${selisihCount}</td>
+      <td><button class="icon-btn" data-lihat-opname="${o.id}" title="Lihat Detail">👁️</button></td>
+    </tr>`;
+  }).join("") : '<tr class="empty-row"><td colspan="4">Belum ada riwayat opname</td></tr>';
+}
+document.getElementById("opname_riwayatTable").addEventListener("click", e => {
+  const btn = e.target.closest("[data-lihat-opname]");
+  if (!btn) return;
+  const o = state.stokOpname.find(x => x.id === btn.dataset.lihatOpname);
+  if (!o) return;
+  document.getElementById("opnameDetailTitle").textContent = `Detail Opname - ${formatTanggal(o.tanggal)}`;
+  document.querySelector("#opnameDetailTable tbody").innerHTML = (o.items || []).map(it => `
+    <tr>
+      <td>${it.itemType === "material" ? "Material" : "Alat"}</td>
+      <td>${escapeHtml(it.nama)}</td>
+      <td class="num">${it.tercatat}</td>
+      <td class="num">${it.fisik}</td>
+      <td class="num ${it.selisih !== 0 ? "bad" : ""}">${it.selisih > 0 ? "+" : ""}${it.selisih}</td>
+      <td>${escapeHtml(it.catatan || "-")}</td>
+    </tr>
+  `).join("");
+  document.getElementById("opnameDetailModal").classList.add("open");
 });
 
 // ===== Pemasok =====
@@ -7124,6 +7496,11 @@ function renderAll() {
   document.getElementById("stok_listView").style.display = currentStokId ? "none" : "block";
   document.getElementById("stok_riwayatView").style.display = currentStokId ? "block" : "none";
   if (currentStokId) renderStokRiwayat(); else renderStokList();
+  document.getElementById("alat_listView").style.display = currentAlatId ? "none" : "block";
+  document.getElementById("alat_detailView").style.display = currentAlatId ? "block" : "none";
+  if (currentAlatId) renderAlatDetail(); else renderAlatList();
+  { const activeStokSubtab = document.querySelector('.subtab-item[data-subtab-page="stok"].active');
+    if (activeStokSubtab && activeStokSubtab.dataset.subtab === "opname") renderOpnameRiwayat(); }
   document.getElementById("pm_listView").style.display = currentPemasokId ? "none" : "block";
   document.getElementById("pm_detailView").style.display = currentPemasokId ? "block" : "none";
   if (currentPemasokId) renderPemasokDetail(); else renderPemasokList();
