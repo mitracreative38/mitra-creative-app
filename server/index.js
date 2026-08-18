@@ -7,6 +7,7 @@ const { getBrowser } = require("./lib/browser");
 const { checkAndRunBackups } = require("./lib/backup");
 const { checkAndSendReminders, REMINDER_CHECK_INTERVAL_MS } = require("./lib/reminders");
 const { createInvoice, verifyCallbackToken, markPaymentPaid, checkPendingPayments, RECONCILE_INTERVAL_MS } = require("./lib/payment");
+const { pairDevice, submitPing, cleanupOldLokasiPekerja } = require("./lib/pekerjaTracking");
 
 const PORT = process.env.PORT || 3000;
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -292,6 +293,36 @@ app.post("/api/payment/webhook", async (req, res) => {
   }
 });
 
+// Pelacakan Lokasi Pekerja (Fase 1.5): HP pekerja lapangan TIDAK login
+// lewat Supabase Auth (tidak selalu punya email aktif), jadi 2 endpoint
+// ini SENGAJA tidak memakai requireAccessToken -- kredensialnya adalah
+// kode pairing lalu device_token, divalidasi manual di lib/pekerjaTracking.js
+// lewat service role (satu-satunya cara menyentuh tabel pekerja_device_secret
+// yang sengaja tidak punya kebijakan RLS untuk klien manapun).
+app.post("/api/pekerja/pair", async (req, res) => {
+  if (!supabaseAdmin) return res.status(500).json({ error: "Server belum dikonfigurasi." });
+  try {
+    const result = await pairDevice(supabaseAdmin, req.body && req.body.pairingCode);
+    if (result.error) return res.status(400).json({ error: result.error });
+    res.json(result);
+  } catch (err) {
+    console.error("[pekerja/pair] gagal:", err);
+    res.status(500).json({ error: "Gagal memasangkan perangkat: " + err.message });
+  }
+});
+app.post("/api/pekerja/ping", async (req, res) => {
+  if (!supabaseAdmin) return res.status(500).json({ error: "Server belum dikonfigurasi." });
+  try {
+    const { deviceToken, lat, lng, accuracy, capturedAt } = req.body || {};
+    const result = await submitPing(supabaseAdmin, deviceToken, { lat, lng, accuracy, capturedAt });
+    if (result.error) return res.status(400).json({ error: result.error });
+    res.json(result);
+  } catch (err) {
+    console.error("[pekerja/ping] gagal:", err);
+    res.status(500).json({ error: "Gagal mengirim lokasi: " + err.message });
+  }
+});
+
 // Backup otomatis (Fase 0.2): dicek setiap jam, tapi tiap perusahaan cuma
 // benar-benar di-backup kalau sudah lewat ~24 jam sejak backup terakhirnya
 // (dicek dari database, jadi tahan restart/redeploy -- lihat lib/backup.js).
@@ -319,6 +350,15 @@ if (supabaseAdmin) {
 if (supabaseAdmin) {
   setInterval(() => { checkPendingPayments(supabaseAdmin).catch(err => console.error("[payment] gagal cek ulang:", err.message)); }, RECONCILE_INTERVAL_MS);
   setTimeout(() => { checkPendingPayments(supabaseAdmin).catch(err => console.error("[payment] gagal cek ulang:", err.message)); }, 60 * 1000);
+}
+
+// Bersih-bersih riwayat lokasi pekerja (Fase 1.5): dicek sekali sehari,
+// hapus titik lokasi lebih dari 14 hari supaya tabel tidak membengkak
+// (HP paired mengirim ping tiap ~10 menit selama jam kerja).
+const LOKASI_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+if (supabaseAdmin) {
+  setInterval(() => { cleanupOldLokasiPekerja(supabaseAdmin); }, LOKASI_CLEANUP_INTERVAL_MS);
+  setTimeout(() => { cleanupOldLokasiPekerja(supabaseAdmin); }, 90 * 1000);
 }
 
 app.listen(PORT, () => {

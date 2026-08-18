@@ -4,7 +4,8 @@
   "webDir": "www",
   "backgroundColor": "#f9f9f7",
   "android": {
-    "backgroundColor": "#f9f9f7"
+    "backgroundColor": "#f9f9f7",
+    "useLegacyBridge": true
   },
   "ios": {
     "backgroundColor": "#f9f9f7"
@@ -18,6 +19,9 @@
     "StatusBar": {
       "style": "DARK",
       "backgroundColor": "#f9f9f7"
+    },
+    "CapacitorHttp": {
+      "enabled": true
     }
   }
 }
