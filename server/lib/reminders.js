@@ -25,16 +25,34 @@ async function markSent(supabaseAdmin, companyId, jenis) {
 // pengingat follow-up Klien -- siapa pun di tim bisa menindaklanjuti).
 // includeTeam=false: Owner saja (dipakai untuk approval Kas Perusahaan --
 // cuma Owner yang bisa menyetujui).
-async function getRecipients(supabaseAdmin, companyId, includeTeam) {
+// roleFilter (opsional): batasi anggota tim ke peran tertentu (mis.
+// "admin" saja untuk pengingat Stok Menipis -- Marketing sama sekali
+// tidak punya akses ke halaman Stok Material di aplikasi, jadi tidak
+// perlu ikut menerima pengingat yang halamannya saja tidak bisa mereka buka).
+async function getRecipients(supabaseAdmin, companyId, includeTeam, roleFilter) {
   const recipients = [];
   const { data: ownerUser } = await supabaseAdmin.auth.admin.getUserById(companyId);
   const { data: profile } = await supabaseAdmin.from("company_profile").select("telepon").eq("company_id", companyId).maybeSingle();
   recipients.push({ email: ownerUser && ownerUser.user ? ownerUser.user.email : null, whatsapp: profile ? profile.telepon : null });
   if (includeTeam) {
-    const { data: members } = await supabaseAdmin.from("team_members").select("member_email, member_whatsapp").eq("owner_id", companyId).eq("status", "active");
+    let query = supabaseAdmin.from("team_members").select("member_email, member_whatsapp").eq("owner_id", companyId).eq("status", "active");
+    if (roleFilter) query = query.eq("role", roleFilter);
+    const { data: members } = await query;
     (members || []).forEach(m => recipients.push({ email: m.member_email, whatsapp: m.member_whatsapp }));
   }
   return recipients;
+}
+
+// Sama seperti stokQty() di www/app.js -- dihitung ulang di sini karena
+// tabel stok_material menyimpan stok_awal + riwayat transaksi (jsonb),
+// bukan kuantitas jadi.
+function computeStokQty(item) {
+  let qty = item.stok_awal || 0;
+  (item.transactions || []).forEach(t => {
+    if (t.tipe === "Masuk") qty += t.qty || 0;
+    else if (t.tipe === "Keluar") qty -= t.qty || 0;
+  });
+  return qty;
 }
 
 async function notifyRecipients(recipients, subject, pesan) {
@@ -105,6 +123,25 @@ async function checkAndSendReminders(supabaseAdmin) {
         const recipients = await getRecipients(supabaseAdmin, c.company_id, true);
         await notifyRecipients(recipients, "Pengingat Termin/Piutang Jatuh Tempo", pesan);
         await markSent(supabaseAdmin, c.company_id, "termin_jatuh_tempo");
+        terkirim++;
+      }
+
+      // ----- Stok Material menipis (Fase 1.3) -- barang yang sisa
+      // kuantitasnya sudah di bawah/sama dengan Stok Minimum yang diset
+      // per barang, supaya bisa dipesan ulang sebelum benar-benar habis
+      // dan menghambat proyek berjalan. -----
+      const { data: stokRows } = await supabaseAdmin.from("stok_material")
+        .select("nama, satuan, stok_awal, stok_minimum, transactions")
+        .eq("company_id", c.company_id);
+      const stokMenipis = (stokRows || [])
+        .map(s => ({ ...s, qty: computeStokQty(s) }))
+        .filter(s => s.qty <= (s.stok_minimum || 0));
+      if (stokMenipis.length && await shouldSend(supabaseAdmin, c.company_id, "stok_menipis")) {
+        const daftar = stokMenipis.map(s => `- ${s.nama}: sisa ${s.qty} ${s.satuan || ""} (batas minimum ${s.stok_minimum || 0})`).join("\n");
+        const pesan = `📦 Pengingat Stok Menipis -- ${c.company || "Perusahaan Anda"}\n\nAda ${stokMenipis.length} material yang stoknya sudah di bawah/sama dengan batas minimum:\n${daftar}\n\nSegera pesan ulang supaya proyek tidak terhambat.`;
+        const recipients = await getRecipients(supabaseAdmin, c.company_id, true, "admin");
+        await notifyRecipients(recipients, "Pengingat Stok Menipis", pesan);
+        await markSent(supabaseAdmin, c.company_id, "stok_menipis");
         terkirim++;
       }
     } catch (err) {
