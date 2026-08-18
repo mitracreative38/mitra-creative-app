@@ -1,6 +1,7 @@
 // Pengingat WhatsApp/Email otomatis terjadwal (Fase 1.0) -- follow-up
-// Klien yang jatuh tempo, dan transaksi Kas Perusahaan yang menunggu
-// persetujuan. Dipicu lewat pengecekan periodik yang sama seperti Backup
+// Klien yang jatuh tempo, transaksi Kas Perusahaan yang menunggu
+// persetujuan, dan (Fase 1.2) Termin/Piutang yang sudah lewat tanggal
+// perkiraan cair. Dipicu lewat pengecekan periodik yang sama seperti Backup
 // Otomatis (server/lib/backup.js): tiap jam dicek dari tabel
 // reminder_log kapan terakhir kali suatu jenis pengingat dikirim untuk
 // perusahaan itu, dan cuma benar-benar mengirim kalau sudah lewat
@@ -84,6 +85,26 @@ async function checkAndSendReminders(supabaseAdmin) {
         const recipients = await getRecipients(supabaseAdmin, c.company_id, false);
         await notifyRecipients(recipients, "Kas Perusahaan Menunggu Persetujuan", pesan);
         await markSent(supabaseAdmin, c.company_id, "kas_menunggu_persetujuan");
+        terkirim++;
+      }
+
+      // ----- Termin/Piutang jatuh tempo (Fase 1.2) -- transaksi Kas Masuk
+      // berstatus "pending" (belum cair) yang tanggal perkiraannya sudah
+      // lewat, supaya klien segera ditagih alih-alih baru ketahuan saat
+      // dicek manual di Proyeksi Arus Kas / Neraca. -----
+      const { data: terminJatuhTempo } = await supabaseAdmin.from("kas_usaha_transaksi")
+        .select("keterangan, jumlah, tanggal")
+        .eq("company_id", c.company_id)
+        .eq("tipe", "Masuk")
+        .eq("status", "pending")
+        .lt("tanggal", today);
+      if ((terminJatuhTempo || []).length && await shouldSend(supabaseAdmin, c.company_id, "termin_jatuh_tempo")) {
+        const totalRp = terminJatuhTempo.reduce((s, t) => s + (t.jumlah || 0), 0);
+        const daftar = terminJatuhTempo.map(t => `- ${t.keterangan || "(tanpa keterangan)"} (Rp${(t.jumlah || 0).toLocaleString("id-ID")}, jatuh tempo ${t.tanggal})`).join("\n");
+        const pesan = `💰 Pengingat Termin/Piutang Jatuh Tempo -- ${c.company || "Perusahaan Anda"}\n\nAda ${terminJatuhTempo.length} termin yang belum cair & sudah lewat tanggal perkiraan, total Rp${totalRp.toLocaleString("id-ID")}:\n${daftar}\n\nSegera hubungi klien untuk menagih.`;
+        const recipients = await getRecipients(supabaseAdmin, c.company_id, true);
+        await notifyRecipients(recipients, "Pengingat Termin/Piutang Jatuh Tempo", pesan);
+        await markSent(supabaseAdmin, c.company_id, "termin_jatuh_tempo");
         terkirim++;
       }
     } catch (err) {
