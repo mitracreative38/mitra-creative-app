@@ -3801,6 +3801,7 @@ function renderKaryawanList() {
       <td>${aktifBadge}</td>
       <td>
         <div class="row-actions">
+          <button class="icon-btn" data-qr-karyawan="${k.id}" title="Kartu QR Absensi">🪪</button>
           <button class="icon-btn" data-edit-karyawan="${k.id}" title="Edit">✏️</button>
           <button class="icon-btn" data-delete-karyawan="${k.id}" title="Hapus">🗑️</button>
         </div>
@@ -3813,7 +3814,11 @@ document.getElementById("ky_search").addEventListener("input", renderKaryawanLis
 document.getElementById("ky_table").addEventListener("click", e => {
   const editBtn = e.target.closest("[data-edit-karyawan]");
   const delBtn = e.target.closest("[data-delete-karyawan]");
-  if (editBtn) {
+  const qrBtn = e.target.closest("[data-qr-karyawan]");
+  if (qrBtn) {
+    const k = state.karyawan.find(x => x.id === qrBtn.dataset.qrKaryawan);
+    if (k) openKaryawanQrModal(k);
+  } else if (editBtn) {
     const k = state.karyawan.find(x => x.id === editBtn.dataset.editKaryawan);
     if (k) openKaryawanModal(k);
   } else if (delBtn) {
@@ -3825,6 +3830,38 @@ document.getElementById("ky_table").addEventListener("click", e => {
       renderAll();
     }
   }
+});
+
+// ----- Kartu QR Absensi per Karyawan (Fase 1.7) -----
+// Format isi QR sengaja diberi awalan "MC-ABSEN:" supaya kalau kamera
+// memindai QR lain (bukan kartu ID pekerja), sistem tidak salah mengira
+// itu kode absensi -- lihat handleQrDecodedText().
+function karyawanQrPayload(karyawanId) {
+  return `MC-ABSEN:${karyawanId}`;
+}
+async function openKaryawanQrModal(k) {
+  document.getElementById("karyawanQrNama").textContent = k.nama;
+  const canvas = document.getElementById("karyawanQrCanvas");
+  try {
+    await window.QRCode.toCanvas(canvas, karyawanQrPayload(k.id), { width: 220, margin: 2 });
+  } catch (err) {
+    console.error("[qr] gagal membuat kartu QR:", err);
+  }
+  document.getElementById("karyawanQrModal").classList.add("open");
+}
+document.getElementById("karyawanQrPrintBtn").addEventListener("click", () => {
+  const canvas = document.getElementById("karyawanQrCanvas");
+  const nama = document.getElementById("karyawanQrNama").textContent;
+  document.getElementById("printArea").innerHTML = `
+    <div style="text-align:center;padding:40px;">
+      <h2>${escapeHtml(state.company || "CV Mitra Creative")}</h2>
+      <p class="muted">Kartu ID Absensi</p>
+      <img src="${canvas.toDataURL()}" style="width:220px;height:220px;margin:24px auto;display:block;">
+      <p style="font-size:20px;font-weight:700;">${escapeHtml(nama)}</p>
+    </div>
+  `;
+  document.body.classList.add("printing-quote");
+  window.print();
 });
 
 // ----- Modal: karyawan (employee master) -----
@@ -3968,6 +4005,99 @@ document.getElementById("ab_saveBtn").addEventListener("click", () => {
   });
   saveState();
   alert(`Absensi tanggal ${formatTanggal(tanggal)} untuk ${count} karyawan berhasil disimpan.`);
+});
+
+// ----- Absensi via Scan QR (Fase 1.7) -----
+// Alternatif dari GPS "Catat Lokasi" -- cocok untuk lokasi dalam gedung/
+// sinyal GPS lemah. Setiap pekerja punya kartu QR ID (lihat
+// openKaryawanQrModal); memindainya langsung menandai "Hadir" untuk
+// tanggal yang sedang dipilih, TERSIMPAN SEKETIKA (bukan menunggu tombol
+// "Simpan Absensi Hari Ini") -- supaya cocok dipakai berturut-turut
+// untuk banyak pekerja (mode kios) tanpa harus klik simpan tiap kali.
+let absensiScanStream = null;
+let absensiScanTimer = null;
+const absensiScanCooldownUntil = {};
+function catatAbsensiViaQR(karyawanId, tanggal) {
+  const k = state.karyawan.find(x => x.id === karyawanId);
+  if (!k) return null;
+  if (!k.absensi) k.absensi = [];
+  let rec = k.absensi.find(a => a.tanggal === tanggal);
+  if (!rec) { rec = { id: uid(), tanggal, hadir: true, jamLembur: 0 }; k.absensi.push(rec); }
+  else rec.hadir = true;
+  saveState();
+  mirrorKaryawanUpsert(k);
+  const row = document.querySelector(`#ab_table tbody tr[data-karyawan-id="${karyawanId}"]`);
+  if (row) { const cb = row.querySelector(".ab-hadir"); if (cb) cb.checked = true; }
+  return k;
+}
+// Dipisah dari loop kamera supaya bisa dites langsung tanpa kamera
+// sungguhan -- cukup kirim teks hasil decode QR.
+function handleQrDecodedText(text, tanggal) {
+  if (typeof text !== "string" || !text.startsWith("MC-ABSEN:")) {
+    return { ok: false, error: "QR tidak dikenali (bukan kartu ID pekerja)." };
+  }
+  const karyawanId = text.slice("MC-ABSEN:".length);
+  const now = Date.now();
+  if (absensiScanCooldownUntil[karyawanId] && absensiScanCooldownUntil[karyawanId] > now) {
+    return { ok: false, cooldown: true };
+  }
+  const k = catatAbsensiViaQR(karyawanId, tanggal);
+  if (!k) return { ok: false, error: "Kartu ini tidak cocok dengan karyawan manapun (mungkin sudah dihapus)." };
+  absensiScanCooldownUntil[karyawanId] = now + 3000;
+  return { ok: true, karyawan: k };
+}
+function stopAbsensiScan() {
+  if (absensiScanTimer) { clearInterval(absensiScanTimer); absensiScanTimer = null; }
+  if (absensiScanStream) { absensiScanStream.getTracks().forEach(t => t.stop()); absensiScanStream = null; }
+}
+async function startAbsensiScan() {
+  const errEl = document.getElementById("absensiScanError");
+  errEl.style.display = "none";
+  const tanggal = document.getElementById("ab_tanggal").value;
+  if (!tanggal) { alert("Pilih tanggal terlebih dahulu."); return; }
+  document.getElementById("absensiScanLogTable").innerHTML = "";
+  document.getElementById("absensiScanStatus").textContent = "Arahkan kamera ke kartu QR pekerja...";
+  document.getElementById("absensiScanModal").classList.add("open");
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    errEl.textContent = "Perangkat/browser ini tidak mendukung akses kamera.";
+    errEl.style.display = "block";
+    return;
+  }
+  try {
+    absensiScanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+  } catch (err) {
+    errEl.textContent = "Gagal mengakses kamera: " + (err.message || "izin ditolak.");
+    errEl.style.display = "block";
+    return;
+  }
+  const video = document.getElementById("absensiScanVideo");
+  video.srcObject = absensiScanStream;
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  absensiScanTimer = setInterval(() => {
+    if (video.readyState !== video.HAVE_ENOUGH_DATA) return;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const code = window.jsQR(imageData.data, imageData.width, imageData.height);
+    if (!code || !code.data) return;
+    const result = handleQrDecodedText(code.data, tanggal);
+    if (result.ok) {
+      document.getElementById("absensiScanStatus").textContent = `✅ ${result.karyawan.nama} tercatat hadir.`;
+      const tbody = document.getElementById("absensiScanLogTable");
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${new Date().toLocaleTimeString("id-ID")}</td><td>${escapeHtml(result.karyawan.nama)}</td>`;
+      tbody.prepend(tr);
+    } else if (result.error) {
+      document.getElementById("absensiScanStatus").textContent = `⚠️ ${result.error}`;
+    }
+  }, 300);
+}
+document.getElementById("ab_scanQrBtn").addEventListener("click", startAbsensiScan);
+document.querySelector("#absensiScanModal [data-close-modal]").addEventListener("click", stopAbsensiScan);
+document.getElementById("absensiScanModal").addEventListener("click", e => {
+  if (e.target.id === "absensiScanModal") stopAbsensiScan();
 });
 
 // ----- Penggajian & Slip Gaji -----
