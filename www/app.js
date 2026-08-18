@@ -59,6 +59,9 @@ function withDefaults(s) {
   if (typeof s.approvalThreshold !== "number") s.approvalThreshold = 0;
   if (typeof s.targetOmzetBulanan !== "number") s.targetOmzetBulanan = 0;
   if (typeof s.targetLababersihBulanan !== "number") s.targetLababersihBulanan = 0;
+  if (!s.jamKerjaMulai) s.jamKerjaMulai = "08:00";
+  if (!s.jamKerjaSelesai) s.jamKerjaSelesai = "17:00";
+  if (typeof s.radiusProyekMeter !== "number") s.radiusProyekMeter = 500;
   return s;
 }
 function saveState() {
@@ -706,6 +709,8 @@ function proyekToRow(p) {
     klien_id: p.klienId || null,
     klien: p.klien || "",
     lokasi: p.lokasi || "",
+    lokasi_lat: (typeof p.lokasiLat === "number") ? p.lokasiLat : null,
+    lokasi_lng: (typeof p.lokasiLng === "number") ? p.lokasiLng : null,
     nilai_kontrak: p.nilaiKontrak || 0,
     status: p.status || "",
     tanggal_mulai: p.tanggalMulai || null,
@@ -1093,6 +1098,9 @@ function companyProfileToRow() {
     mata_resolusi_penawaran_counter: state.mataResolusiPenawaranCounter || 0,
     target_omzet_bulanan: state.targetOmzetBulanan || 0,
     target_laba_bersih_bulanan: state.targetLababersihBulanan || 0,
+    jam_kerja_mulai: state.jamKerjaMulai || "08:00",
+    jam_kerja_selesai: state.jamKerjaSelesai || "17:00",
+    radius_proyek_meter: state.radiusProyekMeter || 500,
     updated_at: new Date().toISOString()
   };
 }
@@ -1315,7 +1323,9 @@ function rowToPenawaran(r) {
 function rowToProyek(r) {
   return {
     id: r.id, nama: r.nama || "", klienId: r.klien_id || "", klien: r.klien || "",
-    lokasi: r.lokasi || "", nilaiKontrak: r.nilai_kontrak || 0, status: r.status || "",
+    lokasi: r.lokasi || "", lokasiLat: (typeof r.lokasi_lat === "number") ? r.lokasi_lat : null,
+    lokasiLng: (typeof r.lokasi_lng === "number") ? r.lokasi_lng : null,
+    nilaiKontrak: r.nilai_kontrak || 0, status: r.status || "",
     tanggalMulai: r.tanggal_mulai || "", tanggalSelesai: r.tanggal_selesai || "",
     biayaBahan: r.biaya_bahan || 0, biayaUpah: r.biaya_upah || 0, biayaLain: r.biaya_lain || 0,
     karyawanIds: r.karyawan_ids || [], subkontraktor: r.subkontraktor || [],
@@ -1415,6 +1425,9 @@ async function buildStateFromRelational(companyId) {
     mataResolusiPenawaranCounter: (profileRow && profileRow.mata_resolusi_penawaran_counter) || 0,
     targetOmzetBulanan: (profileRow && profileRow.target_omzet_bulanan) || 0,
     targetLababersihBulanan: (profileRow && profileRow.target_laba_bersih_bulanan) || 0,
+    jamKerjaMulai: (profileRow && profileRow.jam_kerja_mulai) || "08:00",
+    jamKerjaSelesai: (profileRow && profileRow.jam_kerja_selesai) || "17:00",
+    radiusProyekMeter: (profileRow && profileRow.radius_proyek_meter) || 500,
     klien: klienRows.map(rowToKlien),
     ahsp: ahspRows.map(rowToAhsp),
     proyekRab: rabRows.map(rowToRab),
@@ -2064,6 +2077,11 @@ function renderProyekDetail() {
     <div class="summary-row"><span>Pekerja Inti</span><strong>${karyawanNama.length ? escapeHtml(karyawanNama.join(", ")) : "-"}</strong></div>
     ${sumberRab ? `<div class="summary-row"><span>Sumber</span><strong><a href="#" data-open-sumber-rab="${sumberRab.id}">RAB: ${escapeHtml(sumberRab.nama || "(Tanpa nama)")}</a></strong></div>` : ""}
     ${sumberPw ? `<div class="summary-row"><span>Sumber</span><strong><a href="#" data-open-sumber-pw="${sumberPw.id}">Penawaran: ${escapeHtml(sumberPw.nomor)}</a></strong></div>` : ""}
+    <div class="summary-row"><span>Lokasi Site (untuk Peringatan Lokasi Pekerja)</span><strong>${
+      typeof p.lokasiLat === "number"
+        ? `<a href="https://www.google.com/maps?q=${p.lokasiLat},${p.lokasiLng}" target="_blank" rel="noopener">📍 ${p.lokasiLat.toFixed(5)}, ${p.lokasiLng.toFixed(5)}</a> <button type="button" class="icon-btn" data-catat-lokasi-proyek title="Perbarui">🔄</button>`
+        : `<button type="button" class="btn-ghost" data-catat-lokasi-proyek style="padding:4px 10px; font-size:12px;">📍 Catat Lokasi Site</button>`
+    }</strong></div>
   `;
 
   const rows = [
@@ -7527,6 +7545,12 @@ function renderAll() {
   if (document.activeElement !== targetOmzetInput) targetOmzetInput.value = formatNumberInput(state.targetOmzetBulanan || 0);
   const targetLabaInput = document.getElementById("settingsTargetLaba");
   if (document.activeElement !== targetLabaInput) targetLabaInput.value = formatNumberInput(state.targetLababersihBulanan || 0);
+  const jamMulaiInput = document.getElementById("settingsJamKerjaMulai");
+  if (jamMulaiInput && document.activeElement !== jamMulaiInput) jamMulaiInput.value = state.jamKerjaMulai || "08:00";
+  const jamSelesaiInput = document.getElementById("settingsJamKerjaSelesai");
+  if (jamSelesaiInput && document.activeElement !== jamSelesaiInput) jamSelesaiInput.value = state.jamKerjaSelesai || "17:00";
+  const radiusInput = document.getElementById("settingsRadiusProyek");
+  if (radiusInput && document.activeElement !== radiusInput) radiusInput.value = state.radiusProyekMeter || 500;
   document.title = `${state.company || "Laporan Keuangan"} — Laporan Keuangan`;
 }
 
@@ -7831,8 +7855,30 @@ document.getElementById("pd_backBtn").addEventListener("click", showProyekList);
 document.getElementById("pd_infoRows").addEventListener("click", e => {
   const rabLink = e.target.closest("[data-open-sumber-rab]");
   const pwLink = e.target.closest("[data-open-sumber-pw]");
+  const catatLokasiBtn = e.target.closest("[data-catat-lokasi-proyek]");
   if (rabLink) { e.preventDefault(); goToDoc("rab", rabLink.dataset.openSumberRab); }
   else if (pwLink) { e.preventDefault(); goToDoc("pw", pwLink.dataset.openSumberPw); }
+  else if (catatLokasiBtn) {
+    const p = state.proyek.find(x => x.id === currentProyekId);
+    if (!p) return;
+    if (!navigator.geolocation) { alert("Perangkat/browser ini tidak mendukung pencatatan lokasi GPS."); return; }
+    catatLokasiBtn.disabled = true;
+    const existing = { ...p };
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        p.lokasiLat = pos.coords.latitude;
+        p.lokasiLng = pos.coords.longitude;
+        saveState();
+        mirrorProyekUpsert(p, existing);
+        renderProyekDetail();
+      },
+      err => {
+        catatLokasiBtn.disabled = false;
+        alert("Gagal mengambil lokasi: " + (err.message || "izin lokasi ditolak atau tidak tersedia.") + " Pastikan izin lokasi browser/aplikasi diaktifkan.");
+      },
+      { enableHighAccuracy: true, timeout: 15000 }
+    );
+  }
 });
 
 // ----- Termin Pembayaran (derived from + written back to Kas Perusahaan) -----
@@ -8466,6 +8512,9 @@ attachNumberFormatting(document.getElementById("settingsApprovalThreshold"));
 document.getElementById("settingsApprovalThreshold").addEventListener("input", e => { state.approvalThreshold = parseNumberInput(e.target.value); saveState(); mirrorCompanyProfileUpsert(); });
 attachNumberFormatting(document.getElementById("settingsTargetOmzet"));
 document.getElementById("settingsTargetOmzet").addEventListener("input", e => { state.targetOmzetBulanan = parseNumberInput(e.target.value); saveState(); mirrorCompanyProfileUpsert(); });
+document.getElementById("settingsJamKerjaMulai").addEventListener("change", e => { state.jamKerjaMulai = e.target.value || "08:00"; saveState(); mirrorCompanyProfileUpsert(); });
+document.getElementById("settingsJamKerjaSelesai").addEventListener("change", e => { state.jamKerjaSelesai = e.target.value || "17:00"; saveState(); mirrorCompanyProfileUpsert(); });
+document.getElementById("settingsRadiusProyek").addEventListener("input", e => { state.radiusProyekMeter = Math.max(0, Number(e.target.value) || 0); saveState(); mirrorCompanyProfileUpsert(); });
 attachNumberFormatting(document.getElementById("settingsTargetLaba"));
 document.getElementById("settingsTargetLaba").addEventListener("input", e => { state.targetLababersihBulanan = parseNumberInput(e.target.value); saveState(); mirrorCompanyProfileUpsert(); });
 document.getElementById("settingsMataResolusiMarkup").addEventListener("input", e => {
@@ -8886,21 +8935,43 @@ document.getElementById("team_inviteBtn").addEventListener("click", async () => 
 // has_company_access), tapi device_token & submit ping SELALU lewat
 // server (service role) -- lihat server/lib/pekerjaTracking.js.
 let lokDeviceMap = {};
+// Jarak antar 2 titik lat/lng dalam meter (formula haversine, radius bumi
+// 6371 km) -- dipakai membandingkan posisi terakhir pekerja terhadap
+// koordinat site Proyek yang aktif (Fase 1.6, peringatan lokasi-vs-jam-
+// kerja). Murni hitungan jarak dari data lokasi, tidak menyentuh isi
+// pesan/komunikasi apa pun.
+function jarakMeter(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+function isDalamJamKerja(dateObj) {
+  const hhmm = dateObj.toTimeString().slice(0, 5);
+  const mulai = state.jamKerjaMulai || "08:00";
+  const selesai = state.jamKerjaSelesai || "17:00";
+  return hhmm >= mulai && hhmm <= selesai;
+}
 async function renderLokasiPekerja() {
   const tbody = document.querySelector("#lok_table tbody");
   if (!sb || !targetCompanyId) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Login sebagai Owner/Admin dulu untuk memakai fitur ini.</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="7">Login sebagai Owner/Admin dulu untuk memakai fitur ini.</td></tr>';
     return;
   }
   const karyawanList = (state.karyawan || []).slice().sort((a, b) => (a.nama || "").localeCompare(b.nama || ""));
   document.getElementById("lok_totalPekerja").textContent = karyawanList.length;
   if (!karyawanList.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Belum ada data Karyawan.</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="7">Belum ada data Karyawan.</td></tr>';
     document.getElementById("lok_totalTerpasang").textContent = "0";
     document.getElementById("lok_totalAktifHariIni").textContent = "0";
     document.getElementById("lok_totalStale").textContent = "0";
+    document.getElementById("lok_totalPerluDitinjau").textContent = "0";
     return;
   }
+  const activeProyekSites = (state.proyek || []).filter(p => p.status === "berjalan" && typeof p.lokasiLat === "number" && typeof p.lokasiLng === "number");
+  const todayStr = new Date().toDateString();
   try {
     const [{ data: devices, error: devErr }, { data: positions, error: posErr }] = await Promise.all([
       sb.from("pekerja_device").select("*").eq("company_id", targetCompanyId).order("created_at", { ascending: false }),
@@ -8914,7 +8985,7 @@ async function renderLokasiPekerja() {
     const lokLatestPosMap = {};
     (positions || []).forEach(p => { if (!lokLatestPosMap[p.karyawan_id]) lokLatestPosMap[p.karyawan_id] = p; });
 
-    let terpasang = 0, aktifHariIni = 0, stale = 0;
+    let terpasang = 0, aktifHariIni = 0, stale = 0, perluDitinjau = 0;
     const now = Date.now();
     tbody.innerHTML = karyawanList.map(k => {
       const device = lokDeviceMap[k.id];
@@ -8923,6 +8994,7 @@ async function renderLokasiPekerja() {
       let statusHtml;
       let updateHtml = "-";
       let lokasiHtml = "-";
+      let kehadiranHtml = "-";
       if (paired) {
         terpasang++;
         const ageMs = pos ? now - new Date(pos.captured_at).getTime() : Infinity;
@@ -8932,6 +9004,24 @@ async function renderLokasiPekerja() {
         if (pos) {
           updateHtml = new Date(pos.captured_at).toLocaleString("id-ID");
           lokasiHtml = `<a href="https://www.google.com/maps?q=${pos.lat},${pos.lng}" target="_blank" rel="noopener">${Number(pos.lat).toFixed(5)}, ${Number(pos.lng).toFixed(5)}</a>`;
+
+          // Peringatan lokasi-vs-jam-kerja (Fase 1.6): cuma dievaluasi
+          // kalau ping terbarunya hari ini & dalam jam kerja, DAN sudah
+          // ada minimal 1 Proyek aktif yang koordinat site-nya tercatat
+          // -- kalau belum ada site yang dicatat sama sekali, tidak
+          // dievaluasi (bukan berarti aman/berarti bermasalah, cuma
+          // datanya belum cukup).
+          const posDate = new Date(pos.captured_at);
+          const posDalamJamKerja = posDate.toDateString() === todayStr && isDalamJamKerja(posDate);
+          if (posDalamJamKerja && activeProyekSites.length) {
+            const jarakTerdekat = Math.min(...activeProyekSites.map(p => jarakMeter(pos.lat, pos.lng, p.lokasiLat, p.lokasiLng)));
+            if (jarakTerdekat <= (state.radiusProyekMeter || 500)) {
+              kehadiranHtml = '<span class="badge-margin good">Sesuai Proyek</span>';
+            } else {
+              kehadiranHtml = `<span class="badge-margin critical">⚠️ Di Luar Radius (${Math.round(jarakTerdekat)} m)</span>`;
+              perluDitinjau++;
+            }
+          }
         }
       } else if (device && device.status === "pending" && new Date(device.expires_at) > new Date()) {
         statusHtml = '<span class="badge-margin warning">Menunggu Pairing</span>';
@@ -8947,14 +9037,16 @@ async function renderLokasiPekerja() {
         <td>${statusHtml}</td>
         <td>${updateHtml}</td>
         <td>${lokasiHtml}</td>
+        <td>${kehadiranHtml}</td>
         <td>${aksiHtml}</td>
       </tr>`;
     }).join("");
     document.getElementById("lok_totalTerpasang").textContent = terpasang;
     document.getElementById("lok_totalAktifHariIni").textContent = aktifHariIni;
     document.getElementById("lok_totalStale").textContent = stale;
+    document.getElementById("lok_totalPerluDitinjau").textContent = perluDitinjau;
   } catch (err) {
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="6">Gagal memuat data lokasi: ${escapeHtml(err.message)}</td></tr>`;
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="7">Gagal memuat data lokasi: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 function randomPairingCode() {

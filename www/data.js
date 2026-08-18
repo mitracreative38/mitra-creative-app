@@ -619,3 +619,8 @@ SEED_DATA.stokOpname = [];
 
 // ===== Approval pengeluaran besar =====
 SEED_DATA.approvalThreshold = 0;
+
+// ===== Jam kerja & radius geofence Proyek (peringatan Lokasi Pekerja) =====
+SEED_DATA.jamKerjaMulai = "08:00";
+SEED_DATA.jamKerjaSelesai = "17:00";
+SEED_DATA.radiusProyekMeter = 500;

@@ -1214,18 +1214,22 @@
           <div class="stat-label">Belum Update &gt; 3 Jam</div>
           <div class="stat-value warn" id="lok_totalStale">0</div>
         </div>
+        <div class="stat-card accent">
+          <div class="stat-label">Perlu Ditinjau</div>
+          <div class="stat-value bad" id="lok_totalPerluDitinjau">0</div>
+        </div>
       </div>
 
       <div class="panel">
         <div class="table-wrap">
           <table class="tbl" id="lok_table">
             <thead><tr>
-              <th>Nama</th><th>Jabatan</th><th>Status HP</th><th>Update Terakhir</th><th>Lokasi Terakhir</th><th></th>
+              <th>Nama</th><th>Jabatan</th><th>Status HP</th><th>Update Terakhir</th><th>Lokasi Terakhir</th><th>Kehadiran Lokasi</th><th></th>
             </tr></thead>
             <tbody></tbody>
           </table>
         </div>
-        <p class="muted" style="font-size:12px;margin-top:8px;">HP pekerja perlu dipasangkan sekali lewat kode 6-digit (lihat tombol "Buat Kode Pairing" per baris) — tidak perlu email. Riwayat lokasi disimpan 14 hari.</p>
+        <p class="muted" style="font-size:12px;margin-top:8px;">HP pekerja perlu dipasangkan sekali lewat kode 6-digit (lihat tombol "Buat Kode Pairing" per baris) — tidak perlu email. Riwayat lokasi disimpan 14 hari. Kolom "Kehadiran Lokasi" membandingkan posisi terakhir pekerja pada jam kerja terhadap koordinat site Proyek aktif (dicatat lewat tombol "Catat Lokasi Site" di detail Proyek) — cuma dievaluasi kalau minimal 1 Proyek aktif sudah punya koordinat.</p>
       </div>
     </section>
 
@@ -2019,6 +2023,23 @@
         <input type="text" inputmode="numeric" id="settingsTargetOmzet" class="text-input" style="width:100%; margin-bottom:12px;">
         <label class="field-label">Target Laba Bersih Bulanan (Rp)</label>
         <input type="text" inputmode="numeric" id="settingsTargetLaba" class="text-input" style="width:100%">
+      </div>
+
+      <div class="panel narrow" id="settingsJamKerjaPanel">
+        <h3>Jam Kerja &amp; Radius Proyek</h3>
+        <p class="muted">Dipakai halaman "Lokasi Pekerja" untuk menandai "Perlu Ditinjau" kalau posisi pekerja pada jam kerja jauh dari semua site Proyek aktif (yang koordinatnya sudah dicatat).</p>
+        <div style="display:flex; gap:12px; margin-bottom:12px;">
+          <div style="flex:1;">
+            <label class="field-label">Jam Kerja Mulai</label>
+            <input type="time" id="settingsJamKerjaMulai" class="text-input" style="width:100%">
+          </div>
+          <div style="flex:1;">
+            <label class="field-label">Jam Kerja Selesai</label>
+            <input type="time" id="settingsJamKerjaSelesai" class="text-input" style="width:100%">
+          </div>
+        </div>
+        <label class="field-label">Radius Toleransi dari Site Proyek (meter)</label>
+        <input type="number" inputmode="numeric" min="0" step="50" id="settingsRadiusProyek" class="text-input" style="width:100%">
       </div>
 
       <div class="panel narrow" id="settingsMataResolusiPanel">
