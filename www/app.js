@@ -7535,7 +7535,7 @@ function renderAll() {
 // hanya halaman yang terdaftar di sini yang boleh diakses.
 const ROLE_PAGE_ACCESS = {
   owner: null,
-  admin: ["dashboard", "klien", "kasUsaha", "laporan", "kpi", "proyek", "karyawan", "stok", "pemasok", "ahsp", "rab", "penawaran", "pengaturan"],
+  admin: ["dashboard", "klien", "kasUsaha", "laporan", "kpi", "proyek", "karyawan", "lokasi", "stok", "pemasok", "ahsp", "rab", "penawaran", "pengaturan"],
   marketing: ["klien", "ahsp", "rab", "penawaran", "pengaturan"]
 };
 function canAccessPage(name) {
@@ -7581,6 +7581,7 @@ document.querySelectorAll(".nav-item").forEach(btn => {
   btn.addEventListener("click", () => {
     showPage(btn.dataset.page);
     if (btn.dataset.page === "aktivitas") renderActivityLog(true);
+    if (btn.dataset.page === "lokasi") renderLokasiPekerja();
   });
 });
 document.getElementById("mobileToggle").addEventListener("click", () => {
@@ -8876,11 +8877,304 @@ document.getElementById("team_inviteBtn").addEventListener("click", async () => 
   await sendInviteInstruction(email, role, whatsapp);
 });
 
+// ===== Fase 1.5: Lokasi Pekerja (dashboard Owner/Admin) =====
+// Data pairing (pekerja_device) & posisi (lokasi_pekerja) SENGAJA tidak
+// pernah dibaca dari state/buildStateFromRelational -- dibaca langsung
+// dari Supabase saat halaman ini dibuka, sama seperti Aktivitas Tim &
+// Riwayat Backup (renderActivityLog/renderBackupHistory di atas). Kode
+// pairing dibuat langsung dari sesi Owner/Admin (RLS mengizinkan lewat
+// has_company_access), tapi device_token & submit ping SELALU lewat
+// server (service role) -- lihat server/lib/pekerjaTracking.js.
+let lokDeviceMap = {};
+async function renderLokasiPekerja() {
+  const tbody = document.querySelector("#lok_table tbody");
+  if (!sb || !targetCompanyId) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Login sebagai Owner/Admin dulu untuk memakai fitur ini.</td></tr>';
+    return;
+  }
+  const karyawanList = (state.karyawan || []).slice().sort((a, b) => (a.nama || "").localeCompare(b.nama || ""));
+  document.getElementById("lok_totalPekerja").textContent = karyawanList.length;
+  if (!karyawanList.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Belum ada data Karyawan.</td></tr>';
+    document.getElementById("lok_totalTerpasang").textContent = "0";
+    document.getElementById("lok_totalAktifHariIni").textContent = "0";
+    document.getElementById("lok_totalStale").textContent = "0";
+    return;
+  }
+  try {
+    const [{ data: devices, error: devErr }, { data: positions, error: posErr }] = await Promise.all([
+      sb.from("pekerja_device").select("*").eq("company_id", targetCompanyId).order("created_at", { ascending: false }),
+      sb.from("lokasi_pekerja").select("*").eq("company_id", targetCompanyId).order("captured_at", { ascending: false }).limit(500)
+    ]);
+    if (devErr) throw devErr;
+    if (posErr) throw posErr;
+
+    lokDeviceMap = {};
+    (devices || []).forEach(d => { if (!lokDeviceMap[d.karyawan_id]) lokDeviceMap[d.karyawan_id] = d; });
+    const lokLatestPosMap = {};
+    (positions || []).forEach(p => { if (!lokLatestPosMap[p.karyawan_id]) lokLatestPosMap[p.karyawan_id] = p; });
+
+    let terpasang = 0, aktifHariIni = 0, stale = 0;
+    const now = Date.now();
+    tbody.innerHTML = karyawanList.map(k => {
+      const device = lokDeviceMap[k.id];
+      const pos = lokLatestPosMap[k.id];
+      const paired = device && device.status === "paired";
+      let statusHtml;
+      let updateHtml = "-";
+      let lokasiHtml = "-";
+      if (paired) {
+        terpasang++;
+        const ageMs = pos ? now - new Date(pos.captured_at).getTime() : Infinity;
+        if (ageMs < 24 * 60 * 60 * 1000) aktifHariIni++;
+        if (ageMs > 3 * 60 * 60 * 1000) stale++;
+        statusHtml = '<span class="badge-margin good">Terpasang</span>';
+        if (pos) {
+          updateHtml = new Date(pos.captured_at).toLocaleString("id-ID");
+          lokasiHtml = `<a href="https://www.google.com/maps?q=${pos.lat},${pos.lng}" target="_blank" rel="noopener">${Number(pos.lat).toFixed(5)}, ${Number(pos.lng).toFixed(5)}</a>`;
+        }
+      } else if (device && device.status === "pending" && new Date(device.expires_at) > new Date()) {
+        statusHtml = '<span class="badge-margin warning">Menunggu Pairing</span>';
+      } else {
+        statusHtml = '<span class="badge-margin critical">Belum Dipasang</span>';
+      }
+      const aksiHtml = paired
+        ? `<button class="btn-ghost" data-lok-history="${k.id}">Riwayat</button> <button class="btn-danger" data-lok-revoke="${device.id}">Cabut</button>`
+        : `<button class="btn-ghost" data-lok-pair="${k.id}">Buat Kode Pairing</button>`;
+      return `<tr>
+        <td>${escapeHtml(k.nama)}</td>
+        <td>${escapeHtml(k.jabatan || "-")}</td>
+        <td>${statusHtml}</td>
+        <td>${updateHtml}</td>
+        <td>${lokasiHtml}</td>
+        <td>${aksiHtml}</td>
+      </tr>`;
+    }).join("");
+    document.getElementById("lok_totalTerpasang").textContent = terpasang;
+    document.getElementById("lok_totalAktifHariIni").textContent = aktifHariIni;
+    document.getElementById("lok_totalStale").textContent = stale;
+  } catch (err) {
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="6">Gagal memuat data lokasi: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+function randomPairingCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+document.querySelector("#lok_table").addEventListener("click", async e => {
+  const pairBtn = e.target.closest("[data-lok-pair]");
+  const historyBtn = e.target.closest("[data-lok-history]");
+  const revokeBtn = e.target.closest("[data-lok-revoke]");
+  if (pairBtn) {
+    if (!sb || !targetCompanyId) return;
+    const karyawanId = pairBtn.dataset.lokPair;
+    const k = (state.karyawan || []).find(x => x.id === karyawanId);
+    pairBtn.disabled = true;
+    try {
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+      const code = randomPairingCode();
+      const { error } = await sb.from("pekerja_device").insert({
+        id: uid(),
+        company_id: targetCompanyId,
+        karyawan_id: karyawanId,
+        pairing_code: code,
+        status: "pending",
+        expires_at: expiresAt
+      });
+      if (error) throw error;
+      document.getElementById("lokPair_nama").textContent = k ? k.nama : "-";
+      document.getElementById("lokPair_code").textContent = code;
+      document.getElementById("lokPair_expires").textContent = new Date(expiresAt).toLocaleString("id-ID");
+      document.getElementById("lokPairModal").classList.add("open");
+      renderLokasiPekerja();
+    } catch (err) {
+      alert("Gagal membuat kode pairing: " + err.message);
+    } finally {
+      pairBtn.disabled = false;
+    }
+  } else if (historyBtn) {
+    const karyawanId = historyBtn.dataset.lokHistory;
+    const k = (state.karyawan || []).find(x => x.id === karyawanId);
+    document.getElementById("lokHist_nama").textContent = k ? k.nama : "-";
+    const tbody = document.querySelector("#lokHist_table tbody");
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="4">Memuat...</td></tr>';
+    document.getElementById("lokHistoryModal").classList.add("open");
+    try {
+      const { data, error } = await sb.from("lokasi_pekerja").select("*").eq("company_id", targetCompanyId).eq("karyawan_id", karyawanId).order("captured_at", { ascending: false }).limit(200);
+      if (error) throw error;
+      tbody.innerHTML = (data || []).length
+        ? data.map(p => `<tr>
+            <td>${new Date(p.captured_at).toLocaleString("id-ID")}</td>
+            <td>${Number(p.lat).toFixed(5)}, ${Number(p.lng).toFixed(5)}</td>
+            <td class="num">${p.accuracy ? Math.round(p.accuracy) + " m" : "-"}</td>
+            <td><a href="https://www.google.com/maps?q=${p.lat},${p.lng}" target="_blank" rel="noopener">Buka di Peta</a></td>
+          </tr>`).join("")
+        : '<tr class="empty-row"><td colspan="4">Belum ada riwayat lokasi.</td></tr>';
+    } catch (err) {
+      tbody.innerHTML = `<tr class="empty-row"><td colspan="4">Gagal memuat riwayat: ${escapeHtml(err.message)}</td></tr>`;
+    }
+  } else if (revokeBtn) {
+    if (!confirm("Cabut perangkat ini? Pekerja perlu kode pairing baru untuk memasang ulang.")) return;
+    try {
+      const { error } = await sb.from("pekerja_device").update({ status: "revoked", updated_at: new Date().toISOString() }).eq("id", revokeBtn.dataset.lokRevoke);
+      if (error) throw error;
+      renderLokasiPekerja();
+    } catch (err) {
+      alert("Gagal mencabut perangkat: " + err.message);
+    }
+  }
+});
+
+// ===== Fase 1.5: Lokasi Pekerja (mode HP pekerja -- pairing & tracking) =====
+// HP pekerja TIDAK login lewat Supabase Auth (tidak dianggap sebagai
+// Owner/Admin/Marketing sama sekali) -- device_token yang tersimpan di
+// localStorage kunci "pekerjaDevice" adalah satu-satunya kredensial.
+// Begitu ada, init() (paling bawah file ini) mengalihkan SELURUH aplikasi
+// ke layar #pekerjaModeScreen dan tidak pernah menampilkan halaman bisnis
+// apa pun -- lihat bootPekerjaMode().
+const PEKERJA_DEVICE_KEY = "pekerjaDevice";
+const PEKERJA_PING_INTERVAL_MS = 10 * 60 * 1000; // 10 menit (jalur web/foreground)
+const PEKERJA_MIN_SEND_GAP_MS = 5 * 60 * 1000; // throttle jalur native (distance-based, bisa lebih sering dari perlu)
+let pekerjaWatcherId = null;
+let pekerjaPingTimer = null;
+let pekerjaLastSentAt = 0;
+
+function getPekerjaDevice() {
+  try {
+    const raw = localStorage.getItem(PEKERJA_DEVICE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
+  }
+}
+function setPekerjaDevice(data) {
+  localStorage.setItem(PEKERJA_DEVICE_KEY, JSON.stringify(data));
+}
+function clearPekerjaDevice() {
+  localStorage.removeItem(PEKERJA_DEVICE_KEY);
+}
+async function pekerjaSubmitPosition(lat, lng, accuracy) {
+  const device = getPekerjaDevice();
+  if (!device) return;
+  if (Date.now() - pekerjaLastSentAt < PEKERJA_MIN_SEND_GAP_MS) return;
+  pekerjaLastSentAt = Date.now();
+  const badge = document.getElementById("pekerjaStatusBadge");
+  try {
+    const res = await fetch(`${PDF_SERVER_URL}/api/pekerja/ping`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ deviceToken: device.deviceToken, lat, lng, accuracy, capturedAt: new Date().toISOString() })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Gagal mengirim lokasi.");
+    document.getElementById("pekerjaLastSent").textContent = new Date().toLocaleString("id-ID");
+    if (badge) { badge.textContent = "Aktif"; badge.className = "badge-margin good"; }
+  } catch (err) {
+    if (badge) { badge.textContent = "Gagal kirim"; badge.className = "badge-margin critical"; }
+    console.error("[pekerja] gagal kirim lokasi:", err.message);
+  }
+}
+function pekerjaGetPositionOnce() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) { reject(new Error("Geolocation tidak didukung.")); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve(pos.coords),
+      err => reject(err),
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 60000 }
+    );
+  });
+}
+function startPekerjaTracking() {
+  const badge = document.getElementById("pekerjaStatusBadge");
+  if (window.__pekerjaGeo && window.__pekerjaGeo.isNative) {
+    // Jalur native: tetap jalan walau aplikasi di-minimize/layar mati,
+    // lewat foreground service (lihat capacitor.config.json + Info.plist).
+    window.__pekerjaGeo.addWatcher({
+      backgroundMessage: "Lokasi sedang dikirim untuk keamanan pekerjaan lapangan.",
+      backgroundTitle: "CV Mitra Creative — Lokasi Aktif",
+      requestPermissions: true,
+      stale: false,
+      distanceFilter: 50
+    }, (location, error) => {
+      if (error) {
+        if (badge) { badge.textContent = "Izin lokasi ditolak"; badge.className = "badge-margin critical"; }
+        console.error("[pekerja] error watcher:", error.message);
+        return;
+      }
+      if (location) pekerjaSubmitPosition(location.latitude, location.longitude, location.accuracy);
+    }).then(id => { pekerjaWatcherId = id; }).catch(err => {
+      if (badge) { badge.textContent = "Gagal mengaktifkan lokasi"; badge.className = "badge-margin critical"; }
+      console.error("[pekerja] gagal addWatcher:", err.message);
+    });
+  } else {
+    // Jalur web biasa (buka lewat browser, bukan aplikasi terpasang):
+    // cuma jalan selagi tab ini benar-benar di layar depan.
+    if (badge) { badge.textContent = "Aktif (mode browser -- perlu tetap dibuka)"; badge.className = "badge-margin warning"; }
+    const tick = () => pekerjaGetPositionOnce().then(c => pekerjaSubmitPosition(c.latitude, c.longitude, c.accuracy)).catch(err => console.error("[pekerja] gagal ambil posisi:", err.message));
+    tick();
+    pekerjaPingTimer = setInterval(tick, PEKERJA_PING_INTERVAL_MS);
+  }
+}
+function stopPekerjaTracking() {
+  if (pekerjaWatcherId && window.__pekerjaGeo) {
+    window.__pekerjaGeo.removeWatcher(pekerjaWatcherId).catch(() => {});
+    pekerjaWatcherId = null;
+  }
+  if (pekerjaPingTimer) { clearInterval(pekerjaPingTimer); pekerjaPingTimer = null; }
+}
+function bootPekerjaMode() {
+  const device = getPekerjaDevice();
+  document.querySelector(".app").style.display = "none";
+  document.getElementById("pekerjaModeScreen").style.display = "flex";
+  document.getElementById("pekerjaNama").textContent = device.karyawanNama || "Pekerja";
+  startPekerjaTracking();
+}
+document.getElementById("settingsPekerjaPairBtn").addEventListener("click", () => {
+  document.getElementById("pjr_code").value = "";
+  document.getElementById("pjr_error").style.display = "none";
+  document.getElementById("pekerjaPairEntryModal").classList.add("open");
+});
+document.getElementById("pekerjaPairEntryForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const code = document.getElementById("pjr_code").value.trim();
+  const errEl = document.getElementById("pjr_error");
+  errEl.style.display = "none";
+  const btn = document.getElementById("pjr_submitBtn");
+  btn.disabled = true;
+  btn.textContent = "Memasangkan...";
+  try {
+    const res = await fetch(`${PDF_SERVER_URL}/api/pekerja/pair`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pairingCode: code })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Gagal memasangkan HP.");
+    setPekerjaDevice({ deviceToken: data.deviceToken, karyawanNama: data.karyawanNama });
+    location.reload();
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.style.display = "block";
+    btn.disabled = false;
+    btn.textContent = "Pasangkan HP Ini";
+  }
+});
+document.getElementById("pekerjaUnpairBtn").addEventListener("click", () => {
+  if (!confirm("Lepas HP ini dari mode Pekerja? Perlu kode pairing baru dari Owner/Admin untuk memasang ulang.")) return;
+  stopPekerjaTracking();
+  clearPekerjaDevice();
+  location.reload();
+});
+
 // ===== Print =====
 document.getElementById("printBtn").addEventListener("click", () => window.print());
 
 // ===== Init =====
 function init() {
+  if (getPekerjaDevice()) {
+    bootPekerjaMode();
+    return;
+  }
+
   const todayEl = document.getElementById("todayLabel");
   const now = new Date();
   todayEl.textContent = formatTanggal(now.toISOString().slice(0, 10));
