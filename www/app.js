@@ -4268,14 +4268,20 @@ function computePayrollFromAbsensi(resetManualInputs) {
     const totalUpahHarian = hariHadir * (k.upahHarian || 0);
     const totalLembur = jamLembur * (k.tarifLembur || 0);
     pgComputed = { hariHadir, jamLembur, totalUpahHarian, totalLembur, upahKotor: totalUpahHarian + totalLembur, bonus: 0 };
+    // Dijumlah dari input harian di Absensi Harian (kolom Uang Makan/Bon,
+    // Owner-only) -- tetap bisa dikoreksi manual sebelum slip gaji disimpan,
+    // cuma dipakai sebagai nilai awal. Hanya hari yang HADIR yang dihitung
+    // (beda dari Jam Lembur di atas) -- uang makan tidak masuk akal dibayar
+    // untuk hari karyawan tidak hadir, walau baris Absensinya kebetulan ikut
+    // tersimpan (mis. saat Owner klik "Simpan Absensi" untuk seluruh tim).
+    // Selalu dihitung ulang mengikuti periode aktif -- bukan cuma saat ganti
+    // karyawan -- supaya tetap sinkron saat Periode Mulai/Selesai diubah atau
+    // "Hitung Otomatis dari Absensi" diklik, sama seperti Hari Hadir/Jam Lembur.
+    const totalUangMakanHarian = inRange.filter(a => a.hadir).reduce((s, a) => s + (a.uangMakan || 0), 0);
+    const totalBonHarian = inRange.filter(a => a.hadir).reduce((s, a) => s + (a.bon || 0), 0);
+    document.getElementById("pg_uangMakan").value = formatNumberInput(totalUangMakanHarian);
+    document.getElementById("pg_bon").value = formatNumberInput(totalBonHarian);
     if (resetManualInputs) {
-      // Dijumlah dari input harian di Absensi Harian (kolom Uang Makan/Bon,
-      // Owner-only) -- tetap bisa dikoreksi manual di sini sebelum slip
-      // gaji disimpan, cuma dipakai sebagai nilai awal.
-      const totalUangMakanHarian = inRange.reduce((s, a) => s + (a.uangMakan || 0), 0);
-      const totalBonHarian = inRange.reduce((s, a) => s + (a.bon || 0), 0);
-      document.getElementById("pg_uangMakan").value = formatNumberInput(totalUangMakanHarian);
-      document.getElementById("pg_bon").value = formatNumberInput(totalBonHarian);
       document.getElementById("pg_potonganPinjaman").value = formatNumberInput(0);
     }
   }
