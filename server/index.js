@@ -7,7 +7,7 @@ const { getBrowser } = require("./lib/browser");
 const { checkAndRunBackups } = require("./lib/backup");
 const { checkAndSendReminders, REMINDER_CHECK_INTERVAL_MS } = require("./lib/reminders");
 const { createInvoice, verifyCallbackToken, markPaymentPaid, checkPendingPayments, RECONCILE_INTERVAL_MS } = require("./lib/payment");
-const { pairDevice, submitPing, submitAbsenApp, cleanupOldLokasiPekerja } = require("./lib/pekerjaTracking");
+const { pairDevice, submitPing, submitAbsenApp, cleanupOldLokasiPekerja, getAlatDipinjamPekerja, kembalikanAlatPekerja } = require("./lib/pekerjaTracking");
 
 const PORT = process.env.PORT || 3000;
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -340,6 +340,34 @@ app.post("/api/pekerja/absen", async (req, res) => {
   } catch (err) {
     console.error("[pekerja/absen] gagal:", err);
     res.status(500).json({ error: "Gagal mencatat absen: " + err.message });
+  }
+});
+
+// Alat yang sedang dibawa pekerja (Fase 1.9): pengingat di HP + swakembali --
+// sama seperti pair/ping/absen di atas, TIDAK memakai requireAccessToken,
+// device_token adalah kredensialnya.
+app.post("/api/pekerja/alat", async (req, res) => {
+  if (!supabaseAdmin) return res.status(500).json({ error: "Server belum dikonfigurasi." });
+  try {
+    const { deviceToken } = req.body || {};
+    const result = await getAlatDipinjamPekerja(supabaseAdmin, deviceToken);
+    if (result.error) return res.status(400).json({ error: result.error });
+    res.json(result);
+  } catch (err) {
+    console.error("[pekerja/alat] gagal:", err);
+    res.status(500).json({ error: "Gagal mengambil daftar alat: " + err.message });
+  }
+});
+app.post("/api/pekerja/alat/kembalikan", async (req, res) => {
+  if (!supabaseAdmin) return res.status(500).json({ error: "Server belum dikonfigurasi." });
+  try {
+    const { deviceToken, alatId, peminjamanId, jumlahDikembalikan, kondisiKembali, catatan } = req.body || {};
+    const result = await kembalikanAlatPekerja(supabaseAdmin, deviceToken, { alatId, peminjamanId, jumlahDikembalikan, kondisiKembali, catatan });
+    if (result.error) return res.status(400).json({ error: result.error });
+    res.json(result);
+  } catch (err) {
+    console.error("[pekerja/alat/kembalikan] gagal:", err);
+    res.status(500).json({ error: "Gagal menandai alat kembali: " + err.message });
   }
 });
 

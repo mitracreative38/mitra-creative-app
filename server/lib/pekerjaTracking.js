@@ -177,4 +177,93 @@ async function cleanupOldLokasiPekerja(supabaseAdmin) {
   if (error) console.error("[pekerjaTracking] gagal bersihkan lokasi lama:", error.message);
 }
 
-module.exports = { pairDevice, submitPing, submitAbsenApp, cleanupOldLokasiPekerja, ABSENSI_SELFIE_BUCKET };
+// ===== Fase 1.9: Alat yang sedang dibawa pekerja (pengingat di HP + swakembali) =====
+// Cuma pengingat -- TIDAK menghalangi Absen Pulang. Pekerja boleh menandai
+// kembali sendiri (jumlah + kondisi fisik saat itu), tapi cuma untuk
+// peminjaman atas namanya sendiri (dicek via device.karyawan_id, bukan dari
+// input klien manapun) -- Owner/Admin tetap bisa memantau lewat tabel
+// riwayat peminjaman Alat yang sudah ada (kolom Kondisi Kembali) + Realtime
+// (tabel "alat" sudah ada di REALTIME_RELATIONAL_TABLES).
+async function getAlatDipinjamPekerja(supabaseAdmin, deviceToken) {
+  const { device, error: resolveErr } = await resolveDeviceByToken(supabaseAdmin, deviceToken);
+  if (resolveErr) return { error: resolveErr };
+
+  const { data: alatRows, error } = await supabaseAdmin
+    .from("alat")
+    .select("id, nama, peminjaman")
+    .eq("company_id", device.company_id);
+  if (error) throw error;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const items = [];
+  (alatRows || []).forEach(a => {
+    (a.peminjaman || []).forEach(p => {
+      if (p.karyawanId === device.karyawan_id && !p.tanggalKembali) {
+        items.push({
+          alatId: a.id, alatNama: a.nama, peminjamanId: p.id, jumlah: p.jumlah || 0,
+          tanggalPinjam: p.tanggalPinjam || "", rencanaKembali: p.rencanaKembali || "",
+          terlambat: !!(p.rencanaKembali && p.rencanaKembali < today)
+        });
+      }
+    });
+  });
+  items.sort((a, b) => (a.tanggalPinjam || "").localeCompare(b.tanggalPinjam || ""));
+  return { items };
+}
+
+async function kembalikanAlatPekerja(supabaseAdmin, deviceToken, { alatId, peminjamanId, jumlahDikembalikan, kondisiKembali, catatan } = {}) {
+  const { device, error: resolveErr } = await resolveDeviceByToken(supabaseAdmin, deviceToken);
+  if (resolveErr) return { error: resolveErr };
+  if (!alatId || !peminjamanId) return { error: "Data alat tidak lengkap." };
+  const jumlah = Number(jumlahDikembalikan);
+  if (!jumlah || jumlah <= 0) return { error: "Jumlah dikembalikan harus lebih dari 0." };
+  if (!["Baik", "Rusak", "Hilang"].includes(kondisiKembali)) return { error: "Kondisi kembali tidak valid." };
+
+  const { data: alat, error: alatErr } = await supabaseAdmin
+    .from("alat")
+    .select("id, peminjaman")
+    .eq("id", alatId)
+    .eq("company_id", device.company_id)
+    .maybeSingle();
+  if (alatErr) throw alatErr;
+  if (!alat) return { error: "Alat tidak ditemukan." };
+
+  const peminjaman = Array.isArray(alat.peminjaman) ? alat.peminjaman.slice() : [];
+  const idx = peminjaman.findIndex(p => p.id === peminjamanId);
+  if (idx < 0) return { error: "Riwayat peminjaman tidak ditemukan." };
+  const p = peminjaman[idx];
+  // Verifikasi kepemilikan dari device.karyawan_id (hasil resolveDeviceByToken),
+  // BUKAN dari input klien -- pekerja tidak bisa menandai kembali peminjaman
+  // atas nama orang lain.
+  if (p.karyawanId !== device.karyawan_id) return { error: "Peminjaman ini bukan atas nama Anda." };
+  if (p.tanggalKembali) return { error: "Peminjaman ini sudah ditandai kembali." };
+  if (jumlah > (p.jumlah || 0)) return { error: `Jumlah melebihi yang sedang Anda pinjam (${p.jumlah}).` };
+
+  const now = new Date().toISOString().slice(0, 10);
+  if (jumlah === p.jumlah) {
+    peminjaman[idx] = { ...p, tanggalKembali: now, kondisiKembali, catatan: (catatan || "").trim() };
+  } else {
+    // Kembalikan sebagian -- sisa jumlah tetap tercatat "masih dipinjam" di
+    // record asli, bagian yang dikembalikan dipecah jadi record baru supaya
+    // kondisi fisiknya tercatat terpisah (mis. 1 unit Baik, 1 unit Rusak).
+    peminjaman[idx] = { ...p, jumlah: p.jumlah - jumlah };
+    peminjaman.push({
+      id: "kb-" + crypto.randomBytes(8).toString("hex"), karyawanId: p.karyawanId, proyekId: p.proyekId || "",
+      jumlah, tanggalPinjam: p.tanggalPinjam, rencanaKembali: p.rencanaKembali || "",
+      tanggalKembali: now, kondisiKembali, catatan: (catatan || "").trim()
+    });
+  }
+
+  const { error: updateErr } = await supabaseAdmin
+    .from("alat")
+    .update({ peminjaman, updated_at: new Date().toISOString() })
+    .eq("id", alatId);
+  if (updateErr) throw updateErr;
+
+  return { ok: true };
+}
+
+module.exports = {
+  pairDevice, submitPing, submitAbsenApp, cleanupOldLokasiPekerja, ABSENSI_SELFIE_BUCKET,
+  getAlatDipinjamPekerja, kembalikanAlatPekerja
+};
