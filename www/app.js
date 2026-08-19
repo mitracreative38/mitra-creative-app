@@ -5246,10 +5246,10 @@ function itemsSubtotal(items) {
 function rabTotals(rab) {
   const subtotal = itemsSubtotal(rab.items);
   const ppnValue = subtotal * (rab.ppn || 0) / 100;
-  // PPh Final sudah termasuk dalam harga satuan (sesuai Syarat & Ketentuan), jadi TIDAK
-  // ditambahkan lagi ke Total — hanya ditampilkan sebagai info berapa yang perlu disetor pajak.
+  // PPh Final ditambahkan sebagai biaya tambahan di atas Total (bukan sudah
+  // termasuk di harga satuan) -- konsisten dengan penawaranTotals().
   const pphValue = subtotal * (rab.pph || 0) / 100;
-  const total = subtotal + ppnValue + (rab.biayaLain || 0);
+  const total = subtotal + ppnValue + pphValue + (rab.biayaLain || 0);
   return { subtotal, ppnValue, pphValue, total };
 }
 function penawaranTotals(pw) {
@@ -5257,10 +5257,12 @@ function penawaranTotals(pw) {
   const diskonValue = subtotal * (pw.diskon || 0) / 100;
   const dpp = subtotal - diskonValue;
   const ppnValue = dpp * (pw.ppn || 0) / 100;
-  // PPh Final sudah termasuk dalam harga satuan (sesuai Syarat & Ketentuan), jadi TIDAK
-  // ditambahkan lagi ke Total — hanya ditampilkan sebagai info berapa yang perlu disetor pajak.
+  // PPh Final ditambahkan sebagai biaya tambahan di atas Total (bukan sudah
+  // termasuk di harga satuan) -- keputusan Owner, klien membayar Total +
+  // PPh Final. Lihat juga defaultSyarat() yang disesuaikan supaya tidak
+  // kontradiksi dengan angka ini.
   const pphValue = dpp * (pw.pph || 0) / 100;
-  const total = dpp + ppnValue + (pw.biayaLain || 0);
+  const total = dpp + ppnValue + pphValue + (pw.biayaLain || 0);
   return { subtotal, diskonValue, dpp, ppnValue, pphValue, total };
 }
 const ROMAWI_BULAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
@@ -5289,7 +5291,7 @@ function nextRabNomor() {
   return `${n}/MC-RAB/${ROMAWI_BULAN[d.getMonth()]}/${d.getFullYear()}`;
 }
 function defaultSyarat() {
-  return "1. Harga sudah termasuk PPh Final 0,5% dan PPN (jika berlaku) sesuai ketentuan yang berlaku.\n2. Pembayaran: DP 50% saat SPK diterbitkan, sisa 50% saat pekerjaan selesai (BAST).\n3. Penawaran ini berlaku 14 (empat belas) hari kalender sejak tanggal surat.\n4. Waktu pengerjaan disepakati bersama setelah SPK/kontrak ditandatangani.";
+  return "1. Harga belum termasuk PPh Final 0,5% dan PPN (jika berlaku) -- ditambahkan ke Total Penawaran sesuai rincian di atas.\n2. Pembayaran: DP 50% saat SPK diterbitkan, sisa 50% saat pekerjaan selesai (BAST).\n3. Penawaran ini berlaku 14 (empat belas) hari kalender sejak tanggal surat.\n4. Waktu pengerjaan disepakati bersama setelah SPK/kontrak ditandatangani.";
 }
 function defaultPenutup() {
   return "Demikian penawaran harga ini kami sampaikan. Besar harapan kami dapat bekerja sama dengan Bapak/Ibu. Atas perhatian dan kerja samanya kami ucapkan terima kasih.";
@@ -6911,10 +6913,10 @@ function buildRabPrintHtml(rab) {
     <table class="doc-summary-table">
       <tr><td>Subtotal</td><td class="r">${rupiah(subtotal)}</td></tr>
       ${rab.ppn ? `<tr><td>PPN (${rab.ppn}%)</td><td class="r">${rupiah(ppnValue)}</td></tr>` : ""}
+      ${rab.pph ? `<tr><td>PPh Final (${rab.pph}%)</td><td class="r">${rupiah(pphValue)}</td></tr>` : ""}
       ${rab.biayaLain ? `<tr><td>Biaya Lain-lain</td><td class="r">${rupiah(rab.biayaLain)}</td></tr>` : ""}
       <tr class="total-row"><td>Total RAB</td><td class="r">${rupiah(total)}</td></tr>
     </table>
-    ${rab.pph ? `<p class="doc-p" style="font-size:11px; color:#777;">*Sudah termasuk PPh Final (${rab.pph}%) sebesar ${rupiah(pphValue)}.</p>` : ""}
 
     <p style="font-size:11px; color:#777; margin-top:10px;">Dicetak ${formatTanggal(new Date().toISOString().slice(0, 10))}.</p>
   `;
@@ -7510,10 +7512,10 @@ function buildPenawaranPrintHtml(pw) {
         <tr><td>Subtotal</td><td class="r">${rupiah(subtotal)}</td></tr>
         ${pw.diskon ? `<tr><td>Diskon (${pw.diskon}%)</td><td class="r">- ${rupiah(diskonValue)}</td></tr>` : ""}
         ${pw.ppn ? `<tr><td>PPN (${pw.ppn}%)</td><td class="r">${rupiah(ppnValue)}</td></tr>` : ""}
+        ${pw.pph ? `<tr><td>PPh Final (${pw.pph}%)</td><td class="r">${rupiah(pphValue)}</td></tr>` : ""}
         ${pw.biayaLain ? `<tr><td>Biaya Lain-lain</td><td class="r">${rupiah(pw.biayaLain)}</td></tr>` : ""}
         <tr class="pwmc-total-row"><td>Total Penawaran</td><td class="r">${rupiah(total)}</td></tr>
       </table>
-      ${pw.pph ? `<p class="pwmc-p" style="font-size:11px; color:#777;">*Sudah termasuk PPh Final (${pw.pph}%) sebesar ${rupiah(pphValue)} sesuai Syarat &amp; Ketentuan di bawah.</p>` : ""}
 
       <div class="pwmc-syarat-label">Syarat &amp; Ketentuan</div>
       <div class="pwmc-syarat-grid">${syaratCards}</div>
@@ -7595,14 +7597,16 @@ function buildMataResolusiPenawaranHtml(pw) {
       <table class="mr-summary">
         ${pw.diskon ? `<tr><td>Diskon (${pw.diskon}%)</td><td class="r">- ${rupiah(diskonValue)}</td></tr>` : ""}
         ${pw.ppn ? `<tr><td>PPN (${pw.ppn}%)</td><td class="r">${rupiah(ppnValue)}</td></tr>` : ""}
+        ${pw.pph ? `<tr><td>PPh Final (${pw.pph}%)</td><td class="r">${rupiah(pphValue)}</td></tr>` : ""}
         ${pw.biayaLain ? `<tr><td>Biaya Lain-lain</td><td class="r">${rupiah(pw.biayaLain)}</td></tr>` : ""}
         <tr class="mr-total-row"><td>TOTAL HARGA PEKERJAAN</td><td class="r">${rupiah(total)}</td></tr>
       </table>
 
+      ${(pw.ppn || pw.pph) ? `
       <div class="mr-catatan">
-        <strong>CATATAN:</strong> Harga di atas belum termasuk PPN${pw.pph ? "" : " dan PPh"}.
-        ${pw.pph ? `<br>*Sudah termasuk PPh Final (${pw.pph}%) sebesar ${rupiah(pphValue)} sesuai Syarat &amp; Ketentuan di bawah.` : ""}
+        <strong>CATATAN:</strong> Harga di atas belum termasuk ${[pw.ppn ? "PPN" : "", pw.pph ? "PPh Final" : ""].filter(Boolean).join(" dan ")} -- sudah ditambahkan ke Total Harga Pekerjaan di atas.
       </div>
+      ` : ""}
 
       ${pw.syarat ? `
       <div class="mr-syarat">
