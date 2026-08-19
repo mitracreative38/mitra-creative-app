@@ -74,8 +74,10 @@ function penawaranTotals(pw) {
   const diskonValue = subtotal * (pw.diskon || 0) / 100;
   const dpp = subtotal - diskonValue;
   const ppnValue = dpp * (pw.ppn || 0) / 100;
+  // PPh Final ditambahkan sebagai biaya tambahan di atas Total -- konsisten
+  // dengan penawaranTotals() di www/app.js.
   const pphValue = dpp * (pw.pph || 0) / 100;
-  const total = dpp + ppnValue + (pw.biaya_lain || 0);
+  const total = dpp + ppnValue + pphValue + (pw.biaya_lain || 0);
   return { subtotal, diskonValue, dpp, ppnValue, pphValue, total };
 }
 
@@ -176,10 +178,10 @@ function buildPenawaranPrintHtml(pw, profilMitra) {
         <tr><td>Subtotal</td><td class="r">${rupiah(subtotal)}</td></tr>
         ${pw.diskon ? `<tr><td>Diskon (${pw.diskon}%)</td><td class="r">- ${rupiah(diskonValue)}</td></tr>` : ""}
         ${pw.ppn ? `<tr><td>PPN (${pw.ppn}%)</td><td class="r">${rupiah(ppnValue)}</td></tr>` : ""}
+        ${pw.pph ? `<tr><td>PPh Final (${pw.pph}%)</td><td class="r">${rupiah(pphValue)}</td></tr>` : ""}
         ${pw.biaya_lain ? `<tr><td>Biaya Lain-lain</td><td class="r">${rupiah(pw.biaya_lain)}</td></tr>` : ""}
         <tr class="pwmc-total-row"><td>Total Penawaran</td><td class="r">${rupiah(total)}</td></tr>
       </table>
-      ${pw.pph ? `<p class="pwmc-p" style="font-size:11px; color:#777;">*Sudah termasuk PPh Final (${pw.pph}%) sebesar ${rupiah(pphValue)} sesuai Syarat &amp; Ketentuan di bawah.</p>` : ""}
 
       <div class="pwmc-syarat-label">Syarat &amp; Ketentuan</div>
       <div class="pwmc-syarat-grid">${syaratCards}</div>
@@ -256,14 +258,16 @@ function buildMataResolusiPenawaranHtml(pw) {
       <table class="mr-summary">
         ${pw.diskon ? `<tr><td>Diskon (${pw.diskon}%)</td><td class="r">- ${rupiah(diskonValue)}</td></tr>` : ""}
         ${pw.ppn ? `<tr><td>PPN (${pw.ppn}%)</td><td class="r">${rupiah(ppnValue)}</td></tr>` : ""}
+        ${pw.pph ? `<tr><td>PPh Final (${pw.pph}%)</td><td class="r">${rupiah(pphValue)}</td></tr>` : ""}
         ${pw.biaya_lain ? `<tr><td>Biaya Lain-lain</td><td class="r">${rupiah(pw.biaya_lain)}</td></tr>` : ""}
         <tr class="mr-total-row"><td>TOTAL HARGA PEKERJAAN</td><td class="r">${rupiah(total)}</td></tr>
       </table>
 
+      ${(pw.ppn || pw.pph) ? `
       <div class="mr-catatan">
-        <strong>CATATAN:</strong> Harga di atas belum termasuk PPN${pw.pph ? "" : " dan PPh"}.
-        ${pw.pph ? `<br>*Sudah termasuk PPh Final (${pw.pph}%) sebesar ${rupiah(pphValue)} sesuai Syarat &amp; Ketentuan di bawah.` : ""}
+        <strong>CATATAN:</strong> Harga di atas belum termasuk ${[pw.ppn ? "PPN" : "", pw.pph ? "PPh Final" : ""].filter(Boolean).join(" dan ")} -- sudah ditambahkan ke Total Harga Pekerjaan di atas.
       </div>
+      ` : ""}
 
       ${pw.syarat ? `
       <div class="mr-syarat">
@@ -288,8 +292,10 @@ function buildMataResolusiPenawaranHtml(pw) {
 function rabTotals(rab) {
   const subtotal = itemsSubtotal(rab.items);
   const ppnValue = subtotal * (rab.ppn || 0) / 100;
+  // PPh Final ditambahkan sebagai biaya tambahan di atas Total -- konsisten
+  // dengan rabTotals() di www/app.js.
   const pphValue = subtotal * (rab.pph || 0) / 100;
-  const total = subtotal + ppnValue + (rab.biaya_lain || 0);
+  const total = subtotal + ppnValue + pphValue + (rab.biaya_lain || 0);
   return { subtotal, ppnValue, pphValue, total };
 }
 
@@ -368,10 +374,10 @@ function buildRabPrintHtml(rab, profil) {
     <table class="doc-summary-table">
       <tr><td>Subtotal</td><td class="r">${rupiah(subtotal)}</td></tr>
       ${rab.ppn ? `<tr><td>PPN (${rab.ppn}%)</td><td class="r">${rupiah(ppnValue)}</td></tr>` : ""}
+      ${rab.pph ? `<tr><td>PPh Final (${rab.pph}%)</td><td class="r">${rupiah(pphValue)}</td></tr>` : ""}
       ${rab.biaya_lain ? `<tr><td>Biaya Lain-lain</td><td class="r">${rupiah(rab.biaya_lain)}</td></tr>` : ""}
       <tr class="total-row"><td>Total RAB</td><td class="r">${rupiah(total)}</td></tr>
     </table>
-    ${rab.pph ? `<p class="doc-p" style="font-size:11px; color:#777;">*Sudah termasuk PPh Final (${rab.pph}%) sebesar ${rupiah(pphValue)}.</p>` : ""}
 
     <p style="font-size:11px; color:#777; margin-top:10px;">Dicetak ${formatTanggal(new Date().toISOString().slice(0, 10))}.</p>
   `;

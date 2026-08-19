@@ -1773,14 +1773,14 @@
               <span>PPh (%)</span>
               <input type="number" id="rab_pph" min="0" max="100" step="0.1" style="width:80px">
             </div>
-            <div class="summary-row"><span>Nilai PPh (sudah termasuk di atas)</span><strong id="rab_pphValue">Rp 0</strong></div>
+            <div class="summary-row"><span>Nilai PPh Final</span><strong id="rab_pphValue">Rp 0</strong></div>
             <div class="summary-row">
               <span>Biaya Lain-lain (Rp)</span>
               <input type="text" inputmode="numeric" id="rab_biayaLain" style="width:140px" placeholder="0">
             </div>
             <div class="summary-row total"><span>Total RAB</span><strong id="rab_total">Rp 0</strong></div>
           </div>
-          <p class="muted" style="font-size:11px; margin-top:8px;">PPN ditambahkan ke Total. PPh Final <strong>tidak</strong> ditambahkan lagi ke Total karena sudah termasuk dalam harga satuan (sesuai Syarat &amp; Ketentuan) — nilainya hanya informasi untuk perhitungan setoran pajak Anda.</p>
+          <p class="muted" style="font-size:11px; margin-top:8px;">PPN dan PPh Final sama-sama ditambahkan ke Total RAB -- jadi Total di atas adalah nilai akhir (harga satuan belum termasuk PPN/PPh).</p>
           <div class="modal-actions" style="margin-top:16px; justify-content:flex-start; flex-wrap:wrap;">
             <button class="btn-ghost" id="rab_printBtn">🖨️ Cetak RAB</button>
             <button class="btn-ghost" id="rab_pdfBtn">⬇️ Unduh PDF</button>
@@ -1970,14 +1970,14 @@
               <span>PPh (%)</span>
               <input type="number" id="pw_pph" min="0" max="100" step="0.1" style="width:80px">
             </div>
-            <div class="summary-row"><span>Nilai PPh (sudah termasuk di atas)</span><strong id="pw_pphValue">Rp 0</strong></div>
+            <div class="summary-row"><span>Nilai PPh Final</span><strong id="pw_pphValue">Rp 0</strong></div>
             <div class="summary-row">
               <span>Biaya Lain-lain (Rp)</span>
               <input type="text" inputmode="numeric" id="pw_biayaLain" style="width:140px" placeholder="0">
             </div>
             <div class="summary-row total"><span>Total Penawaran</span><strong id="pw_total">Rp 0</strong></div>
           </div>
-          <p class="muted" style="font-size:11px; margin-top:8px;">PPN ditambahkan ke Total. PPh Final <strong>tidak</strong> ditambahkan lagi ke Total karena sudah termasuk dalam harga satuan (sesuai Syarat &amp; Ketentuan) — nilainya hanya informasi untuk perhitungan setoran pajak Anda.</p>
+          <p class="muted" style="font-size:11px; margin-top:8px;">PPN dan PPh Final sama-sama ditambahkan ke Total Penawaran -- jadi Total di atas adalah nilai akhir yang dibayar klien (harga satuan belum termasuk PPN/PPh).</p>
         </div>
 
         <div class="panel narrow">
