@@ -4001,14 +4001,19 @@ function renderAbsensiPanel() {
   const aktif = state.karyawan.filter(k => k.aktif !== false).slice().sort((a, b) => a.nama.localeCompare(b.nama));
   const tbody = document.querySelector("#ab_table tbody");
   tbody.innerHTML = "";
+  // Uang Makan & Bon harian: data gaji sensitif, sama seperti slip gaji --
+  // cuma Owner yang boleh lihat/isi (lihat applyRoleAccess()).
+  const showGaji = currentTeamRole === "owner";
   if (!aktif.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Belum ada karyawan aktif</td></tr>';
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="${showGaji ? 8 : 6}">Belum ada karyawan aktif</td></tr>`;
     return;
   }
   aktif.forEach(k => {
     const existing = (k.absensi || []).find(a => a.tanggal === tanggal);
     const hadir = existing ? existing.hadir : true;
     const jamLembur = existing ? existing.jamLembur : 0;
+    const uangMakan = existing && typeof existing.uangMakan === "number" ? existing.uangMakan : (k.uangMakanHarian || 0);
+    const bon = existing ? (existing.bon || 0) : 0;
     const lokasi = existing ? existing.lokasi : null;
     const tr = document.createElement("tr");
     tr.dataset.karyawanId = k.id;
@@ -4017,6 +4022,10 @@ function renderAbsensiPanel() {
       <td>${escapeHtml(k.jabatan || "-")}</td>
       <td><input type="checkbox" class="att-check ab-hadir" ${hadir ? "checked" : ""}></td>
       <td class="num"><input type="text" inputmode="decimal" class="ab-lembur" value="${jamLembur || ""}" style="width:80px; text-align:right"></td>
+      ${showGaji ? `
+      <td class="num"><input type="text" inputmode="numeric" class="ab-uangmakan" value="${uangMakan || ""}" style="width:100px; text-align:right"></td>
+      <td class="num"><input type="text" inputmode="numeric" class="ab-bon" value="${bon || ""}" style="width:100px; text-align:right"></td>
+      ` : ""}
       <td>${lokasi
         ? `<a href="https://www.google.com/maps?q=${lokasi.lat},${lokasi.lng}" target="_blank" rel="noopener">📍 ${new Date(lokasi.waktu).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}</a> <button type="button" class="icon-btn" data-catat-lokasi="${k.id}" title="Catat Ulang">🔄</button>`
         : `<button type="button" class="btn-ghost" data-catat-lokasi="${k.id}" style="padding:4px 10px; font-size:12px;">📍 Catat Lokasi</button>`}</td>
@@ -4091,6 +4100,13 @@ document.getElementById("ab_saveBtn").addEventListener("click", () => {
     if (!k.absensi) k.absensi = [];
     const idx = k.absensi.findIndex(a => a.tanggal === tanggal);
     const rec = { ...(idx >= 0 ? k.absensi[idx] : {}), id: idx >= 0 ? k.absensi[idx].id : uid(), tanggal, hadir, jamLembur };
+    // Uang Makan/Bon harian cuma ada di DOM untuk Owner (lihat renderAbsensiPanel
+    // -- showGaji) -- kalau elemennya tidak ada (Admin/Marketing), nilai lama
+    // (kalau ada) dibiarkan apa adanya, tidak ditimpa jadi kosong.
+    const uangMakanInput = tr.querySelector(".ab-uangmakan");
+    const bonInput = tr.querySelector(".ab-bon");
+    if (uangMakanInput) rec.uangMakan = Math.max(0, parseFloat((uangMakanInput.value || "").replace(",", ".")) || 0);
+    if (bonInput) rec.bon = Math.max(0, parseFloat((bonInput.value || "").replace(",", ".")) || 0);
     if (idx >= 0) k.absensi[idx] = rec; else k.absensi.push(rec);
     mirrorKaryawanUpsert(k);
     count++;
@@ -4253,8 +4269,13 @@ function computePayrollFromAbsensi(resetManualInputs) {
     const totalLembur = jamLembur * (k.tarifLembur || 0);
     pgComputed = { hariHadir, jamLembur, totalUpahHarian, totalLembur, upahKotor: totalUpahHarian + totalLembur, bonus: 0 };
     if (resetManualInputs) {
-      document.getElementById("pg_uangMakan").value = formatNumberInput((k.uangMakanHarian || 0) * 7);
-      document.getElementById("pg_bon").value = formatNumberInput(0);
+      // Dijumlah dari input harian di Absensi Harian (kolom Uang Makan/Bon,
+      // Owner-only) -- tetap bisa dikoreksi manual di sini sebelum slip
+      // gaji disimpan, cuma dipakai sebagai nilai awal.
+      const totalUangMakanHarian = inRange.reduce((s, a) => s + (a.uangMakan || 0), 0);
+      const totalBonHarian = inRange.reduce((s, a) => s + (a.bon || 0), 0);
+      document.getElementById("pg_uangMakan").value = formatNumberInput(totalUangMakanHarian);
+      document.getElementById("pg_bon").value = formatNumberInput(totalBonHarian);
       document.getElementById("pg_potonganPinjaman").value = formatNumberInput(0);
     }
   }
@@ -7802,6 +7823,10 @@ function applyRoleAccess() {
     penggajianTab.style.display = currentTeamRole === "owner" ? "" : "none";
     if (currentTeamRole !== "owner" && penggajianTab.classList.contains("active")) showSubtab("ky", "daftar");
   }
+  ["ab_thUangMakan", "ab_thBon"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = currentTeamRole === "owner" ? "" : "none";
+  });
   ["settingsApprovalPanel", "settingsDataPanel"].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = currentTeamRole === "owner" ? "" : "none";
