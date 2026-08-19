@@ -1003,15 +1003,24 @@
             <div class="field"><label>Tanggal Mulai</label><input type="date" id="jp_mulai"></div>
             <div class="field"><label>Tanggal Selesai</label><input type="date" id="jp_selesai"></div>
             <div class="field"><label>% Selesai</label><input type="number" id="jp_persen" min="0" max="100" step="1" placeholder="0"></div>
+            <div class="field full" style="flex-direction:row; align-items:center; gap:8px;">
+              <input type="checkbox" id="jp_luar" style="width:auto;">
+              <label for="jp_luar" style="margin:0;">🌦️ Pekerjaan luar ruangan (terpengaruh cuaca)</label>
+            </div>
             <div class="field" style="justify-content:flex-end;"><button type="button" class="btn-primary" id="jp_addBtn">+ Tambah Tahapan</button></div>
           </div>
           <div id="pj_gantt" class="bar-chart" style="margin-bottom:14px;"></div>
           <div class="table-wrap">
             <table class="tbl" id="pj_jadwalTable">
-              <thead><tr><th>Tahapan</th><th>Mulai</th><th>Selesai</th><th class="num">% Selesai</th><th></th></tr></thead>
+              <thead><tr><th>Tahapan</th><th>Mulai</th><th>Selesai</th><th class="num">% Selesai</th><th></th><th></th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
+          <div class="toolbar" style="margin-top:10px;">
+            <button class="btn-ghost" id="pj_cekCuacaBtn">🌦️ Cek Risiko Cuaca</button>
+            <span class="muted" id="pj_cuacaStatus"></span>
+          </div>
+          <div id="pj_cuacaHasil" style="display:none; margin-top:10px;"></div>
         </div>
 
         <div class="panel">

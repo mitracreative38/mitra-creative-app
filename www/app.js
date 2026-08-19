@@ -2236,9 +2236,10 @@ function renderJadwalPekerjaan(p, today) {
       <td>${t.tanggalMulai ? formatTanggal(t.tanggalMulai) : "-"}</td>
       <td class="${telat ? "bad" : ""}">${t.tanggalSelesai ? formatTanggal(t.tanggalSelesai) : "-"}${telat ? " ⚠️ telat" : ""}</td>
       <td class="num">${t.persenSelesai || 0}%</td>
+      <td>${t.pekerjaanLuar ? '<span title="Pekerjaan luar ruangan (terpengaruh cuaca)">🌦️</span>' : ""}</td>
       <td><div class="row-actions"><button class="icon-btn" data-delete-jadwal="${t.id}" title="Hapus">🗑️</button></div></td>
     </tr>
-  `; }).join("") : '<tr class="empty-row"><td colspan="5">Belum ada tahapan pekerjaan</td></tr>';
+  `; }).join("") : '<tr class="empty-row"><td colspan="6">Belum ada tahapan pekerjaan</td></tr>';
 
   const ganttEl = document.getElementById("pj_gantt");
   const withDates = tugas.filter(t => t.tanggalMulai && t.tanggalSelesai);
@@ -2278,7 +2279,8 @@ document.getElementById("jp_addBtn").addEventListener("click", () => {
   if (!p.jadwalPekerjaan) p.jadwalPekerjaan = [];
   p.jadwalPekerjaan.push({
     id: uid(), nama, tanggalMulai, tanggalSelesai,
-    persenSelesai: Math.max(0, Math.min(100, parseFloat(document.getElementById("jp_persen").value) || 0))
+    persenSelesai: Math.max(0, Math.min(100, parseFloat(document.getElementById("jp_persen").value) || 0)),
+    pekerjaanLuar: document.getElementById("jp_luar").checked
   });
   saveState();
   mirrorProyekUpsert(p);
@@ -2286,6 +2288,7 @@ document.getElementById("jp_addBtn").addEventListener("click", () => {
   document.getElementById("jp_mulai").value = "";
   document.getElementById("jp_selesai").value = "";
   document.getElementById("jp_persen").value = "";
+  document.getElementById("jp_luar").checked = false;
   renderProyekDetail();
 });
 document.getElementById("pj_jadwalTable").addEventListener("click", e => {
@@ -2296,6 +2299,70 @@ document.getElementById("pj_jadwalTable").addEventListener("click", e => {
     saveState();
     mirrorProyekUpsert(p);
     renderProyekDetail();
+  }
+});
+
+// ----- Peringatan Risiko Cuaca untuk Jadwal Proyek -----
+// Dipicu manual lewat tombol (bukan otomatis tiap render) supaya tidak
+// memanggil API cuaca berulang-ulang tiap kali detail Proyek dibuka/
+// diedit. Open-Meteo dipilih karena tidak butuh API key/kredensial sama
+// sekali -- konsisten dengan filosofi aplikasi ini yang menghindari
+// dependensi kredensial eksternal kalau ada alternatif gratis yang
+// cukup baik. Koordinat site dari fitur Peringatan Lokasi-vs-Jam-Kerja
+// (proyek.lokasiLat/Lng) dipakai ulang di sini.
+async function checkCuacaRisiko(p) {
+  if (typeof p.lokasiLat !== "number" || typeof p.lokasiLng !== "number") {
+    return { error: "Site Proyek belum punya koordinat. Catat lokasi site dulu di panel Info Proyek." };
+  }
+  const outdoorTasks = (p.jadwalPekerjaan || []).filter(t => t.pekerjaanLuar && t.tanggalMulai && t.tanggalSelesai);
+  if (!outdoorTasks.length) {
+    return { error: "Belum ada tahapan pekerjaan yang ditandai \"Pekerjaan luar ruangan\" pada jadwal proyek ini." };
+  }
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${p.lokasiLat}&longitude=${p.lokasiLng}&daily=precipitation_probability_max,precipitation_sum&timezone=Asia%2FJakarta&forecast_days=16`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Gagal mengambil data cuaca dari layanan ramalan.");
+  const data = await res.json();
+  const dates = (data.daily && data.daily.time) || [];
+  const probs = (data.daily && data.daily.precipitation_probability_max) || [];
+  const risiko = [];
+  outdoorTasks.forEach(t => {
+    for (let i = 0; i < dates.length; i++) {
+      const tgl = dates[i];
+      if (tgl >= t.tanggalMulai && tgl <= t.tanggalSelesai && (probs[i] || 0) >= 60) {
+        risiko.push({ tugas: t.nama, tanggal: tgl, probabilitas: probs[i] });
+      }
+    }
+  });
+  return { risiko, jangkauanForecast: dates.length ? { mulai: dates[0], selesai: dates[dates.length - 1] } : null };
+}
+document.getElementById("pj_cekCuacaBtn").addEventListener("click", async () => {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) return;
+  const statusEl = document.getElementById("pj_cuacaStatus");
+  const hasilEl = document.getElementById("pj_cuacaHasil");
+  statusEl.textContent = "Memeriksa ramalan cuaca...";
+  hasilEl.style.display = "none";
+  try {
+    const result = await checkCuacaRisiko(p);
+    statusEl.textContent = "";
+    hasilEl.style.display = "block";
+    if (result.error) {
+      hasilEl.innerHTML = `<div class="muted">${escapeHtml(result.error)}</div>`;
+    } else if (!result.risiko.length) {
+      const sampai = result.jangkauanForecast ? ` (ramalan tersedia sampai ${formatTanggal(result.jangkauanForecast.selesai)})` : "";
+      hasilEl.innerHTML = `<span class="badge-margin good">✅ Tidak ada risiko cuaca terdeteksi untuk tahapan luar ruangan${sampai}.</span>`;
+    } else {
+      hasilEl.innerHTML = `
+        <span class="badge-margin critical" style="display:inline-block; margin-bottom:8px;">⚠️ ${result.risiko.length} potensi risiko cuaca terdeteksi</span>
+        <div class="table-wrap"><table class="tbl"><thead><tr><th>Tahapan</th><th>Tanggal</th><th class="num">Peluang Hujan</th></tr></thead><tbody>
+          ${result.risiko.map(r => `<tr><td>${escapeHtml(r.tugas)}</td><td>${formatTanggal(r.tanggal)}</td><td class="num bad">${r.probabilitas}%</td></tr>`).join("")}
+        </tbody></table></div>
+      `;
+    }
+  } catch (err) {
+    statusEl.textContent = "";
+    hasilEl.style.display = "block";
+    hasilEl.innerHTML = `<div class="bad">Gagal memeriksa cuaca: ${escapeHtml(err.message)}</div>`;
   }
 });
 
