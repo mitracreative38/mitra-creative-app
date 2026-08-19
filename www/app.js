@@ -4830,10 +4830,11 @@ function renderAlatDetail() {
       <td>${p.tanggalPinjam ? formatTanggal(p.tanggalPinjam) : "-"}</td>
       <td>${p.rencanaKembali ? formatTanggal(p.rencanaKembali) : "-"}</td>
       <td>${p.tanggalKembali ? formatTanggal(p.tanggalKembali) : "-"}</td>
+      <td>${p.kondisiKembali ? escapeHtml(p.kondisiKembali) : "-"}</td>
       <td><span class="badge-margin ${statusClass}">${statusLabel}</span></td>
       <td>${!p.tanggalKembali ? `<button class="icon-btn" data-kembalikan="${p.id}" title="Kembalikan">↩️</button>` : ""}</td>
     </tr>`;
-  }).join("") : '<tr class="empty-row"><td colspan="8">Belum ada peminjaman</td></tr>';
+  }).join("") : '<tr class="empty-row"><td colspan="9">Belum ada peminjaman</td></tr>';
 }
 
 const peminjamanModal = document.getElementById("peminjamanModal");
@@ -9476,7 +9477,123 @@ function bootPekerjaMode() {
   document.getElementById("pekerjaModeScreen").style.display = "flex";
   document.getElementById("pekerjaNama").textContent = device.karyawanNama || "Pekerja";
   startPekerjaTracking();
+  loadPekerjaAlat();
 }
+
+// ===== Fase 1.9: Alat yang sedang dibawa pekerja (pengingat + swakembali) =====
+// Murni pengingat -- TIDAK menghalangi Absen Pulang. Owner/Admin tetap bisa
+// memantau lewat kolom "Kondisi Kembali" di Detail Alat (Realtime otomatis
+// terupdate begitu pekerja menandai kembali dari HP-nya).
+async function loadPekerjaAlat() {
+  const container = document.getElementById("pekerjaAlatList");
+  const device = getPekerjaDevice();
+  if (!device || !container) return;
+  try {
+    const res = await fetch(`${PDF_SERVER_URL}/api/pekerja/alat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ deviceToken: device.deviceToken })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Gagal memuat daftar alat.");
+    renderPekerjaAlat(data.items || []);
+  } catch (err) {
+    container.innerHTML = `<p class="muted" style="font-size:12px;">Gagal memuat daftar alat: ${escapeHtml(err.message)}</p>`;
+  }
+}
+function renderPekerjaAlat(items) {
+  const container = document.getElementById("pekerjaAlatList");
+  if (!items.length) {
+    container.innerHTML = '<p class="muted" style="font-size:12px;">Tidak ada alat yang sedang Anda bawa.</p>';
+    return;
+  }
+  container.innerHTML = items.map(it => `
+    <div class="pekerja-alat-row" data-alat-id="${it.alatId}" data-peminjaman-id="${it.peminjamanId}" data-jumlah="${it.jumlah}"
+      style="border:1px solid #eee;border-radius:10px;padding:10px 12px;margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <strong>${escapeHtml(it.alatNama)}</strong>
+        ${it.terlambat ? '<span class="badge-margin critical">Terlambat</span>' : ""}
+      </div>
+      <p class="muted" style="font-size:12px;margin:4px 0;">
+        Jumlah: ${it.jumlah} &bull; Dipinjam ${it.tanggalPinjam ? formatTanggal(it.tanggalPinjam) : "-"}
+        ${it.rencanaKembali ? ` &bull; Wajib kembali ${formatTanggal(it.rencanaKembali)}` : ""}
+      </p>
+      <button type="button" class="btn-ghost pekerja-alat-kembalikan-btn" style="font-size:12px;padding:6px 10px;">↩️ Sudah Saya Kembalikan</button>
+      <div class="pekerja-alat-form" style="display:none;margin-top:8px;"></div>
+    </div>
+  `).join("");
+}
+document.getElementById("pekerjaAlatList").addEventListener("click", e => {
+  const btn = e.target.closest(".pekerja-alat-kembalikan-btn");
+  if (btn) {
+    const row = btn.closest(".pekerja-alat-row");
+    const formDiv = row.querySelector(".pekerja-alat-form");
+    const jumlah = row.dataset.jumlah;
+    formDiv.innerHTML = `
+      <label class="muted" style="font-size:11px;">Jumlah dikembalikan</label>
+      <input type="number" min="1" max="${jumlah}" step="1" class="pa-jumlah" value="${jumlah}" style="width:100%;margin-bottom:6px;">
+      <label class="muted" style="font-size:11px;">Kondisi saat dikembalikan</label>
+      <select class="pa-kondisi" style="width:100%;margin-bottom:6px;">
+        <option value="Baik">Baik</option>
+        <option value="Rusak">Rusak</option>
+        <option value="Hilang">Hilang</option>
+      </select>
+      <label class="muted" style="font-size:11px;">Catatan (opsional)</label>
+      <input type="text" class="pa-catatan" style="width:100%;margin-bottom:8px;">
+      <div style="display:flex;gap:8px;">
+        <button type="button" class="btn-primary pekerja-alat-submitBtn" style="flex:1;font-size:12px;padding:6px 10px;">Kirim</button>
+        <button type="button" class="btn-ghost pekerja-alat-batalBtn" style="flex:1;font-size:12px;padding:6px 10px;">Batal</button>
+      </div>
+      <p class="pa-error" style="color:#b3261e;font-size:11px;margin-top:6px;display:none;"></p>
+    `;
+    formDiv.style.display = "block";
+    btn.style.display = "none";
+    return;
+  }
+  const batalBtn = e.target.closest(".pekerja-alat-batalBtn");
+  if (batalBtn) {
+    const row = batalBtn.closest(".pekerja-alat-row");
+    row.querySelector(".pekerja-alat-form").style.display = "none";
+    row.querySelector(".pekerja-alat-kembalikan-btn").style.display = "";
+    return;
+  }
+  const submitBtn = e.target.closest(".pekerja-alat-submitBtn");
+  if (submitBtn) {
+    const row = submitBtn.closest(".pekerja-alat-row");
+    const formDiv = row.querySelector(".pekerja-alat-form");
+    const errEl = formDiv.querySelector(".pa-error");
+    const jumlahDikembalikan = parseFloat(formDiv.querySelector(".pa-jumlah").value);
+    const kondisiKembali = formDiv.querySelector(".pa-kondisi").value;
+    const catatan = formDiv.querySelector(".pa-catatan").value;
+    if (!jumlahDikembalikan || jumlahDikembalikan <= 0) {
+      errEl.textContent = "Jumlah harus lebih dari 0.";
+      errEl.style.display = "block";
+      return;
+    }
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Mengirim...";
+    const device = getPekerjaDevice();
+    fetch(`${PDF_SERVER_URL}/api/pekerja/alat/kembalikan`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        deviceToken: device.deviceToken, alatId: row.dataset.alatId, peminjamanId: row.dataset.peminjamanId,
+        jumlahDikembalikan, kondisiKembali, catatan
+      })
+    })
+      .then(async res => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Gagal menandai alat kembali.");
+        loadPekerjaAlat();
+      })
+      .catch(err => {
+        errEl.textContent = err.message;
+        errEl.style.display = "block";
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Kirim";
+      });
+  }
+});
 
 // ===== Fase 1.8: Absen Masuk/Pulang lewat HP pekerja =====
 // Dipisah jadi 2 lapis: pekerjaSubmitAbsenCore() murni membangun payload
