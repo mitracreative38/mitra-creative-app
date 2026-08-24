@@ -142,7 +142,21 @@ function stripSensitiveForBlob(data) {
   const copy = Object.assign({}, data);
   copy.kasUsaha = Object.assign({}, copy.kasUsaha, { transactions: [], saldoAwal: 0 });
   copy.kasPribadi = Object.assign({}, copy.kasPribadi, { transactions: [], saldoAwal: 0 });
-  copy.karyawan = (copy.karyawan || []).map(k => Object.assign({}, k, { slipGaji: [] }));
+  // Fix 30: bukan cuma slipGaji -- SEMUA nominal upah/pinjaman + uangMakan/
+  // bon harian ikut dibuang dari blob (dihapus kuncinya, bukan dinolkan,
+  // supaya restore backup tidak menimpa nilai asli di karyawan_gaji dengan
+  // nol -- lihat guard "typeof === number" di karyawanGajiToRow).
+  copy.karyawan = (copy.karyawan || []).map(k => {
+    const clean = Object.assign({}, k, { slipGaji: [] });
+    ["upahHarian", "tarifLembur", "uangMakanHarian", "gajiBulanan", "targetBulanan", "persenBonus", "pinjamanAwal"].forEach(f => { delete clean[f]; });
+    clean.absensi = (clean.absensi || []).map(a => {
+      const rec = Object.assign({}, a);
+      delete rec.uangMakan;
+      delete rec.bon;
+      return rec;
+    });
+    return clean;
+  });
   return copy;
 }
 async function hydrateSensitiveFields(data) {
@@ -174,8 +188,31 @@ async function hydrateSensitiveFields(data) {
     }
     if (!gajiRes.error) {
       const gajiMap = {};
-      (gajiRes.data || []).forEach(g => { gajiMap[g.karyawan_id] = g.slip_gaji || []; });
-      data.karyawan = (data.karyawan || []).map(k => Object.assign({}, k, { slipGaji: gajiMap[k.id] || [] }));
+      (gajiRes.data || []).forEach(g => { gajiMap[g.karyawan_id] = g; });
+      data.karyawan = (data.karyawan || []).map(k => {
+        const g = gajiMap[k.id];
+        const merged = Object.assign({}, k, { slipGaji: (g && g.slip_gaji) || [] });
+        // Fix 30: nominal upah/pinjaman + uangMakan/bon per hari sekarang
+        // tinggal di karyawan_gaji (Owner-only) -- untuk sesi Owner, isi
+        // balik ke bentuk state yang dipakai seluruh aplikasi. Untuk sesi
+        // non-Owner query di atas kosong (RLS), jadi blok ini tidak jalan
+        // dan nominal tetap 0 -- memang tidak boleh mereka lihat.
+        if (g) {
+          merged.upahHarian = g.upah_harian || 0;
+          merged.tarifLembur = g.tarif_lembur || 0;
+          merged.uangMakanHarian = g.uang_makan_harian || 0;
+          merged.gajiBulanan = g.gaji_bulanan || 0;
+          merged.targetBulanan = g.target_bulanan || 0;
+          merged.persenBonus = g.persen_bonus || 0;
+          merged.pinjamanAwal = g.pinjaman_awal || 0;
+          const absensiGaji = g.absensi_gaji || {};
+          merged.absensi = (merged.absensi || []).map(a => {
+            const extra = a.tanggal ? absensiGaji[a.tanggal] : null;
+            return extra ? Object.assign({}, a, extra) : a;
+          });
+        }
+        return merged;
+      });
     }
     // Kalau query-nya sendiri GAGAL (bukan cuma hasilnya kosong), jangan
     // sentuh slipGaji sama sekali -- lebih aman membiarkan apa adanya
@@ -815,6 +852,11 @@ async function migrateProyekIfNeeded() {
 // subtab "Penggajian & Slip Gaji" yang memang sudah disembunyikan dari
 // Admin). state.karyawan tetap sumber utama.
 function karyawanToRow(k) {
+  // Fix 30: nominal upah/pinjaman TIDAK lagi ditulis ke tabel karyawan
+  // (terbaca Admin) -- rumahnya pindah ke karyawan_gaji (Owner-only),
+  // lihat karyawanGajiToRow(). uangMakan/bon per hari juga dibuang dari
+  // catatan absensi di sini (pindah ke kolom absensi_gaji, Owner-only) --
+  // hadir/lembur/lokasi/selfie tetap ikut, itu memang urusan Admin.
   return {
     id: k.id,
     company_id: targetCompanyId,
@@ -822,25 +864,49 @@ function karyawanToRow(k) {
     jabatan: k.jabatan || "",
     tipe_gaji: k.tipeGaji || "",
     aktif: k.aktif !== false,
-    upah_harian: k.upahHarian || 0,
-    tarif_lembur: k.tarifLembur || 0,
-    uang_makan_harian: k.uangMakanHarian || 0,
-    gaji_bulanan: k.gajiBulanan || 0,
-    target_bulanan: k.targetBulanan || 0,
-    persen_bonus: k.persenBonus || 0,
-    pinjaman_awal: k.pinjamanAwal || 0,
-    absensi: k.absensi || [],
+    absensi: (k.absensi || []).map(a => {
+      const copy = Object.assign({}, a);
+      delete copy.uangMakan;
+      delete copy.bon;
+      return copy;
+    }),
     updated_at: new Date().toISOString()
   };
 }
-function karyawanGajiToRow(k) {
-  return {
+function karyawanGajiToRow(k, opts) {
+  const row = {
     id: k.id,
     company_id: targetCompanyId,
     karyawan_id: k.id,
-    slip_gaji: k.slipGaji || [],
     updated_at: new Date().toISOString()
   };
+  // slip_gaji bisa di-skip (import massal: jangan timpa riwayat slip di
+  // cloud dengan array kosong dari file yang tidak membawanya).
+  if (!opts || opts.slips !== false) row.slip_gaji = k.slipGaji || [];
+  // Field nominal cuma dikirim kalau state ini benar-benar memilikinya
+  // (sesi Owner yang sudah ter-hydrate). PostgREST hanya meng-update kolom
+  // yang dikirim, jadi state tanpa nominal (mis. hasil restore backup yang
+  // sudah disterilkan) tidak akan menimpa nilai asli di cloud dengan nol.
+  if (typeof k.upahHarian === "number") {
+    row.upah_harian = k.upahHarian || 0;
+    row.tarif_lembur = k.tarifLembur || 0;
+    row.uang_makan_harian = k.uangMakanHarian || 0;
+    row.gaji_bulanan = k.gajiBulanan || 0;
+    row.target_bulanan = k.targetBulanan || 0;
+    row.persen_bonus = k.persenBonus || 0;
+    row.pinjaman_awal = k.pinjamanAwal || 0;
+  }
+  const gajiMap = {};
+  (k.absensi || []).forEach(a => {
+    if (!a.tanggal) return;
+    if (typeof a.uangMakan === "number" || typeof a.bon === "number") {
+      gajiMap[a.tanggal] = {};
+      if (typeof a.uangMakan === "number") gajiMap[a.tanggal].uangMakan = a.uangMakan;
+      if (typeof a.bon === "number") gajiMap[a.tanggal].bon = a.bon;
+    }
+  });
+  if (Object.keys(gajiMap).length) row.absensi_gaji = gajiMap;
+  return row;
 }
 async function mirrorKaryawanUpsert(k, existing) {
   if (!sb || !targetCompanyId) return;
@@ -852,10 +918,10 @@ async function mirrorKaryawanUpsert(k, existing) {
     setSyncStatus("Gagal menyimpan Karyawan ke tabel relasional: " + err.message);
   }
 }
-async function mirrorKaryawanGajiUpsert(k, isNewSlip) {
+async function mirrorKaryawanGajiUpsert(k, isNewSlip, opts) {
   if (!sb || !targetCompanyId) return;
   try {
-    const { error } = await sb.from("karyawan_gaji").upsert(karyawanGajiToRow(k));
+    const { error } = await sb.from("karyawan_gaji").upsert(karyawanGajiToRow(k, opts));
     if (error) throw error;
     if (isNewSlip !== undefined) logActivityNow("karyawanGaji", "update", k.id, null, k);
   } catch (err) {
@@ -3872,7 +3938,9 @@ function renderKaryawanList() {
   const all = state.karyawan;
   const aktif = all.filter(k => k.aktif !== false);
   document.getElementById("ky_totalAktif").textContent = aktif.length;
-  document.getElementById("ky_totalUpahHarian").textContent = rupiah(aktif.reduce((s, k) => s + (k.upahHarian || 0), 0));
+  document.getElementById("ky_totalUpahHarian").textContent = currentTeamRole === "owner"
+    ? rupiah(aktif.reduce((s, k) => s + (k.upahHarian || 0), 0))
+    : "-";
   // Fase D: Sisa Pinjaman turunan dari slip gaji, yang memang rahasia
   // untuk non-Owner (state.karyawan[].slipGaji kosong untuk mereka) --
   // sembunyikan angkanya sama sekali daripada menampilkan pinjamanAwal
@@ -3896,9 +3964,11 @@ function renderKaryawanList() {
       ? `<span class="badge badge-lunas">Aktif</span>`
       : `<span class="badge badge-pending">Nonaktif</span>`;
     const isBulanan = k.tipeGaji === "Bulanan";
-    const rateText = isBulanan
-      ? `${rupiah(k.gajiBulanan)} / bulan`
-      : `${rupiah(k.upahHarian)} / hari + ${rupiah(k.tarifLembur)} / jam lembur`;
+    const rateText = currentTeamRole !== "owner"
+      ? "-"
+      : isBulanan
+        ? `${rupiah(k.gajiBulanan)} / bulan`
+        : `${rupiah(k.upahHarian)} / hari + ${rupiah(k.tarifLembur)} / jam lembur`;
     tr.innerHTML = `
       <td>${escapeHtml(k.nama)}</td>
       <td>${escapeHtml(k.jabatan || "-")}</td>
@@ -3975,8 +4045,13 @@ document.getElementById("karyawanQrPrintBtn").addEventListener("click", () => {
 const karyawanModal = document.getElementById("karyawanModal");
 function toggleKaryawanTipeFields() {
   const isBulanan = document.getElementById("kym_tipeGaji").value === "Bulanan";
-  document.getElementById("kym_harianFields").style.display = isBulanan ? "none" : "grid";
-  document.getElementById("kym_bulananFields").style.display = isBulanan ? "grid" : "none";
+  // Fix 30: nominal upah/pinjaman rahasia Owner -- untuk non-Owner semua
+  // field nominal disembunyikan (nilai lama dipertahankan saat menyimpan,
+  // lihat handler submit karyawanForm).
+  const showNominal = currentTeamRole === "owner";
+  document.getElementById("kym_harianFields").style.display = showNominal && !isBulanan ? "grid" : "none";
+  document.getElementById("kym_bulananFields").style.display = showNominal && isBulanan ? "grid" : "none";
+  document.getElementById("kym_pinjamanFields").style.display = showNominal ? "grid" : "none";
 }
 document.getElementById("kym_tipeGaji").addEventListener("change", toggleKaryawanTipeFields);
 function openKaryawanModal(existing) {
@@ -4016,19 +4091,30 @@ document.getElementById("karyawanForm").addEventListener("submit", e => {
     jabatan: document.getElementById("kym_jabatan").value.trim(),
     tipeGaji: document.getElementById("kym_tipeGaji").value,
     aktif: document.getElementById("kym_aktif").value === "1",
-    upahHarian: parseNumberInput(document.getElementById("kym_upahHarian").value),
-    tarifLembur: parseNumberInput(document.getElementById("kym_tarifLembur").value),
-    uangMakanHarian: parseNumberInput(document.getElementById("kym_uangMakanHarian").value),
-    gajiBulanan: parseNumberInput(document.getElementById("kym_gajiBulanan").value),
-    targetBulanan: parseNumberInput(document.getElementById("kym_targetBulanan").value),
-    persenBonus: parseFloat(document.getElementById("kym_persenBonus").value) || 0,
-    pinjamanAwal: parseNumberInput(document.getElementById("kym_pinjamanAwal").value),
     absensi: existing ? existing.absensi : [],
     slipGaji: existing ? existing.slipGaji : []
   };
+  if (currentTeamRole === "owner") {
+    k.upahHarian = parseNumberInput(document.getElementById("kym_upahHarian").value);
+    k.tarifLembur = parseNumberInput(document.getElementById("kym_tarifLembur").value);
+    k.uangMakanHarian = parseNumberInput(document.getElementById("kym_uangMakanHarian").value);
+    k.gajiBulanan = parseNumberInput(document.getElementById("kym_gajiBulanan").value);
+    k.targetBulanan = parseNumberInput(document.getElementById("kym_targetBulanan").value);
+    k.persenBonus = parseFloat(document.getElementById("kym_persenBonus").value) || 0;
+    k.pinjamanAwal = parseNumberInput(document.getElementById("kym_pinjamanAwal").value);
+  } else if (existing) {
+    // Field nominal disembunyikan dari non-Owner (Fix 30) -- pertahankan
+    // nilai yang sudah ada di state, jangan ditimpa 0 dari input kosong.
+    ["upahHarian", "tarifLembur", "uangMakanHarian", "gajiBulanan", "targetBulanan", "persenBonus", "pinjamanAwal"].forEach(f => {
+      if (existing[f] !== undefined) k[f] = existing[f];
+    });
+  }
   if (idx >= 0) state.karyawan[idx] = k; else state.karyawan.push(k);
   saveState();
   mirrorKaryawanUpsert(k, existing);
+  // Nominal upah tinggal di karyawan_gaji (Owner-only) -- sesi non-Owner
+  // tidak perlu memanggilnya (RLS pasti menolak).
+  if (currentTeamRole === "owner") mirrorKaryawanGajiUpsert(k);
   renderAll();
   closeModals();
 });
@@ -4152,6 +4238,9 @@ document.getElementById("ab_saveBtn").addEventListener("click", () => {
     if (bonInput) rec.bon = Math.max(0, parseFloat((bonInput.value || "").replace(",", ".")) || 0);
     if (idx >= 0) k.absensi[idx] = rec; else k.absensi.push(rec);
     mirrorKaryawanUpsert(k);
+    // Fix 30: uangMakan/bon harian tidak lagi ikut baris karyawan --
+    // persist ke kolom absensi_gaji di karyawan_gaji (Owner-only).
+    if (currentTeamRole === "owner") mirrorKaryawanGajiUpsert(k);
     logAbsensiActivity(k, tanggal, before);
     count++;
   });
@@ -5454,6 +5543,10 @@ function maxUpahHarianMitra() {
 // Item mode "manual" (harga borongan gabungan, tanpa rincian Bahan/Upah)
 // dilewati -- tidak ada baris Upah tersendiri untuk disinkronkan di sana.
 function syncAllUpahHarga() {
+  if (currentTeamRole !== "owner") {
+    alert("Data upah karyawan hanya bisa diakses Owner, jadi sinkronisasi harga upah AHSP juga hanya bisa dijalankan Owner.");
+    return;
+  }
   const maxUpah = Math.round(maxUpahHarianMitra() * 1.2);
   if (!maxUpah) {
     alert("Belum ada data upah harian karyawan aktif. Isi upah harian di menu Karyawan & Gaji dulu sebelum menyinkronkan harga upah AHSP.");
@@ -5517,11 +5610,17 @@ function sumberHargaLookup(tipe, id) {
     const s = state.stok.find(x => x.id === id);
     return s ? { harga: s.hargaSatuan || 0, satuan: s.satuan, uraian: s.nama } : null;
   }
+  // Fix 30: nominal upah cuma bisa dibaca Owner (karyawan_gaji, RLS
+  // Owner-only) -- di sesi non-Owner nilainya selalu 0. Kembalikan null
+  // (= "sumber tidak tersedia") supaya refresh harga oleh Admin melewati
+  // komponen upah dan TIDAK menimpanya jadi 0.
   if (tipe === "karyawan") {
+    if (currentTeamRole !== "owner") return null;
     const k = state.karyawan.find(x => x.id === id);
     return k ? { harga: k.upahHarian || 0, satuan: "OH", uraian: k.nama } : null;
   }
   if (tipe === "maxupah") {
+    if (currentTeamRole !== "owner") return null;
     return { harga: Math.round(maxUpahHarianMitra() * 1.2), satuan: "OH", uraian: "Upah Tenaga Kerja (tertinggi mitra +20%)" };
   }
   return null;
@@ -9042,6 +9141,10 @@ async function mirrorAllToRelational() {
     // sudah ada di cloud dengan array kosong -- impor cuma untuk
     // MENAMBAH, bukan menghapus riwayat gaji yang sudah tercatat.
     if ((k.slipGaji || []).length) mirrorKaryawanGajiUpsert(k);
+    // Fix 30: nominal upah juga tinggal di karyawan_gaji -- karyawan yang
+    // belum punya slip tetap perlu upahnya termirror saat import, tapi
+    // TANPA mengirim slip_gaji kosong (jangan hapus riwayat di cloud).
+    else mirrorKaryawanGajiUpsert(k, undefined, { slips: false });
   });
   (state.stok || []).forEach(s => mirrorStokUpsert(s));
   (state.gudang || []).forEach(g => mirrorGudangUpsert(g));
