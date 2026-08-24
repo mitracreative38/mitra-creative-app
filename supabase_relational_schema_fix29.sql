@@ -18,26 +18,30 @@
 -- selalu query langsung ke tabel, tidak bergantung pada Realtime) -- yang
 -- rusak murni "muncul otomatis tanpa perlu refresh".
 --
--- Aman dijalankan berkali-kali (ADD TABLE IF NOT EXISTS).
+-- Pakai blok DO + cek pg_publication_tables (bukan "ADD TABLE IF NOT
+-- EXISTS", yang cuma didukung PostgreSQL 15+) supaya aman dijalankan
+-- berkali-kali di versi PostgreSQL manapun yang dipakai Supabase.
 --
 -- Cara pakai: SQL Editor > New query > tempel semua > Run.
 -- ============================================================================
 
-alter publication supabase_realtime add table if not exists company_profile;
-alter publication supabase_realtime add table if not exists klien;
-alter publication supabase_realtime add table if not exists ahsp;
-alter publication supabase_realtime add table if not exists rab;
-alter publication supabase_realtime add table if not exists penawaran;
-alter publication supabase_realtime add table if not exists proyek;
-alter publication supabase_realtime add table if not exists karyawan;
-alter publication supabase_realtime add table if not exists stok_material;
-alter publication supabase_realtime add table if not exists gudang;
-alter publication supabase_realtime add table if not exists pemasok;
-alter publication supabase_realtime add table if not exists alat;
-alter publication supabase_realtime add table if not exists stok_opname;
-alter publication supabase_realtime add table if not exists kas_usaha_transaksi;
-alter publication supabase_realtime add table if not exists kas_pribadi_transaksi;
-alter publication supabase_realtime add table if not exists karyawan_gaji;
-alter publication supabase_realtime add table if not exists kas_saldo_awal;
+do $$
+declare
+  t text;
+begin
+  foreach t in array array[
+    'company_profile', 'klien', 'ahsp', 'rab', 'penawaran', 'proyek', 'karyawan',
+    'stok_material', 'gudang', 'pemasok', 'alat', 'stok_opname',
+    'kas_usaha_transaksi', 'kas_pribadi_transaksi', 'karyawan_gaji', 'kas_saldo_awal'
+  ]
+  loop
+    if not exists (
+      select 1 from pg_publication_tables
+      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t
+    ) then
+      execute format('alter publication supabase_realtime add table public.%I', t);
+    end if;
+  end loop;
+end $$;
 
 -- Cara pakai: SQL Editor > New query > tempel semua > Run.
