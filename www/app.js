@@ -5697,16 +5697,18 @@ function renderAhsp() {
   }
   rows.forEach(a => {
     const tr = document.createElement("tr");
+    const stale = ahspStaleCount(a);
     tr.innerHTML = `
       <td>${escapeHtml(a.kategori)}</td>
       <td>${escapeHtml(a.kode || "-")}</td>
       <td>${escapeHtml(a.uraian)}</td>
       <td>${escapeHtml(a.satuan)}</td>
-      <td class="num">${rupiah(ahspHarga(a))}</td>
+      <td class="num">${rupiah(ahspHarga(a))}${stale ? ` <span title="${stale} komponen harganya sudah beda dengan harga sumber (Stok/Upah) terkini — buka Edit lalu Refresh Harga, atau pakai tombol Sinkronkan di atas" style="cursor:help">⚠️</span>` : ""}</td>
       <td>${a.mode === "manual" ? "Manual" : "Rincian Komponen"}</td>
       <td>
         <div class="row-actions">
           <button class="icon-btn" data-riwayat-ahsp="${a.id}" title="Riwayat Harga">👁️</button>
+          <button class="icon-btn" data-dup-ahsp="${a.id}" title="Duplikat">📄</button>
           <button class="icon-btn" data-edit-ahsp="${a.id}" title="Edit">✏️</button>
           <button class="icon-btn" data-delete-ahsp="${a.id}" title="Hapus">🗑️</button>
         </div>
@@ -5714,6 +5716,19 @@ function renderAhsp() {
     `;
     tbody.appendChild(tr);
   });
+}
+// Jumlah komponen yang harganya sudah tidak sama dengan harga sumbernya
+// (Stok Material / upah karyawan) saat ini. Untuk non-Owner sumber upah
+// tidak bisa dibaca (sumberHargaLookup null) sehingga otomatis dilewati.
+function ahspStaleCount(a) {
+  if (a.mode !== "detail" || !Array.isArray(a.komponen)) return 0;
+  let n = 0;
+  a.komponen.forEach(k => {
+    if (!k.sumberTipe || !k.sumberId) return;
+    const src = sumberHargaLookup(k.sumberTipe, k.sumberId);
+    if (src && src.harga !== (k.harga || 0)) n++;
+  });
+  return n;
 }
 function buildAhspListPrintHtml() {
   const filterSel = document.getElementById("ah_filterKategori");
@@ -5752,6 +5767,53 @@ document.getElementById("ah_printBtn").addEventListener("click", () => {
   window.print();
 });
 document.getElementById("ah_syncUpahBtn").addEventListener("click", syncAllUpahHarga);
+// Pasangan syncAllUpahHarga untuk komponen Bahan/Alat yang tertaut Stok
+// Material -- selama ini cuma bisa di-refresh satu-satu lewat modal edit.
+// Harga stok bukan data rahasia, jadi boleh dijalankan semua peran.
+document.getElementById("ah_syncStokBtn").addEventListener("click", () => {
+  let itemBerubah = 0;
+  let komponenBerubah = 0;
+  state.ahsp.forEach(a => {
+    if (a.mode !== "detail" || !Array.isArray(a.komponen)) return;
+    const hargaLama = ahspHarga(a);
+    let changed = false;
+    a.komponen.forEach(k => {
+      if (k.sumberTipe !== "stok" || !k.sumberId) return;
+      const src = sumberHargaLookup("stok", k.sumberId);
+      if (!src || k.harga === src.harga) return;
+      k.harga = src.harga;
+      changed = true;
+      komponenBerubah++;
+    });
+    if (changed) {
+      itemBerubah++;
+      const hargaBaruTotal = ahspHarga(a);
+      if (hargaBaruTotal !== hargaLama) {
+        if (!a.riwayatHarga) a.riwayatHarga = [];
+        a.riwayatHarga.push({ id: uid(), tanggal: new Date().toISOString().slice(0, 10), hargaLama, hargaBaru: hargaBaruTotal });
+      }
+      mirrorAhspUpsert(a);
+    }
+  });
+  if (itemBerubah) {
+    saveState();
+    renderAhsp();
+  }
+  alert(itemBerubah
+    ? `${komponenBerubah} komponen Bahan/Alat di ${itemBerubah} item AHSP disinkronkan ke harga Stok Material terkini.`
+    : "Semua komponen yang tertaut Stok Material sudah memakai harga terkini -- tidak ada yang perlu diubah.\n\nCatatan: hanya komponen dengan Sumber Harga tertaut ke Stok yang ikut disinkronkan.");
+});
+document.getElementById("ah_exportCsvBtn").addEventListener("click", () => {
+  const lines = [["Kategori", "Kode", "Uraian", "Satuan", "Harga Satuan", "Mode", "Overhead %", "Referensi"].join(",")];
+  state.ahsp.slice()
+    .sort((a, b) => a.kategori.localeCompare(b.kategori) || a.uraian.localeCompare(b.uraian))
+    .forEach(a => lines.push([
+      a.kategori, a.kode || "", a.uraian, a.satuan, ahspHarga(a),
+      a.mode === "manual" ? "Manual" : "Rincian Komponen",
+      a.mode === "manual" ? "" : (a.overhead ?? 0), a.referensi || ""
+    ].map(csvEscape).join(",")));
+  downloadFile(`daftar_ahsp_${new Date().toISOString().slice(0, 10)}.csv`, "﻿" + lines.join("\n"), "text/csv;charset=utf-8");
+});
 
 // ===== Modal: AHSP item =====
 const ahspModal = document.getElementById("ahspModal");
@@ -5893,19 +5955,25 @@ function renderKomponenRows() {
   ahspKomponenRows.forEach((k, idx) => {
     const tr = document.createElement("tr");
     tr.dataset.idx = idx;
+    // Lanjutan Fix 30: nominal upah rahasia untuk non-Owner. Komponen Upah
+    // yang tertaut ke karyawan/"Upah Tertinggi Mitra" nilainya = upah harian
+    // sungguhan, jadi disamarkan (jenisnya juga dikunci supaya nilai
+    // tersembunyi tidak muncul kembali lewat ganti jenis).
+    const rahasia = currentTeamRole !== "owner" && k.jenis === "Upah" &&
+      (k.sumberTipe === "karyawan" || k.sumberTipe === "maxupah");
     const sumberOpts = sumberOptionsForJenis(k.jenis);
     const currentVal = k.sumberTipe && k.sumberId ? `${k.sumberTipe}|${k.sumberId}` : "";
     tr.innerHTML = `
-      <td><select class="komp-jenis">${JENIS_KOMPONEN.map(j => `<option value="${j}" ${k.jenis === j ? "selected" : ""}>${j}</option>`).join("")}</select></td>
-      <td><select class="komp-sumber">
+      <td><select class="komp-jenis" ${rahasia ? "disabled" : ""}>${JENIS_KOMPONEN.map(j => `<option value="${j}" ${k.jenis === j ? "selected" : ""}>${j}</option>`).join("")}</select></td>
+      <td>${rahasia ? '<span class="muted">🔒 Rahasia (Owner)</span>' : `<select class="komp-sumber">
         <option value="">Manual</option>
         ${sumberOpts.map(o => `<option value="${o.value}" ${o.value === currentVal ? "selected" : ""}>${escapeHtml(o.label)}</option>`).join("")}
-      </select></td>
+      </select>`}</td>
       <td><input type="text" class="komp-uraian" value="${escapeHtml(k.uraian || "")}" placeholder="mis. Semen PC"></td>
       <td><input type="text" class="komp-satuan" value="${escapeHtml(k.satuan || "")}" placeholder="kg"></td>
       <td class="num"><input type="text" inputmode="decimal" class="komp-koef" value="${k.koefisien || ""}" style="text-align:right"></td>
-      <td class="num"><input type="text" inputmode="numeric" class="komp-harga" value="${formatNumberInput(k.harga || 0)}" style="text-align:right"></td>
-      <td class="num komp-jumlah">${rupiah((k.koefisien || 0) * (k.harga || 0))}</td>
+      <td class="num">${rahasia ? '<span class="muted">•••</span>' : `<input type="text" inputmode="numeric" class="komp-harga" value="${formatNumberInput(k.harga || 0)}" style="text-align:right">`}</td>
+      <td class="num komp-jumlah">${rahasia ? "•••" : rupiah((k.koefisien || 0) * (k.harga || 0))}</td>
       <td><button type="button" class="icon-btn" data-remove-komponen="${idx}">🗑️</button></td>
     `;
     tbody.appendChild(tr);
@@ -5923,8 +5991,13 @@ document.querySelector("#ah_komponenTable tbody").addEventListener("input", e =>
   row.uraian = tr.querySelector(".komp-uraian").value;
   row.satuan = tr.querySelector(".komp-satuan").value;
   row.koefisien = Math.max(0, parseFloat(tr.querySelector(".komp-koef").value.replace(",", ".")) || 0);
-  row.harga = parseNumberInput(tr.querySelector(".komp-harga").value);
-  tr.querySelector(".komp-jumlah").textContent = rupiah(row.koefisien * row.harga);
+  // Baris Upah yang disamarkan untuk non-Owner tidak punya input harga --
+  // nilai aslinya di ahspKomponenRows dibiarkan utuh.
+  const hargaInput = tr.querySelector(".komp-harga");
+  if (hargaInput) {
+    row.harga = parseNumberInput(hargaInput.value);
+    tr.querySelector(".komp-jumlah").textContent = rupiah(row.koefisien * row.harga);
+  }
   recalcAhspTotals();
 });
 document.querySelector("#ah_komponenTable tbody").addEventListener("change", e => {
@@ -6043,13 +6116,39 @@ document.getElementById("ah_table").addEventListener("click", e => {
     const a = state.ahsp.find(x => x.id === editBtn.dataset.editAhsp);
     if (a) openAhspModal(a);
   } else if (delBtn) {
-    if (confirm("Hapus item AHSP ini?")) {
-      const deleted = state.ahsp.find(x => x.id === delBtn.dataset.deleteAhsp);
-      state.ahsp = state.ahsp.filter(x => x.id !== delBtn.dataset.deleteAhsp);
-      mirrorAhspDelete(delBtn.dataset.deleteAhsp, deleted);
+    const idHapus = delBtn.dataset.deleteAhsp;
+    // Cek dulu apakah item ini masih dipakai RAB/Penawaran -- kalau
+    // dihapus, tautannya putus diam-diam (harga item tetap, tapi rincian
+    // Bahan/Upah hilang saat "Buat Proyek dari RAB/Penawaran").
+    const dipakaiRab = state.proyekRab.filter(r => (r.items || []).some(it => it.ahspId === idHapus)).length;
+    const dipakaiPw = state.penawaran.filter(p => (p.items || []).some(it => it.ahspId === idHapus)).length;
+    let pesan = "Hapus item AHSP ini?";
+    if (dipakaiRab || dipakaiPw) {
+      const pakai = [dipakaiRab ? `${dipakaiRab} RAB` : "", dipakaiPw ? `${dipakaiPw} Penawaran` : ""].filter(Boolean).join(" dan ");
+      pesan = `PERHATIAN: item AHSP ini masih dipakai di ${pakai}.\nHarga item di dokumen tersebut tetap, tapi tautan ke AHSP-nya putus (rincian Bahan/Upah tidak bisa dipakai lagi saat Buat Proyek / Perbarui Harga).\n\nTetap hapus?`;
+    }
+    if (confirm(pesan)) {
+      const deleted = state.ahsp.find(x => x.id === idHapus);
+      state.ahsp = state.ahsp.filter(x => x.id !== idHapus);
+      mirrorAhspDelete(idHapus, deleted);
       saveState();
       renderAll();
     }
+  } else if (e.target.closest("[data-dup-ahsp]")) {
+    const asal = state.ahsp.find(x => x.id === e.target.closest("[data-dup-ahsp]").dataset.dupAhsp);
+    if (!asal) return;
+    // Duplikat untuk cepat membuat varian -- kode dikosongkan (kode harus
+    // unik), riwayat harga mulai dari nol, lalu langsung buka modal edit.
+    const salinan = JSON.parse(JSON.stringify(asal));
+    salinan.id = uid();
+    salinan.kode = "";
+    salinan.uraian = `${asal.uraian} (salinan)`;
+    salinan.riwayatHarga = [];
+    state.ahsp.push(salinan);
+    saveState();
+    mirrorAhspUpsert(salinan, null);
+    renderAhsp();
+    openAhspModal(salinan);
   } else if (riwayatBtn) {
     const a = state.ahsp.find(x => x.id === riwayatBtn.dataset.riwayatAhsp);
     if (a) openAhspRiwayat(a);
@@ -7251,6 +7350,45 @@ function wireImportButtons(prefix, kind) {
 }
 wireImportButtons("rab", "rab");
 wireImportButtons("pw", "pw");
+
+// Samakan harga item RAB/Penawaran dengan harga AHSP terkini. Harga item
+// disalin sekali saat dibuat, jadi perubahan harga AHSP setelahnya tidak
+// pernah otomatis menular ke dokumen lama -- tombol ini jalur resminya:
+// tampilkan dulu daftar perubahan (lama -> baru), terapkan setelah setuju.
+function refreshDocHargaFromAhsp(kind) {
+  const doc = kind === "rab"
+    ? state.proyekRab.find(r => r.id === currentRabId)
+    : state.penawaran.find(p => p.id === currentPwId);
+  if (!doc) return;
+  const linked = (doc.items || []).filter(it => it.ahspId);
+  if (!linked.length) {
+    alert("Tidak ada item yang terhubung ke AHSP di dokumen ini.\nItem hasil ketik manual / import BOQ tanpa pasangan AHSP tidak ikut diperbarui.");
+    return;
+  }
+  const changes = [];
+  let putus = 0;
+  linked.forEach(it => {
+    const a = state.ahsp.find(x => x.id === it.ahspId);
+    if (!a) { putus++; return; }
+    const baru = ahspHarga(a);
+    if (baru > 0 && baru !== (it.hargaSatuan || 0)) changes.push({ it, lama: it.hargaSatuan || 0, baru });
+  });
+  if (!changes.length) {
+    alert(`Semua ${linked.length - putus} item yang terhubung ke AHSP sudah memakai harga terkini.` +
+      (putus ? `\n(${putus} item tautan AHSP-nya sudah terhapus, dilewati.)` : ""));
+    return;
+  }
+  const daftar = changes.slice(0, 12).map(c => `• ${c.it.uraian}: ${rupiah(c.lama)} → ${rupiah(c.baru)}`).join("\n");
+  const sisa = changes.length > 12 ? `\n...dan ${changes.length - 12} item lainnya` : "";
+  if (!confirm(`${changes.length} item akan diperbarui ke harga AHSP terkini:\n\n${daftar}${sisa}\n\nTerapkan?`)) return;
+  changes.forEach(c => { c.it.hargaSatuan = c.baru; });
+  saveState();
+  if (kind === "rab") { mirrorRabUpsert(doc, false); renderRabEditor(); }
+  else { mirrorPenawaranUpsert(doc, false); renderPwEditor(); }
+  alert(`${changes.length} item diperbarui ke harga AHSP terkini.`);
+}
+document.getElementById("rab_refreshAhspBtn").addEventListener("click", () => refreshDocHargaFromAhsp("rab"));
+document.getElementById("pw_refreshAhspBtn").addEventListener("click", () => refreshDocHargaFromAhsp("pw"));
 
 // ===== Rendering: RAB =====
 let currentRabId = null;
