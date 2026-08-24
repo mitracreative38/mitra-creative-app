@@ -159,6 +159,50 @@ function stripSensitiveForBlob(data) {
   });
   return copy;
 }
+// ===== Lampiran foto/nota (bucket Storage "lampiran", fix32) =====
+// Bukti fisik menempel langsung ke datanya: foto nota Belanja Material,
+// file SPK/BAST Dokumen Proyek, foto Alat. Bucket privat, kebijakan
+// Storage Owner+Admin (lihat supabase_relational_schema_fix32.sql) --
+// akses baca selalu lewat signed URL berumur 1 jam.
+async function uploadLampiran(file, jenis, itemId) {
+  if (!file) return "";
+  if (!sb || !targetCompanyId) {
+    alert("Masuk (login cloud) dulu untuk mengunggah lampiran. Data lain tetap tersimpan tanpa lampiran.");
+    return "";
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    alert("Ukuran lampiran maksimal 5 MB. Data lain tetap tersimpan tanpa lampiran.");
+    return "";
+  }
+  const namaAman = (file.name || "file").replace(/[^a-zA-Z0-9._-]/g, "_").slice(-60);
+  const path = `${targetCompanyId}/${jenis}/${itemId}/${Date.now()}_${namaAman}`;
+  try {
+    const { error } = await sb.storage.from("lampiran").upload(path, file);
+    if (error) throw error;
+    return path;
+  } catch (err) {
+    alert("Gagal mengunggah lampiran: " + err.message + ". Data lain tetap tersimpan tanpa lampiran.");
+    return "";
+  }
+}
+async function openLampiran(path) {
+  if (!sb) { alert("Masuk (login cloud) dulu untuk membuka lampiran."); return; }
+  try {
+    const { data, error } = await sb.storage.from("lampiran").createSignedUrl(path, 3600);
+    if (error) throw error;
+    window.open(data.signedUrl, "_blank");
+  } catch (err) {
+    alert("Gagal membuka lampiran: " + err.message);
+  }
+}
+function lampiranBtn(path) {
+  return path ? `<button type="button" class="icon-btn" data-open-lampiran="${escapeHtml(path)}" title="Lihat lampiran">📎</button>` : "";
+}
+document.addEventListener("click", e => {
+  const btn = e.target.closest("[data-open-lampiran]");
+  if (btn) openLampiran(btn.dataset.openLampiran);
+});
+
 async function hydrateSensitiveFields(data) {
   if (!sb || !targetCompanyId) return data;
   try {
@@ -1039,6 +1083,7 @@ function alatToRow(a) {
     jumlah_unit: a.jumlahUnit || 0,
     catatan: a.catatan || "",
     servis_berikutnya: a.servisBerikutnya || null,
+    lampiran_path: a.lampiranPath || null,
     peminjaman: a.peminjaman || [],
     updated_at: new Date().toISOString()
   };
@@ -1472,6 +1517,7 @@ function rowToAlat(r) {
     id: r.id, nama: r.nama || "", kategori: r.kategori || "", satuan: r.satuan || "unit",
     kondisi: r.kondisi || "Baik", jumlahUnit: r.jumlah_unit || 0, catatan: r.catatan || "",
     servisBerikutnya: r.servis_berikutnya || "",
+    lampiranPath: r.lampiran_path || "",
     peminjaman: r.peminjaman || []
   };
 }
@@ -2293,6 +2339,7 @@ function renderProyekDetail() {
       <td><span class="badge ${b.status === "Dibeli" ? "badge-lunas" : "badge-pending"}">${b.status}</span></td>
       <td>
         <div class="row-actions">
+          ${lampiranBtn(b.lampiranPath)}
           <button class="icon-btn" data-edit-belanja="${b.id}" title="Edit">✏️</button>
           <button class="icon-btn" data-delete-belanja="${b.id}" title="Hapus">🗑️</button>
         </div>
@@ -2374,7 +2421,7 @@ function renderProyekDetail() {
       <td>${d.tanggalTerbit ? formatTanggal(d.tanggalTerbit) : "-"}</td>
       <td class="${garansiClass}">${d.garansiSampai ? formatTanggal(d.garansiSampai) : "-"}${garansiHabis ? " (habis)" : garansiSoon ? " ⚠️ segera habis" : ""}</td>
       <td>${escapeHtml(d.catatan || "-")}</td>
-      <td><div class="row-actions"><button class="icon-btn" data-edit-dokumen="${d.id}" title="Edit">✏️</button><button class="icon-btn" data-delete-dokumen="${d.id}" title="Hapus">🗑️</button></div></td>
+      <td><div class="row-actions">${lampiranBtn(d.lampiranPath)}<button class="icon-btn" data-edit-dokumen="${d.id}" title="Edit">✏️</button><button class="icon-btn" data-delete-dokumen="${d.id}" title="Hapus">🗑️</button></div></td>
     </tr>
   `; }).join("") : '<tr class="empty-row"><td colspan="6">Belum ada dokumen</td></tr>';
 
@@ -5031,6 +5078,7 @@ function renderAlatList() {
       <td>${alatServisBadge(a, today)}</td>
       <td>
         <div class="row-actions">
+          ${lampiranBtn(a.lampiranPath)}
           <button class="icon-btn" data-open-alat="${a.id}" title="Buka Detail">📂</button>
           <button class="icon-btn" data-edit-alat="${a.id}" title="Edit">✏️</button>
           <button class="icon-btn" data-delete-alat="${a.id}" title="Hapus">🗑️</button>
@@ -5085,10 +5133,11 @@ function openAlatModal(existing) {
   document.getElementById("al_kondisi").value = existing ? (existing.kondisi || "Baik") : "Baik";
   document.getElementById("al_jumlahUnit").value = existing ? formatNumberInput(existing.jumlahUnit || 0) : "";
   document.getElementById("al_servis").value = existing ? (existing.servisBerikutnya || "") : "";
+  document.getElementById("al_foto").value = "";
   document.getElementById("al_catatan").value = existing ? (existing.catatan || "") : "";
   alatModal.classList.add("open");
 }
-document.getElementById("alatForm").addEventListener("submit", e => {
+document.getElementById("alatForm").addEventListener("submit", async e => {
   e.preventDefault();
   const id = document.getElementById("al_id").value;
   const idx = state.alat.findIndex(x => x.id === id);
@@ -5107,8 +5156,14 @@ document.getElementById("alatForm").addEventListener("submit", e => {
     jumlahUnit: jumlahUnitBaru,
     servisBerikutnya: document.getElementById("al_servis").value || "",
     catatan: document.getElementById("al_catatan").value.trim(),
+    lampiranPath: (existing && existing.lampiranPath) || "",
     peminjaman: existing ? existing.peminjaman : []
   };
+  const fileFoto = document.getElementById("al_foto").files[0];
+  if (fileFoto) {
+    const path = await uploadLampiran(fileFoto, "alat", a.id);
+    if (path) a.lampiranPath = path;
+  }
   if (idx >= 0) state.alat[idx] = a; else state.alat.push(a);
   saveState();
   mirrorAlatUpsert(a, existing);
@@ -8740,6 +8795,7 @@ function syncBelanjaMaterial(p, item) {
 }
 const belanjaModal = document.getElementById("belanjaModal");
 function openBelanjaModal(existing) {
+  document.getElementById("bm_lampiran").value = "";
   document.getElementById("bm_id").value = existing ? existing.id : "";
   document.getElementById("belanjaModalTitle").textContent = existing ? "Edit Belanja Material" : "Tambah Belanja Material";
   document.getElementById("bm_nama").value = existing ? existing.nama : "";
@@ -8761,7 +8817,7 @@ function openBelanjaModal(existing) {
 }
 attachNumberFormatting(document.getElementById("bm_harga"));
 document.getElementById("bm_addBtn").addEventListener("click", () => openBelanjaModal(null));
-document.getElementById("belanjaForm").addEventListener("submit", e => {
+document.getElementById("belanjaForm").addEventListener("submit", async e => {
   e.preventDefault();
   const p = state.proyek.find(x => x.id === currentProyekId);
   if (!p) { closeModals(); return; }
@@ -8769,6 +8825,7 @@ document.getElementById("belanjaForm").addEventListener("submit", e => {
   const bmQty = parseFloat((document.getElementById("bm_qty").value || "").replace(",", ".")) || 0;
   if (bmQty < 0) { alert("Qty tidak boleh negatif."); return; }
   const id = document.getElementById("bm_id").value;
+  const lama = id ? p.belanjaMaterial.find(b => b.id === id) : null;
   const item = {
     id: id || uid(),
     nama: document.getElementById("bm_nama").value.trim(),
@@ -8779,8 +8836,14 @@ document.getElementById("belanjaForm").addEventListener("submit", e => {
     status: document.getElementById("bm_status").value,
     stokId: document.getElementById("bm_stokId").value || "",
     pemasokId: document.getElementById("bm_pemasokId").value || "",
-    gudangId: document.getElementById("bm_gudangId").value || ""
+    gudangId: document.getElementById("bm_gudangId").value || "",
+    lampiranPath: (lama && lama.lampiranPath) || ""
   };
+  const fileNota = document.getElementById("bm_lampiran").files[0];
+  if (fileNota) {
+    const path = await uploadLampiran(fileNota, "belanja", item.id);
+    if (path) item.lampiranPath = path;
+  }
   const idx = p.belanjaMaterial.findIndex(b => b.id === id);
   if (idx >= 0) p.belanjaMaterial[idx] = item; else p.belanjaMaterial.push(item);
   syncBelanjaMaterial(p, item);
@@ -8978,6 +9041,7 @@ document.getElementById("pf_realisasiTable").addEventListener("click", e => {
 // ----- Dokumen Proyek (SPK/BAST) & Garansi -----
 const dokumenModal = document.getElementById("dokumenModal");
 function openDokumenModal(existing) {
+  document.getElementById("dok_lampiran").value = "";
   document.getElementById("dok_id").value = existing ? existing.id : "";
   document.getElementById("dokumenModalTitle").textContent = existing ? "Edit Dokumen" : "Tambah Dokumen";
   document.getElementById("dok_jenis").value = existing ? existing.jenis : "SPK";
@@ -8988,20 +9052,27 @@ function openDokumenModal(existing) {
   dokumenModal.classList.add("open");
 }
 document.getElementById("dok_addBtn").addEventListener("click", () => openDokumenModal(null));
-document.getElementById("dokumenForm").addEventListener("submit", e => {
+document.getElementById("dokumenForm").addEventListener("submit", async e => {
   e.preventDefault();
   const p = state.proyek.find(x => x.id === currentProyekId);
   if (!p) { closeModals(); return; }
   if (!p.dokumen) p.dokumen = [];
   const id = document.getElementById("dok_id").value;
+  const dokLama = id ? p.dokumen.find(d => d.id === id) : null;
   const dok = {
     id: id || uid(),
     jenis: document.getElementById("dok_jenis").value,
     nomor: document.getElementById("dok_nomor").value.trim(),
     tanggalTerbit: document.getElementById("dok_tanggalTerbit").value,
     garansiSampai: document.getElementById("dok_garansiSampai").value,
-    catatan: document.getElementById("dok_catatan").value.trim()
+    catatan: document.getElementById("dok_catatan").value.trim(),
+    lampiranPath: (dokLama && dokLama.lampiranPath) || ""
   };
+  const fileDok = document.getElementById("dok_lampiran").files[0];
+  if (fileDok) {
+    const path = await uploadLampiran(fileDok, "dokumen", dok.id);
+    if (path) dok.lampiranPath = path;
+  }
   const idx = p.dokumen.findIndex(d => d.id === id);
   if (idx >= 0) p.dokumen[idx] = dok; else p.dokumen.push(dok);
   saveState();
