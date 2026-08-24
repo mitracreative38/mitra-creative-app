@@ -218,7 +218,8 @@ async function hydrateSensitiveFields(data) {
           id: t.id, proyekId: t.proyek_id || "", subkonId: t.subkon_id || "",
           sumberSlipId: t.sumber_slip_id || "", sumberBelanjaId: t.sumber_belanja_id || "",
           tipe: t.tipe, status: t.status, tanggal: t.tanggal, jumlah: t.jumlah,
-          keterangan: t.keterangan || "", kategori: t.kategori || "", extra: t.extra || "", catatan: t.catatan || ""
+          keterangan: t.keterangan || "", kategori: t.kategori || "", extra: t.extra || "", catatan: t.catatan || "",
+          lampiranPath: t.lampiran_path || ""
         }))
       });
     }
@@ -1311,6 +1312,7 @@ function kasUsahaTxnToRow(t) {
     kategori: t.kategori || "",
     extra: t.extra || "",
     catatan: t.catatan || "",
+    lampiran_path: t.lampiranPath || null,
     created_by: (currentSyncUser && currentSyncUser.id) || targetCompanyId
   };
 }
@@ -1909,7 +1911,15 @@ function subkonDibayar(p, subkonId) {
 }
 function projectCalc(p) {
   const txns = proyekKasTxns(p);
-  const realisasiBahan = sumTxns(txns, "Keluar", ["Biaya Bahan"]);
+  // Material yang diambil dari stok gudang untuk proyek ini (Stok Keluar
+  // yang dikaitkan proyek): biaya non-tunai -- uangnya sudah keluar saat
+  // stoknya dibeli dulu, jadi nilai stoknya dihitung ke biaya proyek
+  // TANPA membuat transaksi Kas baru (tidak dobel dengan Belanja Material
+  // yang memang dibeli langsung untuk proyek).
+  const bahanDariStok = state.stok.reduce((s, st) => s + (st.transactions || [])
+    .filter(t => t.tipe === "Keluar" && t.proyekId === p.id)
+    .reduce((x, t) => x + (t.qty || 0) * (t.hargaSatuan || st.hargaSatuan || 0), 0), 0);
+  const realisasiBahan = sumTxns(txns, "Keluar", ["Biaya Bahan"]) + bahanDariStok;
   const realisasiUpah = sumTxns(txns, "Keluar", ["Biaya Upah/Tenaga"]);
   const realisasiSubkon = sumTxns(txns, "Keluar", ["Biaya Subkontraktor"]);
   const realisasiLain = sumTxns(txns, "Keluar", ["Biaya Operasional", "Biaya Transport", "Biaya Alat", "Biaya Lain-lain"]);
@@ -2190,6 +2200,7 @@ function renderKasBook(book) {
       <td class="num">${rupiah(t.jumlah)}</td>
       <td>
         <div class="row-actions">
+          ${book === "kasUsaha" ? lampiranBtn(t.lampiranPath) : ""}
           ${status === "menunggu_persetujuan" && t.tipe === "Keluar" ? `<button class="icon-btn" data-approve="${t.id}" data-book="${book}" title="Setujui">✅</button>` : ""}
           <button class="icon-btn" data-edit="${t.id}" data-book="${book}" title="Edit">✏️</button>
           <button class="icon-btn" data-delete="${t.id}" data-book="${book}" title="Hapus">🗑️</button>
@@ -2447,6 +2458,7 @@ function renderProyekDetail() {
   renderTahapanProyek(p, today);
   renderInvoiceProyek(p);
   renderBapProyek(p);
+  renderBiayaLainProyek(p);
   document.getElementById("pd_arsipBtn").textContent = p.arsip ? "🔓 Buka Arsip" : "🔒 Tutup & Arsipkan";
 }
 
@@ -2688,6 +2700,80 @@ function printInvoice(p, inv) {
   document.body.classList.add("printing-quote");
   window.print();
 }
+
+// ----- Biaya Operasional & Lain-lain per proyek -----
+// Bensin/transport, sewa alat, dan biaya kecil lain dicatat langsung dari
+// halaman proyek supaya tautan proyeknya tidak pernah lupa terisi (dulu
+// harus lewat halaman Kas Perusahaan dan sering lupa memilih proyek).
+// Tetap satu sumber data: transaksi Kas Perusahaan biasa.
+const BIAYA_LAIN_KATEGORI = ["Biaya Transport", "Biaya Operasional", "Biaya Alat", "Biaya Lain-lain"];
+function renderBiayaLainProyek(p) {
+  const rows = proyekKasTxns(p)
+    .filter(t => t.tipe === "Keluar" && BIAYA_LAIN_KATEGORI.includes(t.kategori) && !t.sumberBelanjaId && !t.sumberSlipId)
+    .sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
+  document.querySelector("#pd_biayaLainTable tbody").innerHTML = rows.length ? rows.map(t => `
+    <tr>
+      <td>${formatTanggal(t.tanggal)}</td>
+      <td>${escapeHtml(t.kategori)}</td>
+      <td>${escapeHtml(t.keterangan || "-")}</td>
+      <td class="num">${rupiah(t.jumlah)}</td>
+      <td><span class="badge ${(t.status || "lunas") === "lunas" ? "badge-lunas" : "badge-pending"}">${(t.status || "lunas") === "lunas" ? "Lunas" : "Menunggu"}</span></td>
+      <td>
+        <div class="row-actions">
+          ${lampiranBtn(t.lampiranPath)}
+          <button class="icon-btn" data-delete-biayalain="${t.id}" title="Hapus">🗑️</button>
+        </div>
+      </td>
+    </tr>
+  `).join("") : '<tr class="empty-row"><td colspan="6">Belum ada biaya operasional/lain-lain untuk proyek ini</td></tr>';
+}
+attachNumberFormatting(document.getElementById("bo_jumlah"));
+document.getElementById("bo_addBtn").addEventListener("click", async () => {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p || proyekArsipGuard(p)) return;
+  const tanggal = document.getElementById("bo_tanggal").value;
+  const keterangan = document.getElementById("bo_keterangan").value.trim();
+  const jumlah = parseNumberInput(document.getElementById("bo_jumlah").value);
+  if (!tanggal || !keterangan || !(jumlah > 0)) { alert("Isi tanggal, keterangan, dan jumlah terlebih dahulu."); return; }
+  const txn = {
+    id: uid(),
+    proyekId: p.id,
+    tipe: "Keluar",
+    status: expenseApprovalStatus(jumlah),
+    tanggal, jumlah, keterangan,
+    kategori: document.getElementById("bo_kategori").value,
+    extra: p.nama,
+    catatan: "Dicatat dari Margin Proyek"
+  };
+  const notaFile = document.getElementById("bo_nota").files[0];
+  if (notaFile) {
+    const path = await uploadLampiran(notaFile, "kas", txn.id);
+    if (path) txn.lampiranPath = path;
+  }
+  state.kasUsaha.transactions.push(txn);
+  saveState();
+  mirrorKasUsahaUpsert(txn, null);
+  document.getElementById("bo_tanggal").value = "";
+  document.getElementById("bo_keterangan").value = "";
+  document.getElementById("bo_jumlah").value = "";
+  document.getElementById("bo_nota").value = "";
+  renderAll();
+  renderProyekDetail();
+});
+document.getElementById("pd_biayaLainTable").addEventListener("click", e => {
+  const delBtn = e.target.closest("[data-delete-biayalain]");
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!delBtn || !p) return;
+  if (proyekArsipGuard(p)) return;
+  if (confirm("Hapus biaya ini? Transaksinya juga akan terhapus dari Kas Perusahaan.")) {
+    const deleted = state.kasUsaha.transactions.find(t => t.id === delBtn.dataset.deleteBiayalain);
+    state.kasUsaha.transactions = state.kasUsaha.transactions.filter(t => t.id !== delBtn.dataset.deleteBiayalain);
+    saveState();
+    mirrorKasUsahaDelete(delBtn.dataset.deleteBiayalain, deleted);
+    renderAll();
+    renderProyekDetail();
+  }
+});
 
 // ----- Berita Acara Progres (BAP) -----
 const bapModal = document.getElementById("bapModal");
@@ -4423,6 +4509,12 @@ function openStokTxnModal(existing) {
   const gudangSel = document.getElementById("st_gudangId");
   gudangSel.innerHTML = '<option value="">Tidak ditentukan</option>' + state.gudang.map(g => `<option value="${g.id}">${escapeHtml(g.nama)}</option>`).join("");
   gudangSel.value = existing ? (existing.gudangId || "") : "";
+  // Stok Keluar yang dikaitkan ke proyek dihitung sebagai Biaya Bahan
+  // proyek (nilai stok, non-tunai) di Margin Proyek -- lihat projectCalc.
+  const stProyekSel = document.getElementById("st_proyekId");
+  stProyekSel.innerHTML = '<option value="">Tidak dikaitkan</option>' +
+    state.proyek.filter(pp => !pp.arsip).map(pp => `<option value="${pp.id}">${escapeHtml(pp.nama)}</option>`).join("");
+  stProyekSel.value = existing ? (existing.proyekId || "") : "";
   document.getElementById("st_keterangan").value = existing ? (existing.keterangan || "") : "";
   stokTxnModal.classList.add("open");
 }
@@ -4443,6 +4535,7 @@ document.getElementById("stokTxnForm").addEventListener("submit", e => {
     pemasokId: document.getElementById("st_pemasokId").value || "",
     hargaSatuan: parseNumberInput(document.getElementById("st_harga").value),
     gudangId: document.getElementById("st_gudangId").value || "",
+    proyekId: document.getElementById("st_proyekId").value || "",
     keterangan: document.getElementById("st_keterangan").value.trim()
   };
   if (txn.tipe === "Keluar") {
@@ -4739,9 +4832,14 @@ function renderAbsensiPanel() {
   // cuma Owner yang boleh lihat/isi (lihat applyRoleAccess()).
   const showGaji = currentTeamRole === "owner";
   if (!aktif.length) {
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="${showGaji ? 8 : 6}">Belum ada karyawan aktif</td></tr>`;
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="${showGaji ? 9 : 7}">Belum ada karyawan aktif</td></tr>`;
     return;
   }
+  // Kolom "Proyek Dikerjakan": dasar alokasi otomatis upah ke Margin
+  // Proyek saat slip gaji dibuat (upah dibagi sesuai jumlah hari di
+  // masing-masing proyek). Proyek arsip tidak ditawarkan, tapi nilai
+  // lama yang sudah tersimpan tetap ditampilkan.
+  const proyekOpsi = state.proyek.filter(pp => !pp.arsip);
   aktif.forEach(k => {
     const existing = (k.absensi || []).find(a => a.tanggal === tanggal);
     const hadir = existing ? existing.hadir : true;
@@ -4756,6 +4854,13 @@ function renderAbsensiPanel() {
       <td>${escapeHtml(k.jabatan || "-")}</td>
       <td><input type="checkbox" class="att-check ab-hadir" ${hadir ? "checked" : ""}></td>
       <td class="num"><input type="text" inputmode="decimal" class="ab-lembur" value="${jamLembur || ""}" style="width:80px; text-align:right"></td>
+      <td><select class="ab-proyek" style="max-width:180px;">
+        <option value="">— (tanpa proyek)</option>
+        ${proyekOpsi.map(pp => `<option value="${pp.id}" ${existing && existing.proyekId === pp.id ? "selected" : ""}>${escapeHtml(pp.nama)}</option>`).join("")}
+        ${existing && existing.proyekId && !proyekOpsi.some(pp => pp.id === existing.proyekId)
+          ? (() => { const lama = state.proyek.find(pp => pp.id === existing.proyekId); return `<option value="${existing.proyekId}" selected>${escapeHtml(lama ? lama.nama + " (arsip)" : "(proyek terhapus)")}</option>`; })()
+          : ""}
+      </select></td>
       ${showGaji ? `
       <td class="num"><input type="text" inputmode="numeric" class="ab-uangmakan" value="${uangMakan || ""}" style="width:100px; text-align:right"></td>
       <td class="num"><input type="text" inputmode="numeric" class="ab-bon" value="${bon || ""}" style="width:100px; text-align:right"></td>
@@ -4844,6 +4949,8 @@ document.getElementById("ab_saveBtn").addEventListener("click", () => {
     const bonInput = tr.querySelector(".ab-bon");
     if (uangMakanInput) rec.uangMakan = Math.max(0, parseFloat((uangMakanInput.value || "").replace(",", ".")) || 0);
     if (bonInput) rec.bon = Math.max(0, parseFloat((bonInput.value || "").replace(",", ".")) || 0);
+    const proyekSel = tr.querySelector(".ab-proyek");
+    if (proyekSel) rec.proyekId = proyekSel.value || "";
     if (idx >= 0) k.absensi[idx] = rec; else k.absensi.push(rec);
     mirrorKaryawanUpsert(k);
     // Fix 30: uangMakan/bon harian tidak lagi ikut baris karyawan --
@@ -5206,30 +5313,73 @@ function recomputeSlipGajiChain(k) {
 // jumlahnya diperbarui; kalau sudah kadung dihapus manual dari Kas
 // Perusahaan (atau entah kenapa belum pernah tercatat), dibuat ulang.
 // "Kalau ada perbaikan di sub, pusat ikut mencatat otomatis."
-function syncSlipGajiKasTxn(k, sl) {
+// Alokasi upah slip ke proyek berdasarkan absensi: setiap hari hadir yang
+// ditandai "Proyek Dikerjakan" (kolom baru di Absensi Harian) dihitung,
+// lalu gaji bersih slip dibagi proporsional sesuai jumlah hari per proyek.
+// Hari tanpa penanda proyek (atau karyawan bulanan tanpa absensi) menjadi
+// bagian "tanpa proyek" -- tetap tercatat di Kas, hanya tidak masuk margin
+// proyek manapun. Pecahan pembulatan ditaruh di bagian terakhir supaya
+// totalnya selalu persis sama dengan gaji bersih slip.
+function alokasiSlipPerProyek(k, sl) {
   const jumlah = slipGajiBersih(sl);
-  const existing = state.kasUsaha.transactions.find(x => x.sumberSlipId === sl.id);
-  if (existing) {
-    existing.jumlah = jumlah;
-    existing.status = expenseApprovalStatus(jumlah);
-    existing.keterangan = `Gaji ${k.nama} (${formatTanggal(sl.mulai)} - ${formatTanggal(sl.selesai)})`;
-    mirrorKasUsahaUpsert(existing);
-  } else {
+  const hariHadir = (k.absensi || []).filter(a => a.hadir && a.tanggal >= sl.mulai && a.tanggal <= sl.selesai);
+  if (!hariHadir.length || !jumlah) return [{ proyekId: "", jumlah, hari: hariHadir.length }];
+  const perProyek = {};
+  hariHadir.forEach(a => {
+    const pid = a.proyekId || "";
+    perProyek[pid] = (perProyek[pid] || 0) + 1;
+  });
+  const pids = Object.keys(perProyek);
+  if (pids.length === 1) return [{ proyekId: pids[0], jumlah, hari: perProyek[pids[0]] }];
+  const out = [];
+  let sisa = jumlah;
+  pids.forEach((pid, i) => {
+    const bagian = i === pids.length - 1 ? sisa : Math.round(jumlah * perProyek[pid] / hariHadir.length);
+    sisa -= bagian;
+    out.push({ proyekId: pid, jumlah: bagian, hari: perProyek[pid] });
+  });
+  return out;
+}
+function syncSlipGajiKasTxn(k, sl) {
+  // Hapus-dan-buat-ulang (bukan update di tempat): satu slip kini bisa
+  // menjadi BEBERAPA transaksi Kas (satu per proyek sesuai alokasi
+  // absensi), jadi jumlah pecahannya selalu dihitung ulang dari awal.
+  // State lokal diubah SINKRON (pemanggil langsung saveState/render);
+  // mirror cloud-nya diurutkan: delete lama harus benar-benar selesai
+  // dulu sebelum upsert baru, kalau tidak delete bisa mendarat belakangan
+  // dan ikut menghapus baris yang baru dibuat.
+  state.kasUsaha.transactions = state.kasUsaha.transactions.filter(x => x.sumberSlipId !== sl.id);
+  const txns = [];
+  // Bagian bernilai 0 dibuang HANYA kalau ada bagian lain -- slip dengan
+  // gaji bersih 0 (mis. belum ada hari hadir) tetap menghasilkan satu
+  // transaksi Kas berjumlah 0 seperti perilaku lama, supaya cerminannya
+  // tetap ada dan bisa dilacak/diedit.
+  let alokasi = alokasiSlipPerProyek(k, sl);
+  if (alokasi.length > 1) alokasi = alokasi.filter(b => b.jumlah);
+  if (!alokasi.length) alokasi = [{ proyekId: "", jumlah: 0, hari: 0 }];
+  alokasi.forEach(bagian => {
+    const proyek = bagian.proyekId ? state.proyek.find(p => p.id === bagian.proyekId) : null;
     const txn = {
       id: uid(),
       sumberSlipId: sl.id,
+      proyekId: bagian.proyekId || "",
       tipe: "Keluar",
-      status: expenseApprovalStatus(jumlah),
+      status: expenseApprovalStatus(bagian.jumlah),
       tanggal: sl.selesai,
-      jumlah,
-      keterangan: `Gaji ${k.nama} (${formatTanggal(sl.mulai)} - ${formatTanggal(sl.selesai)})`,
+      jumlah: bagian.jumlah,
+      keterangan: `Gaji ${k.nama} (${formatTanggal(sl.mulai)} - ${formatTanggal(sl.selesai)})` +
+        (proyek ? ` — proyek ${proyek.nama} (${bagian.hari} hari)` : ""),
       kategori: "Biaya Upah/Tenaga",
       extra: k.nama,
-      catatan: "Otomatis dari slip gaji"
+      catatan: "Otomatis dari slip gaji" + (proyek ? ", dialokasikan dari absensi per proyek" : "")
     };
     state.kasUsaha.transactions.push(txn);
-    mirrorKasUsahaUpsert(txn);
-  }
+    txns.push(txn);
+  });
+  (async () => {
+    await mirrorKasUsahaDeleteBySumberSlip(sl.id);
+    txns.forEach(txn => mirrorKasUsahaUpsert(txn));
+  })();
 }
 const slipGajiEditModal = document.getElementById("slipGajiEditModal");
 function openSlipGajiEditModal(sl) {
@@ -5339,21 +5489,11 @@ document.getElementById("pg_simpanCetakBtn").addEventListener("click", () => {
   // dilacak/dikoreksi. kasSummary() sendiri yang menjaga supaya nilai
   // negatif ini tidak salah tafsir jadi penambah saldo (lihat catatan di
   // sana), bukan di titik penyimpanan ini.
-  state.kasUsaha.transactions.push({
-    id: uid(),
-    sumberSlipId: slip.id,
-    tipe: "Keluar",
-    status: expenseApprovalStatus(slipGajiBersih(slip)),
-    tanggal: slip.selesai,
-    jumlah: slipGajiBersih(slip),
-    keterangan: `Gaji ${k.nama} (${formatTanggal(slip.mulai)} - ${formatTanggal(slip.selesai)})`,
-    kategori: "Biaya Upah/Tenaga",
-    extra: k.nama,
-    catatan: "Otomatis dari slip gaji"
-  });
+  // Transaksi Kas dibuat lewat syncSlipGajiKasTxn: gaji bersih otomatis
+  // dialokasikan per proyek sesuai penanda "Proyek Dikerjakan" di absensi.
+  syncSlipGajiKasTxn(k, slip);
   saveState();
   mirrorKaryawanGajiUpsert(k, true);
-  mirrorKasUsahaUpsert(state.kasUsaha.transactions[state.kasUsaha.transactions.length - 1]);
   renderAll();
   printSlipGaji(k, slip);
 });
@@ -9082,6 +9222,10 @@ function openTxnModal(book, existing) {
       state.proyek.map(p => `<option value="${p.id}">${escapeHtml(p.nama)}</option>`).join("");
     proyekSelect.value = existing ? (existing.proyekId || "") : "";
   }
+  // Foto nota/bukti hanya untuk Kas Perusahaan (bucket lampiran memakai
+  // jalur company id); lampiran lama dipertahankan kecuali diganti file baru.
+  document.getElementById("txn_lampiranField").style.display = book === "kasUsaha" ? "flex" : "none";
+  document.getElementById("txn_lampiran").value = "";
 
   txnModal.classList.add("open");
 }
@@ -9128,7 +9272,7 @@ document.getElementById("txn_tipe").addEventListener("change", refreshTxnStatusO
 document.getElementById("txn_tipe").addEventListener("change", maybeSuggestApprovalStatus);
 attachNumberFormatting(document.getElementById("txn_jumlah"));
 
-document.getElementById("txnForm").addEventListener("submit", e => {
+document.getElementById("txnForm").addEventListener("submit", async e => {
   e.preventDefault();
   const jumlah = parseNumberInput(document.getElementById("txn_jumlah").value);
   if (jumlah <= 0) { alert("Jumlah harus lebih dari 0."); return; }
@@ -9148,7 +9292,14 @@ document.getElementById("txnForm").addEventListener("submit", e => {
     extra: document.getElementById("txn_extra").value.trim(),
     catatan: document.getElementById("txn_catatan").value.trim()
   };
-  if (book === "kasUsaha") txn.proyekId = document.getElementById("txn_proyekId").value || "";
+  if (book === "kasUsaha") {
+    txn.proyekId = document.getElementById("txn_proyekId").value || "";
+    const notaFile = document.getElementById("txn_lampiran").files[0];
+    if (notaFile) {
+      const path = await uploadLampiran(notaFile, "kas", txn.id);
+      if (path) txn.lampiranPath = path;
+    }
+  }
   const idx = arr.findIndex(t => t.id === id);
   if (idx >= 0) arr[idx] = txn; else arr.push(txn);
   saveState();
