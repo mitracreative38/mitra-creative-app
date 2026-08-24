@@ -984,6 +984,31 @@
         </div>
 
         <div class="panel">
+          <div class="muted" style="margin-bottom:10px;">Biaya Operasional &amp; Lain-lain (bensin/transport, sewa alat, dll) — otomatis tercatat ke Kas Perusahaan dengan tautan proyek ini. Material dari stok gudang: pakai Stok Keluar dengan pilihan proyek.</div>
+          <div class="form-grid" style="margin-bottom:12px;">
+            <div class="field"><label>Tanggal</label><input type="date" id="bo_tanggal"></div>
+            <div class="field"><label>Kategori</label>
+              <select id="bo_kategori">
+                <option>Biaya Transport</option>
+                <option>Biaya Operasional</option>
+                <option>Biaya Alat</option>
+                <option>Biaya Lain-lain</option>
+              </select>
+            </div>
+            <div class="field full"><label>Keterangan</label><input type="text" id="bo_keterangan" placeholder="mis. Bensin kirim barang + survey lokasi"></div>
+            <div class="field"><label>Jumlah (Rp)</label><input type="text" inputmode="numeric" id="bo_jumlah" placeholder="0"></div>
+            <div class="field"><label>Foto Nota (opsional)</label><input type="file" id="bo_nota" accept="image/*,.pdf"></div>
+            <div class="field" style="justify-content:flex-end;"><button type="button" class="btn-primary" id="bo_addBtn">+ Catat Biaya</button></div>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="pd_biayaLainTable">
+              <thead><tr><th>Tanggal</th><th>Kategori</th><th>Keterangan</th><th class="num">Jumlah</th><th>Status</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
           <div class="toolbar">
             <div class="muted" style="flex:1">Subkontraktor / Jasa yang di-subkontrakkan</div>
             <button class="btn-primary" id="sk_addBtn">+ Tambah Subkontraktor</button>
@@ -1201,7 +1226,7 @@
           </div>
           <div class="table-wrap">
             <table class="tbl" id="ab_table">
-              <thead><tr><th>Nama</th><th>Jabatan</th><th>Hadir</th><th class="num">Jam Lembur</th><th class="num" id="ab_thUangMakan">Uang Makan</th><th class="num" id="ab_thBon">Bon</th><th>Lokasi Absen</th><th>Absen via HP</th></tr></thead>
+              <thead><tr><th>Nama</th><th>Jabatan</th><th>Hadir</th><th class="num">Jam Lembur</th><th>Proyek Dikerjakan</th><th class="num" id="ab_thUangMakan">Uang Makan</th><th class="num" id="ab_thBon">Bon</th><th>Lokasi Absen</th><th>Absen via HP</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -2356,6 +2381,10 @@
             <option value="">Tidak dikaitkan</option>
           </select>
         </div>
+        <div class="field" id="txn_lampiranField">
+          <label>Foto Nota/Bukti (opsional)</label>
+          <input type="file" id="txn_lampiran" accept="image/*,.pdf">
+        </div>
         <div class="field full">
           <label>Catatan</label>
           <input type="text" id="txn_catatan" placeholder="opsional">
@@ -3262,6 +3291,12 @@
           <label>Gudang/Lokasi (opsional)</label>
           <select id="st_gudangId">
             <option value="">Tidak ditentukan</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Dipakai untuk Proyek (khusus Keluar)</label>
+          <select id="st_proyekId">
+            <option value="">Tidak dikaitkan</option>
           </select>
         </div>
         <div class="field full">
