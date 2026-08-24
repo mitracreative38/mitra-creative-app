@@ -5067,19 +5067,58 @@ function renderPenggajianPanel() {
     .map(k => `<option value="${k.id}">${escapeHtml(k.nama)}</option>`).join("");
   if (prevValue && state.karyawan.some(k => k.id === prevValue)) sel.value = prevValue;
   if (!document.getElementById("pg_mulai").value) {
-    // Gajian mingguan jatuh tiap Sabtu, jadi periode berjalan Minggu s.d. Sabtu —
-    // bukan Senin s.d. Minggu, supaya hari Minggu (hari pertama periode) ikut terhitung.
+    // Gajian mingguan jatuh tiap Sabtu, jadi periode berjalan Minggu s.d.
+    // SABTU minggu ini (bukan s.d. hari ini) — sesuai siklus gajian Owner.
     const today = new Date();
     const sunday = new Date(today);
     sunday.setDate(today.getDate() - today.getDay());
+    const saturday = new Date(sunday);
+    saturday.setDate(sunday.getDate() + 6);
     document.getElementById("pg_mulai").value = sunday.toISOString().slice(0, 10);
-    document.getElementById("pg_selesai").value = today.toISOString().slice(0, 10);
+    document.getElementById("pg_selesai").value = saturday.toISOString().slice(0, 10);
   }
   computePayrollFromAbsensi(true);
   renderPenggajianRiwayat();
 }
 function currentKaryawanForPayroll() {
   return state.karyawan.find(k => k.id === document.getElementById("pg_karyawan").value);
+}
+const HARI_LABEL = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
+// Aturan uang makan mingguan Owner: gajian tiap Sabtu, minggu berjalan
+// Minggu s.d. Sabtu. Jatah uang makan seminggu = tarif harian x jumlah
+// hari SEJAK HARI PERTAMA masuk di minggu itu sampai Sabtu -- masuk
+// pertama Minggu = 7 hari (350rb saat tarif 50rb), Senin = 6 hari
+// (300rb), Selasa = 5 hari (250rb), dst. Hari absen setelah hari pertama
+// masuk TETAP dihitung. Kalau periode slip berhenti sebelum Sabtu
+// (mis. karyawan berhenti tengah minggu), hitungan dipotong di tanggal
+// akhir periode. Tarif memakai jatah harian karyawan (uangMakanHarian);
+// kalau belum diisi, jatuh ke nilai input harian di hari pertama masuk.
+function hitungUangMakanMingguan(k, mulai, selesai) {
+  if (!mulai || !selesai) return { total: 0, rincian: [] };
+  const hadir = (k.absensi || []).filter(a => a.hadir && a.tanggal >= mulai && a.tanggal <= selesai);
+  const pertamaPerMinggu = {};
+  hadir.forEach(a => {
+    const d = new Date(a.tanggal + "T00:00:00");
+    const awalMinggu = new Date(d);
+    awalMinggu.setDate(d.getDate() - d.getDay());
+    const key = awalMinggu.toISOString().slice(0, 10);
+    if (!pertamaPerMinggu[key] || a.tanggal < pertamaPerMinggu[key].tanggal) pertamaPerMinggu[key] = a;
+  });
+  let total = 0;
+  const rincian = [];
+  Object.keys(pertamaPerMinggu).sort().forEach(key => {
+    const rec = pertamaPerMinggu[key];
+    const d = new Date(rec.tanggal + "T00:00:00");
+    const sabtu = new Date(d);
+    sabtu.setDate(d.getDate() + (6 - d.getDay()));
+    const batasAkhir = sabtu.toISOString().slice(0, 10) < selesai ? sabtu.toISOString().slice(0, 10) : selesai;
+    const hari = daysBetweenIso(rec.tanggal, batasAkhir) + 1;
+    const tarif = (k.uangMakanHarian || 0) || (rec.uangMakan || 0);
+    const jumlah = hari * tarif;
+    total += jumlah;
+    rincian.push({ mingguMulai: key, pertamaMasuk: rec.tanggal, hari, tarif, jumlah });
+  });
+  return { total, rincian };
 }
 function computePayrollFromAbsensi(resetManualInputs) {
   const k = currentKaryawanForPayroll();
@@ -5106,6 +5145,7 @@ function computePayrollFromAbsensi(resetManualInputs) {
       document.getElementById("pg_bon").value = formatNumberInput(0);
       document.getElementById("pg_potonganPinjaman").value = formatNumberInput(0);
     }
+    document.getElementById("pg_uangMakanRincian").innerHTML = "";
   } else {
     const mulai = document.getElementById("pg_mulai").value;
     const selesai = document.getElementById("pg_selesai").value;
@@ -5118,19 +5158,23 @@ function computePayrollFromAbsensi(resetManualInputs) {
     const totalUpahHarian = hariHadir * (k.upahHarian || 0);
     const totalLembur = jamLembur * (k.tarifLembur || 0);
     pgComputed = { hariHadir, jamLembur, totalUpahHarian, totalLembur, upahKotor: totalUpahHarian + totalLembur, bonus: 0 };
-    // Dijumlah dari input harian di Absensi Harian (kolom Uang Makan/Bon,
-    // Owner-only) -- tetap bisa dikoreksi manual sebelum slip gaji disimpan,
-    // cuma dipakai sebagai nilai awal. Hanya hari yang HADIR yang dihitung
-    // (beda dari Jam Lembur di atas) -- uang makan tidak masuk akal dibayar
-    // untuk hari karyawan tidak hadir, walau baris Absensinya kebetulan ikut
-    // tersimpan (mis. saat Owner klik "Simpan Absensi" untuk seluruh tim).
-    // Selalu dihitung ulang mengikuti periode aktif -- bukan cuma saat ganti
-    // karyawan -- supaya tetap sinkron saat Periode Mulai/Selesai diubah atau
-    // "Hitung Otomatis dari Absensi" diklik, sama seperti Hari Hadir/Jam Lembur.
-    const totalUangMakanHarian = inRange.filter(a => a.hadir).reduce((s, a) => s + (a.uangMakan || 0), 0);
+    // Uang makan mengikuti ATURAN MINGGUAN Owner (bukan lagi jumlah input
+    // harian): dihitung dari HARI PERTAMA masuk pada minggu itu sampai
+    // Sabtu (hari gajian) -- masuk pertama Minggu = 7 hari x tarif, Senin
+    // = 6 hari, Selasa = 5 hari, dst. Hari absen SETELAH hari pertama
+    // masuk di minggu itu TETAP dihitung (keputusan Owner). Lihat
+    // hitungUangMakanMingguan(). Bon tetap dijumlah dari input harian
+    // (bon = uang yang benar-benar diambil per hari). Keduanya tetap bisa
+    // dikoreksi manual sebelum slip disimpan, dan selalu dihitung ulang
+    // mengikuti periode aktif.
+    const um = hitungUangMakanMingguan(k, mulai, selesai);
     const totalBonHarian = inRange.filter(a => a.hadir).reduce((s, a) => s + (a.bon || 0), 0);
-    document.getElementById("pg_uangMakan").value = formatNumberInput(totalUangMakanHarian);
+    document.getElementById("pg_uangMakan").value = formatNumberInput(um.total);
     document.getElementById("pg_bon").value = formatNumberInput(totalBonHarian);
+    const inputHarianUm = inRange.filter(a => a.hadir).reduce((s, a) => s + (a.uangMakan || 0), 0);
+    document.getElementById("pg_uangMakanRincian").innerHTML =
+      um.rincian.map(r => `Masuk pertama ${HARI_LABEL[new Date(r.pertamaMasuk + "T00:00:00").getDay()]} ${formatTanggal(r.pertamaMasuk)} → ${r.hari} hari × ${rupiah(r.tarif)} = ${rupiah(r.jumlah)}`).join("<br>") +
+      (inputHarianUm && inputHarianUm !== um.total ? `<br>(pembanding: jumlah input harian di Absensi = ${rupiah(inputHarianUm)})` : "");
     if (resetManualInputs) {
       document.getElementById("pg_potonganPinjaman").value = formatNumberInput(0);
     }
@@ -5446,6 +5490,11 @@ document.getElementById("pg_simpanCetakBtn").addEventListener("click", () => {
   const mulai = document.getElementById("pg_mulai").value;
   const selesai = document.getElementById("pg_selesai").value;
   if (!k || !mulai || !selesai) { alert("Pilih karyawan dan periode terlebih dahulu."); return; }
+  // Cegah gaji terbayar dobel: slip baru yang periodenya beririsan dengan
+  // slip lama karyawan yang sama harus dikonfirmasi sadar dulu.
+  const tumpangTindih = (k.slipGaji || []).find(s => (s.mulai || "") <= selesai && (s.selesai || "") >= mulai);
+  if (tumpangTindih && !confirm(
+    `PERHATIAN: ${k.nama} sudah punya slip gaji periode ${formatTanggal(tumpangTindih.mulai)} - ${formatTanggal(tumpangTindih.selesai)} yang TUMPANG TINDIH dengan periode ini (${formatTanggal(mulai)} - ${formatTanggal(selesai)}).\n\nMelanjutkan bisa membuat gaji terbayar dobel. Tetap buat slip?`)) return;
   const isBulanan = k.tipeGaji === "Bulanan";
   const slip = {
     id: uid(),
