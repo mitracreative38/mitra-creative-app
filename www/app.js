@@ -851,6 +851,10 @@ function proyekToRow(p) {
     jadwal_pekerjaan: p.jadwalPekerjaan || [],
     laporan_harian: p.laporanHarian || [],
     perubahan_pekerjaan: p.perubahanPekerjaan || [],
+    tahapan: p.tahapan || [],
+    invoices: p.invoices || [],
+    bap: p.bap || [],
+    arsip: p.arsip === true,
     updated_at: new Date().toISOString()
   };
 }
@@ -1253,6 +1257,8 @@ function companyProfileToRow() {
     jam_kerja_mulai: state.jamKerjaMulai || "08:00",
     jam_kerja_selesai: state.jamKerjaSelesai || "17:00",
     radius_proyek_meter: state.radiusProyekMeter || 500,
+    rekening: state.rekening || "",
+    invoice_counter: state.invoiceCounter || 0,
     updated_at: new Date().toISOString()
   };
 }
@@ -1485,7 +1491,9 @@ function rowToProyek(r) {
     sumberPenawaranId: r.sumber_penawaran_id || "", progressRencana: r.progress_rencana || [],
     progressRealisasi: r.progress_realisasi || [], dokumen: r.dokumen || [],
     jadwalPekerjaan: r.jadwal_pekerjaan || [], laporanHarian: r.laporan_harian || [],
-    perubahanPekerjaan: r.perubahan_pekerjaan || []
+    perubahanPekerjaan: r.perubahan_pekerjaan || [],
+    tahapan: r.tahapan || [], invoices: r.invoices || [], bap: r.bap || [],
+    arsip: r.arsip === true
   };
 }
 function rowToKaryawan(r) {
@@ -1582,6 +1590,8 @@ async function buildStateFromRelational(companyId) {
     jamKerjaMulai: (profileRow && profileRow.jam_kerja_mulai) || "08:00",
     jamKerjaSelesai: (profileRow && profileRow.jam_kerja_selesai) || "17:00",
     radiusProyekMeter: (profileRow && profileRow.radius_proyek_meter) || 500,
+    rekening: (profileRow && profileRow.rekening) || "",
+    invoiceCounter: (profileRow && profileRow.invoice_counter) || 0,
     klien: klienRows.map(rowToKlien),
     ahsp: ahspRows.map(rowToAhsp),
     proyekRab: rabRows.map(rowToRab),
@@ -2030,6 +2040,7 @@ function renderDashboard() {
   const klienMandek = state.klien.filter(k => klienIsStale(k, today)).length;
   const pwKadaluarsa = state.penawaran.filter(p => pwIsKadaluarsa(p, today)).length;
   const alatPerluServis = (state.alat || []).filter(a => ["terlambat", "segera"].includes(alatServisStatus(a, today))).length;
+  const proyekMacet = state.proyek.map(p => proyekTahapanMacet(p, today)).filter(Boolean).length;
 
   const alerts = [
     pendingTxns.length ? { icon: "⏳", label: "Kas Perusahaan menunggu persetujuan", value: `${pendingTxns.length} transaksi · ${rupiah(ku.menungguPersetujuan)}`, page: "kasUsaha" } : null,
@@ -2038,7 +2049,8 @@ function renderDashboard() {
     klienFollowUp ? { icon: "📞", label: "Klien follow-up jatuh tempo", value: `${klienFollowUp} klien`, page: "klien" } : null,
     klienMandek ? { icon: "⚠️", label: "Klien mandek (>21 hari tanpa perubahan tahap)", value: `${klienMandek} klien`, page: "klien" } : null,
     pwKadaluarsa ? { icon: "📄", label: "Penawaran kadaluarsa", value: `${pwKadaluarsa} penawaran`, page: "penawaran" } : null,
-    alatPerluServis ? { icon: "🔧", label: "Alat jatuh tempo servis (lewat atau ≤ 14 hari lagi)", value: `${alatPerluServis} alat`, page: "stok" } : null
+    alatPerluServis ? { icon: "🔧", label: "Alat jatuh tempo servis (lewat atau ≤ 14 hari lagi)", value: `${alatPerluServis} alat`, page: "stok" } : null,
+    proyekMacet ? { icon: "🚧", label: "Proyek macet di satu tahap administrasi (>14 hari)", value: `${proyekMacet} proyek`, page: "proyek" } : null
   ].filter(Boolean);
 
   document.getElementById("dash_alertPanel").style.display = alerts.length ? "block" : "none";
@@ -2219,7 +2231,11 @@ function renderProyekList() {
 
   const search = (document.getElementById("pr_search").value || "").toLowerCase();
   const filterStatus = document.getElementById("pr_filterStatus").value;
+  const showArsip = document.getElementById("pr_showArsip").checked;
   let rows = projects;
+  // Proyek yang sudah ditutup & diarsipkan disembunyikan dari daftar
+  // aktif (angka ringkasan di atas tetap menghitung semuanya).
+  if (!showArsip) rows = rows.filter(p => !p.arsip);
   if (search) rows = rows.filter(p => (p.nama || "").toLowerCase().includes(search) || (p.klien || "").toLowerCase().includes(search));
   if (filterStatus) rows = rows.filter(p => p.status === filterStatus);
 
@@ -2234,7 +2250,7 @@ function renderProyekList() {
     const tr = document.createElement("tr");
     const overdue = p.status === "berjalan" && p.tanggalSelesai && p.tanggalSelesai < today;
     tr.innerHTML = `
-      <td>${escapeHtml(p.nama)}${p.klien ? `<div class="muted" style="font-size:12px;">${escapeHtml(p.klien)}</div>` : ""}</td>
+      <td>${escapeHtml(p.nama)}${p.arsip ? ' <span title="Sudah ditutup & diarsipkan">📦</span>' : ""}${p.klien ? `<div class="muted" style="font-size:12px;">${escapeHtml(p.klien)}</div>` : ""}</td>
       <td>${proyekStatusLabel(p.status)}</td>
       <td class="${overdue ? "bad" : ""}">${p.tanggalSelesai ? formatTanggal(p.tanggalSelesai) : "-"}${overdue ? " ⚠️" : ""}</td>
       <td class="num">${rupiah(p.nilaiKontrak)}</td>
@@ -2428,7 +2444,430 @@ function renderProyekDetail() {
   renderJadwalPekerjaan(p, today);
   renderLaporanHarian(p);
   renderPerubahanPekerjaan(p);
+  renderTahapanProyek(p, today);
+  renderInvoiceProyek(p);
+  renderBapProyek(p);
+  document.getElementById("pd_arsipBtn").textContent = p.arsip ? "🔓 Buka Arsip" : "🔒 Tutup & Arsipkan";
 }
+
+// ----- Checklist Tahapan Administrasi -----
+// Urutan baku administrasi proyek supaya semua proyek berjalan dengan
+// alur yang sama dan tidak ada tahap yang kelewat. Disimpan per proyek
+// (p.tahapan) sehingga tanggal tiap tahap ikut terarsip.
+const TAHAPAN_PROYEK_BAKU = [
+  "Survey Lokasi", "Penawaran Terkirim", "Negosiasi Harga", "SPK/Kontrak Diterima",
+  "DP (Uang Muka) Cair", "Pelaksanaan Pekerjaan", "Opname/Progres Akhir",
+  "BAST Ditandatangani", "Penagihan (Invoice)", "Pelunasan", "Masa Garansi"
+];
+function ensureTahapanProyek(p) {
+  if (!Array.isArray(p.tahapan) || !p.tahapan.length) {
+    p.tahapan = TAHAPAN_PROYEK_BAKU.map(label => ({ label, selesai: false, tanggal: "" }));
+  }
+  return p.tahapan;
+}
+// Proyek berjalan yang berhenti di satu tahap > 14 hari sejak tahap
+// terakhir yang selesai (atau sejak tanggal mulai proyek).
+function proyekTahapanMacet(p, today) {
+  if (p.arsip || (p.status || "") !== "berjalan") return null;
+  // Proyek lama yang belum pernah dibuka detailnya belum punya p.tahapan
+  // -- anggap semua tahap baku masih kosong supaya tetap terpantau.
+  const list = Array.isArray(p.tahapan) && p.tahapan.length
+    ? p.tahapan
+    : TAHAPAN_PROYEK_BAKU.map(label => ({ label, selesai: false, tanggal: "" }));
+  const next = list.find(t => !t.selesai);
+  if (!next) return null;
+  const selesaiTerakhir = list.filter(t => t.selesai && t.tanggal).map(t => t.tanggal).sort().pop();
+  const acuan = selesaiTerakhir || p.tanggalMulai || "";
+  if (!acuan) return null;
+  const hari = daysBetweenIso(acuan, today);
+  return hari > 14 ? { label: next.label, hari } : null;
+}
+function renderTahapanProyek(p, today) {
+  ensureTahapanProyek(p);
+  const macet = proyekTahapanMacet(p, today);
+  document.querySelector("#pd_tahapanTable tbody").innerHTML = p.tahapan.map((t, idx) => `
+    <tr>
+      <td><input type="checkbox" class="thp-selesai" data-idx="${idx}" ${t.selesai ? "checked" : ""}></td>
+      <td class="${t.selesai ? "" : "muted"}">${escapeHtml(t.label)}${macet && macet.label === t.label ? ` <span class="bad">⚠️ macet ${macet.hari} hari</span>` : ""}</td>
+      <td><input type="date" class="thp-tanggal" data-idx="${idx}" value="${t.tanggal || ""}" ${t.selesai ? "" : "disabled"}></td>
+    </tr>
+  `).join("");
+}
+document.querySelector("#pd_tahapanTable tbody").addEventListener("change", e => {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p || proyekArsipGuard(p)) return;
+  const idx = Number(e.target.dataset.idx);
+  const t = ensureTahapanProyek(p)[idx];
+  if (!t) return;
+  if (e.target.classList.contains("thp-selesai")) {
+    t.selesai = e.target.checked;
+    if (t.selesai && !t.tanggal) t.tanggal = new Date().toISOString().slice(0, 10);
+    if (!t.selesai) t.tanggal = "";
+  } else if (e.target.classList.contains("thp-tanggal")) {
+    t.tanggal = e.target.value;
+  }
+  saveState();
+  mirrorProyekUpsert(p);
+  renderProyekDetail();
+});
+
+// ----- Invoice & Kwitansi -----
+function nextInvoiceNomor() {
+  state.invoiceCounter = (state.invoiceCounter || 0) + 1;
+  mirrorCompanyProfileUpsert();
+  const n = String(state.invoiceCounter).padStart(3, "0");
+  const d = new Date();
+  return `${n}/MC-INV/${ROMAWI_BULAN[d.getMonth()]}/${d.getFullYear()}`;
+}
+const TERBILANG_SATUAN = ["", "satu", "dua", "tiga", "empat", "lima", "enam", "tujuh", "delapan", "sembilan", "sepuluh", "sebelas"];
+function terbilang(n) {
+  n = Math.floor(Math.abs(n || 0));
+  if (n < 12) return TERBILANG_SATUAN[n];
+  if (n < 20) return (terbilang(n - 10) + " belas").trim();
+  if (n < 100) return (terbilang(Math.floor(n / 10)) + " puluh " + terbilang(n % 10)).trim();
+  if (n < 200) return ("seratus " + terbilang(n - 100)).trim();
+  if (n < 1000) return (terbilang(Math.floor(n / 100)) + " ratus " + terbilang(n % 100)).trim();
+  if (n < 2000) return ("seribu " + terbilang(n - 1000)).trim();
+  if (n < 1000000) return (terbilang(Math.floor(n / 1000)) + " ribu " + terbilang(n % 1000)).trim();
+  if (n < 1000000000) return (terbilang(Math.floor(n / 1000000)) + " juta " + terbilang(n % 1000000)).trim();
+  return (terbilang(Math.floor(n / 1000000000)) + " miliar " + terbilang(n % 1000000000)).trim();
+}
+function terbilangRupiah(n) {
+  const kata = terbilang(n).replace(/\s+/g, " ").trim() || "nol";
+  return kata.charAt(0).toUpperCase() + kata.slice(1) + " rupiah";
+}
+function renderInvoiceProyek(p) {
+  if (!p.invoices) p.invoices = [];
+  const rows = p.invoices.slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
+  document.querySelector("#pd_invoiceTable tbody").innerHTML = rows.length ? rows.map(inv => `
+    <tr>
+      <td>${escapeHtml(inv.nomor)}</td>
+      <td>${formatTanggal(inv.tanggal)}</td>
+      <td>${escapeHtml(inv.keterangan)}</td>
+      <td class="num">${rupiah(inv.jumlah)}</td>
+      <td>
+        <select class="inv-status" data-id="${inv.id}" style="padding:4px 6px;">
+          <option value="draft" ${inv.status === "draft" ? "selected" : ""}>Draft</option>
+          <option value="terkirim" ${inv.status === "terkirim" ? "selected" : ""}>Terkirim</option>
+          <option value="dibayar" ${inv.status === "dibayar" ? "selected" : ""}>Dibayar</option>
+        </select>
+        ${inv.status === "dibayar" && inv.tanggalBayar ? `<div class="muted" style="font-size:11px;">dibayar ${formatTanggal(inv.tanggalBayar)}</div>` : ""}
+      </td>
+      <td>
+        <div class="row-actions">
+          <button class="icon-btn" data-print-invoice="${inv.id}" title="Cetak Invoice">🖨️</button>
+          <button class="icon-btn" data-print-kwitansi="${inv.id}" title="Cetak Kwitansi (setelah Dibayar)">🧾</button>
+          <button class="icon-btn" data-delete-invoice="${inv.id}" title="Hapus">🗑️</button>
+        </div>
+      </td>
+    </tr>
+  `).join("") : '<tr class="empty-row"><td colspan="6">Belum ada invoice</td></tr>';
+}
+document.getElementById("inv_addBtn").addEventListener("click", () => {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p || proyekArsipGuard(p)) return;
+  const tanggal = document.getElementById("inv_tanggal").value;
+  const keterangan = document.getElementById("inv_keterangan").value.trim();
+  const jumlah = parseNumberInput(document.getElementById("inv_jumlah").value);
+  if (!tanggal || !keterangan || !(jumlah > 0)) { alert("Isi tanggal, keterangan, dan jumlah invoice terlebih dahulu."); return; }
+  if (!p.invoices) p.invoices = [];
+  const inv = { id: uid(), nomor: nextInvoiceNomor(), tanggal, keterangan, jumlah, status: "draft", tanggalBayar: "" };
+  p.invoices.push(inv);
+  saveState();
+  mirrorProyekUpsert(p);
+  document.getElementById("inv_tanggal").value = "";
+  document.getElementById("inv_keterangan").value = "";
+  document.getElementById("inv_jumlah").value = "";
+  renderInvoiceProyek(p);
+  printInvoice(p, inv);
+});
+document.querySelector("#pd_invoiceTable tbody").addEventListener("change", e => {
+  if (!e.target.classList.contains("inv-status")) return;
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) return;
+  const inv = (p.invoices || []).find(i => i.id === e.target.dataset.id);
+  if (!inv) return;
+  inv.status = e.target.value;
+  if (inv.status === "dibayar" && !inv.tanggalBayar) inv.tanggalBayar = new Date().toISOString().slice(0, 10);
+  if (inv.status !== "dibayar") inv.tanggalBayar = "";
+  saveState();
+  mirrorProyekUpsert(p);
+  renderInvoiceProyek(p);
+});
+document.querySelector("#pd_invoiceTable tbody").addEventListener("click", e => {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) return;
+  const printBtn = e.target.closest("[data-print-invoice]");
+  const kwBtn = e.target.closest("[data-print-kwitansi]");
+  const delBtn = e.target.closest("[data-delete-invoice]");
+  if (printBtn) {
+    const inv = (p.invoices || []).find(i => i.id === printBtn.dataset.printInvoice);
+    if (inv) printInvoice(p, inv);
+  } else if (kwBtn) {
+    const inv = (p.invoices || []).find(i => i.id === kwBtn.dataset.printKwitansi);
+    if (!inv) return;
+    if (inv.status !== "dibayar") { alert('Kwitansi hanya bisa dicetak setelah status invoice "Dibayar" (tanda terima uang).'); return; }
+    document.getElementById("printArea").innerHTML = buildKwitansiPrintHtml(p, inv);
+    document.body.classList.add("printing-quote");
+    window.print();
+  } else if (delBtn) {
+    if (proyekArsipGuard(p)) return;
+    if (confirm("Hapus invoice ini? Nomor urut invoice yang sudah terpakai tidak dikembalikan.")) {
+      p.invoices = (p.invoices || []).filter(i => i.id !== delBtn.dataset.deleteInvoice);
+      saveState();
+      mirrorProyekUpsert(p);
+      renderInvoiceProyek(p);
+    }
+  }
+});
+function invoiceLetterhead(judul) {
+  return `
+    <div class="letterhead">
+      <div class="letterhead-logo">${LOGO_SVG}</div>
+      <div class="letterhead-text">
+        <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+      </div>
+    </div>
+    <div class="letterhead-rule"></div>
+    <h3 style="text-align:center; margin:6px 0 16px; letter-spacing:.5px;">${judul}</h3>
+  `;
+}
+function buildInvoicePrintHtml(p, inv) {
+  return `
+    ${invoiceLetterhead("INVOICE")}
+    <table class="meta-table" style="margin-bottom:14px;">
+      <tr><td>Nomor</td><td>:</td><td><strong>${escapeHtml(inv.nomor)}</strong></td></tr>
+      <tr><td>Tanggal</td><td>:</td><td>${formatTanggal(inv.tanggal)}</td></tr>
+      <tr><td>Kepada</td><td>:</td><td>${escapeHtml(p.klien || "-")}</td></tr>
+      <tr><td>Proyek</td><td>:</td><td>${escapeHtml(p.nama || "-")}${p.lokasi ? ", " + escapeHtml(p.lokasi) : ""}</td></tr>
+    </table>
+    <table class="doc-items">
+      <thead><tr><th>Uraian</th><th class="r">Jumlah</th></tr></thead>
+      <tbody><tr><td>${escapeHtml(inv.keterangan)}</td><td class="r">${rupiah(inv.jumlah)}</td></tr></tbody>
+    </table>
+    <table class="doc-summary-table">
+      <tr class="total-row"><td>Total Tagihan</td><td class="r">${rupiah(inv.jumlah)}</td></tr>
+    </table>
+    <p class="doc-p">Terbilang: <em>${terbilangRupiah(inv.jumlah)}</em></p>
+    ${state.rekening ? `<p class="doc-p">Pembayaran mohon ditransfer ke rekening: <strong>${escapeHtml(state.rekening)}</strong></p>` : ""}
+    <div style="display:flex; justify-content:flex-end; margin-top:30px; font-size:12.5px;">
+      <div style="text-align:right;">
+        Hormat kami,<br>${escapeHtml(state.company || "CV. Mitra Creative")}
+        ${ownerTtdOrSpace(state.ownerNama)}
+        <strong>${escapeHtml(state.ownerNama)}</strong><br>${escapeHtml(state.ownerJabatan)}
+      </div>
+    </div>
+  `;
+}
+function buildKwitansiPrintHtml(p, inv) {
+  return `
+    ${invoiceLetterhead("KWITANSI")}
+    <table class="meta-table" style="margin-bottom:14px;">
+      <tr><td>Nomor</td><td>:</td><td><strong>${escapeHtml(inv.nomor.replace("MC-INV", "MC-KW"))}</strong></td></tr>
+      <tr><td>Sudah terima dari</td><td>:</td><td><strong>${escapeHtml(p.klien || "-")}</strong></td></tr>
+      <tr><td>Uang sejumlah</td><td>:</td><td><em>${terbilangRupiah(inv.jumlah)}</em></td></tr>
+      <tr><td>Untuk pembayaran</td><td>:</td><td>${escapeHtml(inv.keterangan)} — proyek ${escapeHtml(p.nama || "-")}</td></tr>
+    </table>
+    <table class="doc-summary-table">
+      <tr class="total-row"><td>Jumlah</td><td class="r">${rupiah(inv.jumlah)}</td></tr>
+    </table>
+    <div style="display:flex; justify-content:flex-end; margin-top:30px; font-size:12.5px;">
+      <div style="text-align:right;">
+        ${inv.tanggalBayar ? formatTanggal(inv.tanggalBayar) : formatTanggal(new Date().toISOString().slice(0, 10))}<br>
+        ${escapeHtml(state.company || "CV. Mitra Creative")}
+        ${ownerTtdOrSpace(state.ownerNama)}
+        <strong>${escapeHtml(state.ownerNama)}</strong><br>${escapeHtml(state.ownerJabatan)}
+      </div>
+    </div>
+  `;
+}
+function printInvoice(p, inv) {
+  document.getElementById("printArea").innerHTML = buildInvoicePrintHtml(p, inv);
+  document.body.classList.add("printing-quote");
+  window.print();
+}
+
+// ----- Berita Acara Progres (BAP) -----
+const bapModal = document.getElementById("bapModal");
+let bapItemRows = [];
+function renderBapProyek(p) {
+  if (!p.bap) p.bap = [];
+  const rows = p.bap.slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
+  document.querySelector("#pd_bapTable tbody").innerHTML = rows.length ? rows.map(b => `
+    <tr>
+      <td>${escapeHtml(b.nomor)}</td>
+      <td>${formatTanggal(b.tanggal)}</td>
+      <td class="num">${b.persen || 0}%</td>
+      <td>${escapeHtml(b.catatan || "-")}</td>
+      <td>
+        <div class="row-actions">
+          <button class="icon-btn" data-print-bap="${b.id}" title="Cetak BAP">🖨️</button>
+          <button class="icon-btn" data-delete-bap="${b.id}" title="Hapus">🗑️</button>
+        </div>
+      </td>
+    </tr>
+  `).join("") : '<tr class="empty-row"><td colspan="5">Belum ada Berita Acara Progres</td></tr>';
+}
+function renderBapItemRows() {
+  document.querySelector("#bap_itemTable tbody").innerHTML = bapItemRows.map((it, idx) => `
+    <tr data-idx="${idx}">
+      <td><input type="text" class="bapit-uraian" value="${escapeHtml(it.uraian)}"></td>
+      <td><input type="text" class="bapit-satuan" value="${escapeHtml(it.satuan)}" style="width:70px"></td>
+      <td class="num"><input type="text" inputmode="decimal" class="bapit-vol" value="${it.volume}" style="width:80px; text-align:right"></td>
+      <td class="num"><input type="number" class="bapit-persen" min="0" max="100" step="1" value="${it.persen}" style="width:80px; text-align:right"></td>
+      <td><button type="button" class="icon-btn" data-remove-bapit="${idx}">🗑️</button></td>
+    </tr>
+  `).join("");
+}
+document.getElementById("bap_addBtn").addEventListener("click", () => {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p || proyekArsipGuard(p)) return;
+  document.getElementById("bap_tanggal").value = new Date().toISOString().slice(0, 10);
+  const realisasiTerbaru = (p.progressRealisasi || []).slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""))[0];
+  document.getElementById("bap_persen").value = realisasiTerbaru ? realisasiTerbaru.persen : 0;
+  document.getElementById("bap_catatan").value = "";
+  const sumberRab = p.sumberRabId ? state.proyekRab.find(r => r.id === p.sumberRabId) : null;
+  bapItemRows = sumberRab && (sumberRab.items || []).length
+    ? sumberRab.items.map(it => ({ uraian: it.uraian, satuan: it.satuan || "-", volume: it.volume || 0, persen: 0 }))
+    : [{ uraian: p.nama || "Pekerjaan sesuai kontrak", satuan: "ls", volume: 1, persen: 0 }];
+  renderBapItemRows();
+  bapModal.classList.add("open");
+});
+document.querySelector("#bap_itemTable tbody").addEventListener("input", e => {
+  const tr = e.target.closest("tr");
+  if (!tr) return;
+  const it = bapItemRows[Number(tr.dataset.idx)];
+  if (!it) return;
+  it.uraian = tr.querySelector(".bapit-uraian").value;
+  it.satuan = tr.querySelector(".bapit-satuan").value;
+  it.volume = parseFloat((tr.querySelector(".bapit-vol").value || "").replace(",", ".")) || 0;
+  it.persen = Math.max(0, Math.min(100, parseFloat(tr.querySelector(".bapit-persen").value) || 0));
+});
+document.querySelector("#bap_itemTable tbody").addEventListener("click", e => {
+  const btn = e.target.closest("[data-remove-bapit]");
+  if (btn) { bapItemRows.splice(Number(btn.dataset.removeBapit), 1); renderBapItemRows(); }
+});
+document.getElementById("bap_addItemBtn").addEventListener("click", () => {
+  bapItemRows.push({ uraian: "", satuan: "", volume: 0, persen: 0 });
+  renderBapItemRows();
+});
+document.getElementById("bapForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p || proyekArsipGuard(p)) return;
+  if (!p.bap) p.bap = [];
+  const d = new Date();
+  const bap = {
+    id: uid(),
+    nomor: `BAP-${String(p.bap.length + 1).padStart(2, "0")}/${ROMAWI_BULAN[d.getMonth()]}/${d.getFullYear()}`,
+    tanggal: document.getElementById("bap_tanggal").value,
+    persen: Math.max(0, Math.min(100, parseFloat(document.getElementById("bap_persen").value) || 0)),
+    catatan: document.getElementById("bap_catatan").value.trim(),
+    items: JSON.parse(JSON.stringify(bapItemRows.filter(it => (it.uraian || "").trim())))
+  };
+  p.bap.push(bap);
+  saveState();
+  mirrorProyekUpsert(p);
+  closeModals();
+  renderBapProyek(p);
+  document.getElementById("printArea").innerHTML = buildBapPrintHtml(p, bap);
+  document.body.classList.add("printing-quote");
+  window.print();
+});
+document.querySelector("#pd_bapTable tbody").addEventListener("click", e => {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) return;
+  const printBtn = e.target.closest("[data-print-bap]");
+  const delBtn = e.target.closest("[data-delete-bap]");
+  if (printBtn) {
+    const b = (p.bap || []).find(x => x.id === printBtn.dataset.printBap);
+    if (b) {
+      document.getElementById("printArea").innerHTML = buildBapPrintHtml(p, b);
+      document.body.classList.add("printing-quote");
+      window.print();
+    }
+  } else if (delBtn) {
+    if (proyekArsipGuard(p)) return;
+    if (confirm("Hapus Berita Acara Progres ini?")) {
+      p.bap = (p.bap || []).filter(x => x.id !== delBtn.dataset.deleteBap);
+      saveState();
+      mirrorProyekUpsert(p);
+      renderBapProyek(p);
+    }
+  }
+});
+function buildBapPrintHtml(p, bap) {
+  return `
+    ${invoiceLetterhead("BERITA ACARA PROGRES PEKERJAAN")}
+    <table class="meta-table" style="margin-bottom:14px;">
+      <tr><td>Nomor</td><td>:</td><td><strong>${escapeHtml(bap.nomor)}</strong></td></tr>
+      <tr><td>Tanggal</td><td>:</td><td>${formatTanggal(bap.tanggal)}</td></tr>
+      <tr><td>Proyek</td><td>:</td><td>${escapeHtml(p.nama || "-")}${p.lokasi ? ", " + escapeHtml(p.lokasi) : ""}</td></tr>
+      <tr><td>Pemberi Tugas</td><td>:</td><td>${escapeHtml(p.klien || "-")}</td></tr>
+    </table>
+    <p class="doc-p">Pada tanggal tersebut di atas, kedua belah pihak telah melakukan pemeriksaan bersama atas kemajuan pekerjaan dengan hasil sebagai berikut:</p>
+    <table class="doc-items">
+      <thead><tr><th>Uraian Pekerjaan</th><th class="c">Satuan</th><th class="r">Vol. Kontrak</th><th class="r">% Terpasang</th><th class="r">Vol. Terpasang</th></tr></thead>
+      <tbody>
+        ${(bap.items || []).map(it => `
+          <tr>
+            <td>${escapeHtml(it.uraian)}</td>
+            <td class="c">${escapeHtml(it.satuan || "-")}</td>
+            <td class="r">${it.volume}</td>
+            <td class="r">${it.persen}%</td>
+            <td class="r">${Math.round((it.volume || 0) * (it.persen || 0)) / 100}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+    <table class="doc-summary-table">
+      <tr class="total-row"><td>Progres Keseluruhan</td><td class="r">${bap.persen}%</td></tr>
+    </table>
+    ${bap.catatan ? `<p class="doc-p">Catatan: ${escapeHtml(bap.catatan)}</p>` : ""}
+    <p class="doc-p">Berita acara ini dibuat dengan sebenarnya untuk menjadi dasar penagihan pembayaran sesuai ketentuan kontrak/SPK.</p>
+    <div style="display:flex; justify-content:space-between; margin-top:30px; font-size:12.5px;">
+      <div>
+        PIHAK PERTAMA (Pemberi Tugas),
+        <div class="sign-space"></div>
+        <strong>${escapeHtml(p.klien || "(..............................)")}</strong>
+      </div>
+      <div style="text-align:right;">
+        PIHAK KEDUA,<br>${escapeHtml(state.company || "CV. Mitra Creative")}
+        ${ownerTtdOrSpace(state.ownerNama)}
+        <strong>${escapeHtml(state.ownerNama)}</strong><br>${escapeHtml(state.ownerJabatan)}
+      </div>
+    </div>
+  `;
+}
+
+// ----- Tutup & Arsipkan Proyek -----
+// Proyek yang sudah ditutup terkunci dari perubahan (jaga-jaga salah
+// klik/edit setelah serah terima) dan disembunyikan dari daftar aktif.
+function proyekArsipGuard(p) {
+  if (p && p.arsip) {
+    alert("Proyek ini sudah ditutup & diarsipkan (terkunci dari perubahan).\nKalau memang perlu diubah, buka dulu arsipnya lewat tombol 🔓 Buka Arsip di atas.");
+    return true;
+  }
+  return false;
+}
+document.getElementById("pd_arsipBtn").addEventListener("click", () => {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) return;
+  if (p.arsip) {
+    if (!confirm(`Buka kembali proyek "${p.nama}" dari arsip? Data proyek bisa diubah lagi.`)) return;
+    p.arsip = false;
+  } else {
+    if ((p.status || "") !== "selesai" && !confirm(`Status proyek "${p.nama}" belum "Selesai". Tetap tutup & arsipkan?`)) return;
+    if (!confirm(`Tutup & arsipkan proyek "${p.nama}"?\n\nSetelah ditutup: semua data proyek terkunci dari perubahan, dan proyek disembunyikan dari daftar aktif (bisa ditampilkan lagi lewat centang "Tampilkan arsip" di daftar Margin Proyek).`)) return;
+    p.arsip = true;
+  }
+  saveState();
+  mirrorProyekUpsert(p);
+  renderAll();
+  renderProyekDetail();
+});
 
 // ----- Jadwal Pekerjaan (Gantt sederhana) -----
 function renderJadwalPekerjaan(p, today) {
@@ -2475,7 +2914,7 @@ function renderJadwalPekerjaan(p, today) {
 }
 document.getElementById("jp_addBtn").addEventListener("click", () => {
   const p = state.proyek.find(x => x.id === currentProyekId);
-  if (!p) return;
+  if (!p || proyekArsipGuard(p)) return;
   const nama = document.getElementById("jp_nama").value.trim();
   const tanggalMulai = document.getElementById("jp_mulai").value;
   const tanggalSelesai = document.getElementById("jp_selesai").value;
@@ -2588,6 +3027,7 @@ document.getElementById("laporanHarianForm").addEventListener("submit", e => {
   e.preventDefault();
   const p = state.proyek.find(x => x.id === currentProyekId);
   if (!p) { closeModals(); return; }
+  if (proyekArsipGuard(p)) { closeModals(); return; }
   if (!p.laporanHarian) p.laporanHarian = [];
   const id = document.getElementById("lap_id").value;
   const lap = {
@@ -3264,6 +3704,61 @@ document.getElementById("lr_exportCsv").addEventListener("click", () => {
   lines.push(["Laba Bersih", "", labaBersih].map(csvEscape).join(","));
   downloadFile(`laba_rugi_${mulai}_${selesai}.csv`, lines.join("\n"), "text/csv");
 });
+
+// ----- Rekap Pajak (PPN & PPh Final) -----
+// Estimasi kewajiban pajak per periode dari dokumen Penawaran berstatus
+// "disetujui" (dasar penjualan). Bukan pengganti faktur/bukti potong asli
+// -- alat bantu supaya setor & lapor tinggal membaca satu tabel.
+function computeRekapPajak(mulai, selesai) {
+  const rows = state.penawaran
+    .filter(pw => pw.status === "disetujui" && pw.tanggal && pw.tanggal >= mulai && pw.tanggal <= selesai)
+    .sort((a, b) => (a.tanggal || "").localeCompare(b.tanggal || ""))
+    .map(pw => {
+      const t = penawaranTotals(pw);
+      return { tanggal: pw.tanggal, nomor: pw.nomor || "-", klien: pw.kepada || "-", dpp: t.dpp, ppn: t.ppnValue, pph: t.pphValue, total: t.total };
+    });
+  const sum = key => rows.reduce((s, r) => s + r[key], 0);
+  return { rows, totalDpp: sum("dpp"), totalPpn: sum("ppn"), totalPph: sum("pph"), totalSemua: sum("total") };
+}
+function renderRekapPajak() {
+  const mulai = document.getElementById("pjk_mulai").value;
+  const selesai = document.getElementById("pjk_selesai").value;
+  if (!mulai || !selesai) { alert("Pilih periode Dari & Sampai terlebih dahulu."); return null; }
+  const rekap = computeRekapPajak(mulai, selesai);
+  document.querySelector("#pjk_table tbody").innerHTML = rekap.rows.length ? rekap.rows.map(r => `
+    <tr>
+      <td>${formatTanggal(r.tanggal)}</td>
+      <td>${escapeHtml(r.nomor)}</td>
+      <td>${escapeHtml(r.klien)}</td>
+      <td class="num">${rupiah(r.dpp)}</td>
+      <td class="num">${rupiah(r.ppn)}</td>
+      <td class="num">${rupiah(r.pph)}</td>
+      <td class="num">${rupiah(r.total)}</td>
+    </tr>
+  `).join("") + `
+    <tr style="font-weight:700;">
+      <td colspan="3">Total Periode</td>
+      <td class="num">${rupiah(rekap.totalDpp)}</td>
+      <td class="num">${rupiah(rekap.totalPpn)}</td>
+      <td class="num">${rupiah(rekap.totalPph)}</td>
+      <td class="num">${rupiah(rekap.totalSemua)}</td>
+    </tr>
+  ` : '<tr class="empty-row"><td colspan="7">Tidak ada Penawaran berstatus Disetujui pada periode ini</td></tr>';
+  return rekap;
+}
+document.getElementById("pjk_hitungBtn").addEventListener("click", renderRekapPajak);
+document.getElementById("pjk_exportCsv").addEventListener("click", () => {
+  const mulai = document.getElementById("pjk_mulai").value;
+  const selesai = document.getElementById("pjk_selesai").value;
+  const rekap = renderRekapPajak();
+  if (!rekap) return;
+  const lines = [["Tanggal", "Nomor", "Klien", "DPP", "PPN", "PPh Final", "Total + Pajak"].join(",")];
+  rekap.rows.forEach(r => lines.push([r.tanggal, r.nomor, r.klien, r.dpp, r.ppn, r.pph, r.total].map(csvEscape).join(",")));
+  lines.push("");
+  lines.push(["Total", "", "", rekap.totalDpp, rekap.totalPpn, rekap.totalPph, rekap.totalSemua].map(csvEscape).join(","));
+  downloadFile(`rekap_pajak_${mulai}_${selesai}.csv`, lines.join("\n"), "text/csv");
+});
+
 function buildLaporanKeuanganPrintHtml() {
   const mulai = document.getElementById("lr_mulai").value;
   const selesai = document.getElementById("lr_selesai").value;
@@ -8467,6 +8962,7 @@ function renderAll() {
   document.getElementById("settingsTelepon").value = state.telepon || "";
   document.getElementById("settingsOwnerNama").value = state.ownerNama || "";
   document.getElementById("settingsOwnerJabatan").value = state.ownerJabatan || "";
+  document.getElementById("settingsRekening").value = state.rekening || "";
   const approvalInput = document.getElementById("settingsApprovalThreshold");
   if (document.activeElement !== approvalInput) approvalInput.value = formatNumberInput(state.approvalThreshold || 0);
   const mrMarkupInput = document.getElementById("settingsMataResolusiMarkup");
@@ -8731,6 +9227,7 @@ document.querySelectorAll("[data-open-modal='proyek']").forEach(btn => {
 });
 document.getElementById("pr_search").addEventListener("input", renderProyekList);
 document.getElementById("pr_filterStatus").addEventListener("change", renderProyekList);
+document.getElementById("pr_showArsip").addEventListener("change", renderProyekList);
 document.getElementById("proyekForm").addEventListener("submit", e => {
   e.preventDefault();
   const id = document.getElementById("pj_id").value;
@@ -8832,7 +9329,7 @@ document.getElementById("pd_infoRows").addEventListener("click", e => {
 attachNumberFormatting(document.getElementById("tm_jumlah"));
 document.getElementById("tm_addBtn").addEventListener("click", () => {
   const p = state.proyek.find(x => x.id === currentProyekId);
-  if (!p) return;
+  if (!p || proyekArsipGuard(p)) return;
   const tanggal = document.getElementById("tm_tanggal").value;
   const keterangan = document.getElementById("tm_keterangan").value.trim();
   const jumlah = parseNumberInput(document.getElementById("tm_jumlah").value);
@@ -9121,6 +9618,7 @@ document.getElementById("belanjaForm").addEventListener("submit", async e => {
   e.preventDefault();
   const p = state.proyek.find(x => x.id === currentProyekId);
   if (!p) { closeModals(); return; }
+  if (proyekArsipGuard(p)) { closeModals(); return; }
   if (!p.belanjaMaterial) p.belanjaMaterial = [];
   const bmQty = parseFloat((document.getElementById("bm_qty").value || "").replace(",", ".")) || 0;
   if (bmQty < 0) { alert("Qty tidak boleh negatif."); return; }
@@ -9194,6 +9692,7 @@ document.getElementById("subkonForm").addEventListener("submit", e => {
   e.preventDefault();
   const p = state.proyek.find(x => x.id === currentProyekId);
   if (!p) { closeModals(); return; }
+  if (proyekArsipGuard(p)) { closeModals(); return; }
   if (!p.subkontraktor) p.subkontraktor = [];
   const id = document.getElementById("sk_id").value;
   const sk = {
@@ -9289,7 +9788,7 @@ document.getElementById("pd_subkonTable").addEventListener("click", e => {
 // ----- Progress Fisik Proyek -----
 document.getElementById("pfr_addBtn").addEventListener("click", () => {
   const p = state.proyek.find(x => x.id === currentProyekId);
-  if (!p) return;
+  if (!p || proyekArsipGuard(p)) return;
   const tanggal = document.getElementById("pfr_tanggal").value;
   const persen = parseFloat(document.getElementById("pfr_persen").value);
   if (!tanggal || isNaN(persen)) { alert("Isi tanggal target dan % target terlebih dahulu."); return; }
@@ -9314,7 +9813,7 @@ document.getElementById("pf_rencanaTable").addEventListener("click", e => {
 });
 document.getElementById("pfa_addBtn").addEventListener("click", () => {
   const p = state.proyek.find(x => x.id === currentProyekId);
-  if (!p) return;
+  if (!p || proyekArsipGuard(p)) return;
   const tanggal = document.getElementById("pfa_tanggal").value;
   const persen = parseFloat(document.getElementById("pfa_persen").value);
   if (!tanggal || isNaN(persen)) { alert("Isi tanggal dan % realisasi terlebih dahulu."); return; }
@@ -9356,6 +9855,7 @@ document.getElementById("dokumenForm").addEventListener("submit", async e => {
   e.preventDefault();
   const p = state.proyek.find(x => x.id === currentProyekId);
   if (!p) { closeModals(); return; }
+  if (proyekArsipGuard(p)) { closeModals(); return; }
   if (!p.dokumen) p.dokumen = [];
   const id = document.getElementById("dok_id").value;
   const dokLama = id ? p.dokumen.find(d => d.id === id) : null;
@@ -9529,6 +10029,7 @@ document.getElementById("settingsAlamat").addEventListener("input", e => { state
 document.getElementById("settingsTelepon").addEventListener("input", e => { state.telepon = e.target.value; saveState(); mirrorCompanyProfileUpsert(); });
 document.getElementById("settingsOwnerNama").addEventListener("input", e => { state.ownerNama = e.target.value; saveState(); mirrorCompanyProfileUpsert(); });
 document.getElementById("settingsOwnerJabatan").addEventListener("input", e => { state.ownerJabatan = e.target.value; saveState(); mirrorCompanyProfileUpsert(); });
+document.getElementById("settingsRekening").addEventListener("input", e => { state.rekening = e.target.value; saveState(); mirrorCompanyProfileUpsert(); });
 attachNumberFormatting(document.getElementById("settingsApprovalThreshold"));
 document.getElementById("settingsApprovalThreshold").addEventListener("input", e => { state.approvalThreshold = parseNumberInput(e.target.value); saveState(); mirrorCompanyProfileUpsert(); });
 attachNumberFormatting(document.getElementById("settingsTargetOmzet"));

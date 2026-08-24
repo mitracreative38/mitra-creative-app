@@ -434,6 +434,25 @@
             <button class="btn-ghost" id="lr_exportCsv">⬇️ Export CSV</button>
           </div>
         </div>
+
+        <div class="panel">
+          <h3>Rekap Pajak (PPN &amp; PPh Final)</h3>
+          <p class="muted" style="font-size:12px;">Estimasi dari dokumen Penawaran berstatus "Disetujui" pada periode terpilih — cocokkan dengan faktur/bukti potong asli sebelum setor &amp; lapor.</p>
+          <div class="form-grid">
+            <div class="field"><label>Dari</label><input type="date" id="pjk_mulai"></div>
+            <div class="field"><label>Sampai</label><input type="date" id="pjk_selesai"></div>
+            <div class="field" style="justify-content:flex-end; display:flex; gap:8px;">
+              <button type="button" class="btn-primary" id="pjk_hitungBtn">Hitung</button>
+              <button type="button" class="btn-ghost" id="pjk_exportCsv">⬇️ Export CSV</button>
+            </div>
+          </div>
+          <div class="table-wrap" style="margin-top:10px;">
+            <table class="tbl" id="pjk_table">
+              <thead><tr><th>Tanggal</th><th>Nomor</th><th>Klien</th><th class="num">DPP</th><th class="num">PPN</th><th class="num">PPh Final</th><th class="num">Total + Pajak</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
         <div class="stat-grid">
           <div class="stat-card">
             <div class="stat-label">Total Pendapatan</div>
@@ -812,6 +831,9 @@
               <option value="selesai">Selesai</option>
               <option value="batal">Batal</option>
             </select>
+            <label style="display:flex; align-items:center; gap:6px; font-size:13px; white-space:nowrap;">
+              <input type="checkbox" id="pr_showArsip" style="width:auto;"> Tampilkan arsip
+            </label>
           </div>
           <div class="legend-note">
             <span class="dot critical"></span> &lt;15% margin tipis/berisiko
@@ -839,6 +861,7 @@
           <div style="display:flex; gap:10px; flex-wrap:wrap;">
             <button class="btn-ghost" id="pd_backBtn">← Kembali ke Daftar</button>
             <button class="btn-ghost" id="pd_editBtn">✏️ Edit Info Proyek</button>
+            <button class="btn-ghost" id="pd_arsipBtn">🔒 Tutup &amp; Arsipkan</button>
             <button class="btn-primary" id="pd_printBtn">🖨️ Cetak Laporan Proyek</button>
           </div>
         </header>
@@ -865,6 +888,17 @@
         <div class="panel">
           <h3>Info Proyek</h3>
           <div class="summary-rows" id="pd_infoRows"></div>
+        </div>
+
+        <div class="panel">
+          <h3>Checklist Tahapan Administrasi</h3>
+          <p class="muted" style="font-size:12px; margin:-4px 0 10px;">Urutan baku administrasi proyek dari survey sampai garansi — centang begitu selesai supaya tidak ada tahap yang kelewat. Proyek yang macet di satu tahap &gt; 14 hari muncul di "Perlu Perhatian" Dashboard.</p>
+          <div class="table-wrap">
+            <table class="tbl" id="pd_tahapanTable">
+              <thead><tr><th style="width:36px;"></th><th>Tahap</th><th style="width:170px;">Tanggal Selesai</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
 
         <div class="panel">
@@ -914,6 +948,22 @@
                 <tbody></tbody>
               </table>
             </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="muted" style="margin-bottom:10px;">Invoice &amp; Kwitansi — dokumen penagihan resmi bernomor otomatis; kwitansi bisa dicetak setelah invoice berstatus "Dibayar"</div>
+          <div class="form-grid" style="margin-bottom:12px;">
+            <div class="field"><label>Tanggal</label><input type="date" id="inv_tanggal"></div>
+            <div class="field full"><label>Keterangan</label><input type="text" id="inv_keterangan" placeholder="mis. Termin 1 (50%) pekerjaan pembuatan neon box"></div>
+            <div class="field"><label>Jumlah (Rp)</label><input type="text" inputmode="numeric" id="inv_jumlah" placeholder="0"></div>
+            <div class="field" style="justify-content:flex-end;"><button type="button" class="btn-primary" id="inv_addBtn">+ Buat Invoice</button></div>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="pd_invoiceTable">
+              <thead><tr><th>Nomor</th><th>Tanggal</th><th>Keterangan</th><th class="num">Jumlah</th><th>Status</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
           </div>
         </div>
 
@@ -1000,6 +1050,19 @@
                 </table>
               </div>
             </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="toolbar">
+            <div class="muted" style="flex:1">Berita Acara Progres (BAP) — dasar resmi penagihan termin ke klien</div>
+            <button class="btn-primary" id="bap_addBtn">+ Buat BAP</button>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="pd_bapTable">
+              <thead><tr><th>Nomor</th><th>Tanggal</th><th class="num">Progres</th><th>Catatan</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
           </div>
         </div>
 
@@ -2071,6 +2134,8 @@
         <input type="text" id="settingsOwnerNama" class="text-input" style="width:100%">
         <label class="field-label">Jabatan Penandatangan</label>
         <input type="text" id="settingsOwnerJabatan" class="text-input" style="width:100%">
+        <label class="field-label">Rekening Pembayaran (dicetak di Invoice)</label>
+        <input type="text" id="settingsRekening" class="text-input" style="width:100%" placeholder="mis. BCA 1234567890 a.n. CV Mitra Creative">
       </div>
 
       <div class="panel narrow" id="settingsApprovalPanel">
@@ -2633,6 +2698,46 @@
       <div class="modal-actions">
         <button type="button" class="btn-ghost" data-close-modal>Batal</button>
         <button type="submit" class="btn-primary">Simpan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: Berita Acara Progres (BAP) -->
+<div class="modal-backdrop" id="bapModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="bapModalTitle">Buat Berita Acara Progres</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <form id="bapForm">
+      <div class="form-grid">
+        <div class="field">
+          <label>Tanggal</label>
+          <input type="date" id="bap_tanggal" required>
+        </div>
+        <div class="field">
+          <label>Progres Keseluruhan (%)</label>
+          <input type="number" id="bap_persen" min="0" max="100" step="1" required>
+        </div>
+        <div class="field full">
+          <label>Catatan (opsional)</label>
+          <input type="text" id="bap_catatan" placeholder="mis. Dasar penagihan Termin 2">
+        </div>
+      </div>
+      <div class="table-wrap" style="margin-top:10px;">
+        <table class="tbl" id="bap_itemTable">
+          <thead><tr><th>Uraian Pekerjaan</th><th style="width:80px;">Satuan</th><th style="width:100px;" class="num">Vol. Kontrak</th><th style="width:110px;" class="num">% Terpasang</th><th style="width:40px;"></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="toolbar" style="margin-top:8px;">
+        <button type="button" class="btn-ghost" id="bap_addItemBtn">+ Tambah Baris</button>
+        <span class="muted" style="font-size:12px;">Baris diambil otomatis dari RAB sumber proyek (kalau ada).</span>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan &amp; Cetak</button>
       </div>
     </form>
   </div>
