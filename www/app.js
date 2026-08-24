@@ -1038,6 +1038,7 @@ function alatToRow(a) {
     kondisi: a.kondisi || "Baik",
     jumlah_unit: a.jumlahUnit || 0,
     catatan: a.catatan || "",
+    servis_berikutnya: a.servisBerikutnya || null,
     peminjaman: a.peminjaman || [],
     updated_at: new Date().toISOString()
   };
@@ -1470,6 +1471,7 @@ function rowToAlat(r) {
   return {
     id: r.id, nama: r.nama || "", kategori: r.kategori || "", satuan: r.satuan || "unit",
     kondisi: r.kondisi || "Baik", jumlahUnit: r.jumlah_unit || 0, catatan: r.catatan || "",
+    servisBerikutnya: r.servis_berikutnya || "",
     peminjaman: r.peminjaman || []
   };
 }
@@ -1981,6 +1983,7 @@ function renderDashboard() {
   const klienFollowUp = state.klien.filter(k => !finalTahap.includes(k.tahap) && k.followUpTanggal && k.followUpTanggal <= today).length;
   const klienMandek = state.klien.filter(k => klienIsStale(k, today)).length;
   const pwKadaluarsa = state.penawaran.filter(p => pwIsKadaluarsa(p, today)).length;
+  const alatPerluServis = (state.alat || []).filter(a => ["terlambat", "segera"].includes(alatServisStatus(a, today))).length;
 
   const alerts = [
     pendingTxns.length ? { icon: "⏳", label: "Kas Perusahaan menunggu persetujuan", value: `${pendingTxns.length} transaksi · ${rupiah(ku.menungguPersetujuan)}`, page: "kasUsaha" } : null,
@@ -1988,7 +1991,8 @@ function renderDashboard() {
     stokHampir ? { icon: "🟡", label: "Stok hampir habis", value: `${stokHampir} barang`, page: "stok" } : null,
     klienFollowUp ? { icon: "📞", label: "Klien follow-up jatuh tempo", value: `${klienFollowUp} klien`, page: "klien" } : null,
     klienMandek ? { icon: "⚠️", label: "Klien mandek (>21 hari tanpa perubahan tahap)", value: `${klienMandek} klien`, page: "klien" } : null,
-    pwKadaluarsa ? { icon: "📄", label: "Penawaran kadaluarsa", value: `${pwKadaluarsa} penawaran`, page: "penawaran" } : null
+    pwKadaluarsa ? { icon: "📄", label: "Penawaran kadaluarsa", value: `${pwKadaluarsa} penawaran`, page: "penawaran" } : null,
+    alatPerluServis ? { icon: "🔧", label: "Alat jatuh tempo servis (lewat atau ≤ 14 hari lagi)", value: `${alatPerluServis} alat`, page: "stok" } : null
   ].filter(Boolean);
 
   document.getElementById("dash_alertPanel").style.display = alerts.length ? "block" : "none";
@@ -3252,7 +3256,7 @@ function buildLaporanKeuanganPrintHtml() {
     <div style="display:flex; justify-content:flex-end; margin-top:30px; font-size:12.5px;">
       <div style="text-align:right;">
         Dibuat oleh,<br>${escapeHtml(state.company || "CV. Mitra Creative")}
-        <div class="sign-space"></div>
+        ${ownerTtdOrSpace(state.ownerNama)}
         <strong>${escapeHtml(state.ownerNama)}</strong><br>${escapeHtml(state.ownerJabatan)}
       </div>
     </div>
@@ -4857,11 +4861,20 @@ function buildSlipGajiPrintHtml(k, sl) {
       </div>
       <div style="text-align:right;">
         Dibayar oleh,<br>${escapeHtml(state.company || "CV. Mitra Creative")}
-        <div class="sign-space"></div>
+        ${ownerTtdOrSpace(state.ownerNama)}
         <strong>${escapeHtml(state.ownerNama)}</strong><br>${escapeHtml(state.ownerJabatan)}
       </div>
     </div>
   `;
+}
+// Tanda tangan otomatis: template Penawaran sudah lama menampilkan gambar
+// tanda tangan pemilik saat nama penandatangannya cocok (OWNER_TTD_NAMA).
+// Helper ini membawa perilaku yang sama ke Slip Gaji, Laporan Proyek, dan
+// cetak Laba Rugi -- selain itu tetap ruang kosong untuk tanda tangan basah.
+function ownerTtdOrSpace(nama) {
+  return (nama || "") === OWNER_TTD_NAMA
+    ? `<img class="ttd-img" src="${OWNER_TTD_DATA_URI}" alt="tanda tangan">`
+    : '<div class="sign-space"></div>';
 }
 function printSlipGaji(k, sl) {
   document.getElementById("printArea").innerHTML = buildSlipGajiPrintHtml(k, sl);
@@ -4965,7 +4978,7 @@ function buildProyekPrintHtml(p) {
     <div style="display:flex; justify-content:flex-end; margin-top:30px; font-size:12.5px;">
       <div style="text-align:right;">
         Dibuat oleh,<br>${escapeHtml(state.company || "CV. Mitra Creative")}
-        <div class="sign-space"></div>
+        ${ownerTtdOrSpace(state.ownerNama)}
         <strong>${escapeHtml(state.ownerNama)}</strong><br>${escapeHtml(state.ownerJabatan)}
       </div>
     </div>
@@ -5015,6 +5028,7 @@ function renderAlatList() {
       <td class="num">${a.jumlahUnit || 0}</td>
       <td class="num">${alatDipinjam(a)}</td>
       <td class="num">${alatTersedia(a)}</td>
+      <td>${alatServisBadge(a, today)}</td>
       <td>
         <div class="row-actions">
           <button class="icon-btn" data-open-alat="${a.id}" title="Buka Detail">📂</button>
@@ -5023,7 +5037,22 @@ function renderAlatList() {
         </div>
       </td>
     </tr>
-  `).join("") : '<tr class="empty-row"><td colspan="7">Belum ada alat</td></tr>';
+  `).join("") : '<tr class="empty-row"><td colspan="8">Belum ada alat</td></tr>';
+}
+// Jadwal servis: sudah lewat = merah, <= 14 hari lagi = kuning.
+function alatServisStatus(a, today) {
+  if (!a.servisBerikutnya) return "";
+  if (a.servisBerikutnya < today) return "terlambat";
+  const batas = new Date(new Date(today).getTime() + 14 * 86400000).toISOString().slice(0, 10);
+  return a.servisBerikutnya <= batas ? "segera" : "aman";
+}
+function alatServisBadge(a, today) {
+  const status = alatServisStatus(a, today);
+  if (!status) return "-";
+  const tgl = formatTanggal(a.servisBerikutnya);
+  if (status === "terlambat") return `<span class="badge badge-pending">⚠️ ${tgl}</span>`;
+  if (status === "segera") return `<span class="badge">🔧 ${tgl}</span>`;
+  return tgl;
 }
 document.getElementById("alat_search").addEventListener("input", renderAlatList);
 document.getElementById("alat_addBtn").addEventListener("click", () => openAlatModal(null));
@@ -5055,6 +5084,7 @@ function openAlatModal(existing) {
   document.getElementById("al_satuan").value = existing ? (existing.satuan || "unit") : "unit";
   document.getElementById("al_kondisi").value = existing ? (existing.kondisi || "Baik") : "Baik";
   document.getElementById("al_jumlahUnit").value = existing ? formatNumberInput(existing.jumlahUnit || 0) : "";
+  document.getElementById("al_servis").value = existing ? (existing.servisBerikutnya || "") : "";
   document.getElementById("al_catatan").value = existing ? (existing.catatan || "") : "";
   alatModal.classList.add("open");
 }
@@ -5075,6 +5105,7 @@ document.getElementById("alatForm").addEventListener("submit", e => {
     satuan: document.getElementById("al_satuan").value.trim() || "unit",
     kondisi: document.getElementById("al_kondisi").value,
     jumlahUnit: jumlahUnitBaru,
+    servisBerikutnya: document.getElementById("al_servis").value || "",
     catatan: document.getElementById("al_catatan").value.trim(),
     peminjaman: existing ? existing.peminjaman : []
   };
