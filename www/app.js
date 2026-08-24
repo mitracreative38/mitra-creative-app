@@ -8224,6 +8224,19 @@ document.getElementById("proyekForm").addEventListener("submit", e => {
     subkontraktor: existing ? (existing.subkontraktor || []) : [],
     belanjaMaterial: existing ? (existing.belanjaMaterial || []) : []
   };
+  // Nilai kontrak yang diedit jadi LEBIH KECIL dari total termin yang
+  // sudah tercatat membuat proyek terlihat "kelebihan tagih" -- pastikan
+  // disengaja (mis. addendum pengurangan lingkup kerja).
+  if (existing) {
+    const calcLama = projectCalc(existing);
+    const totalTerminAda = calcLama.terminDiterima + calcLama.terminPiutang;
+    if ((proj.nilaiKontrak || 0) > 0 && totalTerminAda > proj.nilaiKontrak) {
+      const ok = confirm(
+        `PERHATIAN: nilai kontrak baru (${rupiah(proj.nilaiKontrak)}) LEBIH KECIL dari total termin yang sudah tercatat di proyek ini (${rupiah(totalTerminAda)}).\n\nTetap simpan?`
+      );
+      if (!ok) return;
+    }
+  }
   if (idx >= 0) state.proyek[idx] = proj; else state.proyek.push(proj);
   saveState();
   mirrorProyekUpsert(proj, existing);
@@ -8293,6 +8306,17 @@ document.getElementById("tm_addBtn").addEventListener("click", () => {
   const keterangan = document.getElementById("tm_keterangan").value.trim();
   const jumlah = parseNumberInput(document.getElementById("tm_jumlah").value);
   if (!tanggal || !keterangan || !jumlah) { alert("Isi tanggal, keterangan, dan jumlah terlebih dahulu."); return; }
+  // Total termin yang melebihi nilai kontrak proyek jangan lolos diam-diam
+  // -- boleh dilanjutkan sadar (mis. pekerjaan tambahan), lewat konfirmasi.
+  const calcSebelum = projectCalc(p);
+  const totalTerminSebelum = calcSebelum.terminDiterima + calcSebelum.terminPiutang;
+  if ((p.nilaiKontrak || 0) > 0 && totalTerminSebelum + jumlah > p.nilaiKontrak) {
+    const ok = confirm(
+      `PERHATIAN: dengan termin ini, total termin proyek "${p.nama}" menjadi ${rupiah(totalTerminSebelum + jumlah)} -- MELEBIHI nilai kontraknya (${rupiah(p.nilaiKontrak)}).\n\n` +
+      `Cek dulu: apakah ada termin yang tercatat dobel, atau nilai kontrak proyeknya perlu di-update?\n\nTetap catat termin ini?`
+    );
+    if (!ok) return;
+  }
   const terminTxn = {
     id: uid(),
     proyekId: p.id,
@@ -8365,6 +8389,31 @@ document.getElementById("pl_createBtn").addEventListener("click", async () => {
     errEl.textContent = "Isi deskripsi dan jumlah (lebih dari 0) terlebih dahulu.";
     errEl.style.display = "block";
     return;
+  }
+  // Link pembayaran dengan jumlah melebihi sisa kontrak (termin) atau total
+  // penawaran (DP) jangan lolos diam-diam -- klien bisa terlanjur membayar
+  // lebih. Konfirmasi dulu, sama seperti pencatatan manual.
+  if (plContext.jenis === "termin_proyek" && plContext.proyekId) {
+    const p = state.proyek.find(x => x.id === plContext.proyekId);
+    if (p && (p.nilaiKontrak || 0) > 0) {
+      const calcPl = projectCalc(p);
+      const sisaKontrakPl = p.nilaiKontrak - calcPl.terminDiterima - calcPl.terminPiutang;
+      if (jumlah > sisaKontrakPl) {
+        const ok = confirm(
+          `PERHATIAN: jumlah link pembayaran ini (${rupiah(jumlah)}) MELEBIHI sisa kontrak proyek "${p.nama}" (${rupiah(Math.max(0, sisaKontrakPl))}).\n\nTetap buat link?`
+        );
+        if (!ok) return;
+      }
+    }
+  } else if (plContext.jenis === "dp_penawaran" && plContext.penawaranId) {
+    const pw = state.penawaran.find(x => x.id === plContext.penawaranId);
+    const totalPw = pw ? penawaranTotals(pw).total : 0;
+    if (totalPw > 0 && jumlah > totalPw) {
+      const ok = confirm(
+        `PERHATIAN: jumlah DP ini (${rupiah(jumlah)}) MELEBIHI total penawarannya (${rupiah(totalPw)}).\n\nTetap buat link?`
+      );
+      if (!ok) return;
+    }
   }
   const btn = document.getElementById("pl_createBtn");
   btn.disabled = true;
@@ -8615,6 +8664,17 @@ document.getElementById("subkonForm").addEventListener("submit", e => {
     nilaiKontrak: parseNumberInput(document.getElementById("sk_nilai").value),
     catatan: document.getElementById("sk_catatan").value.trim()
   };
+  // Nilai kontrak yang diedit jadi LEBIH KECIL dari total yang sudah
+  // dibayar akan membuat kolom Sisa langsung minus -- pastikan disengaja.
+  if (id) {
+    const sudahDibayar = subkonDibayar(p, id);
+    if (sk.nilaiKontrak < sudahDibayar) {
+      const ok = confirm(
+        `PERHATIAN: nilai kontrak baru (${rupiah(sk.nilaiKontrak)}) LEBIH KECIL dari total yang sudah dibayar ke subkontraktor ini (${rupiah(sudahDibayar)}) -- kolom Sisa akan minus.\n\nTetap simpan?`
+      );
+      if (!ok) return;
+    }
+  }
   const idx = p.subkontraktor.findIndex(s => s.id === id);
   if (idx >= 0) p.subkontraktor[idx] = sk; else p.subkontraktor.push(sk);
   saveState();
@@ -8632,6 +8692,17 @@ document.getElementById("subkonBayarForm").addEventListener("submit", e => {
   const sk = (p.subkontraktor || []).find(s => s.id === subkonId);
   if (!sk) { closeModals(); return; }
   const jumlahBayar = parseNumberInput(document.getElementById("skb_jumlah").value);
+  // Kelebihan bayar jangan lolos diam-diam (kasus nyata: Dibayar 2x lipat
+  // Nilai Kontrak karena tercatat dobel) -- boleh dilanjutkan sadar
+  // (mis. ada pekerjaan tambahan), tapi harus lewat konfirmasi dulu.
+  const sisaKontrakSubkon = (sk.nilaiKontrak || 0) - subkonDibayar(p, sk.id);
+  if (jumlahBayar > sisaKontrakSubkon) {
+    const ok = confirm(
+      `PERHATIAN: pembayaran ${rupiah(jumlahBayar)} MELEBIHI sisa kontrak subkontraktor "${sk.nama}" (sisa ${rupiah(Math.max(0, sisaKontrakSubkon))} dari nilai kontrak ${rupiah(sk.nilaiKontrak || 0)}).\n\n` +
+      `Cek dulu: apakah pembayaran sebelumnya tercatat dobel di Kas Perusahaan, atau nilai kontraknya perlu di-update?\n\nTetap catat pembayaran ini?`
+    );
+    if (!ok) return;
+  }
   const subkonBayarTxn = {
     id: uid(),
     proyekId: p.id,
