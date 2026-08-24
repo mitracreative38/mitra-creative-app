@@ -6896,7 +6896,7 @@ async function parseBoqWorkbook(arrayBuffer) {
   }
 
   function parseSheet(sheetDoc) {
-    if (!sheetDoc) return [];
+    if (!sheetDoc) return { items: [], meta: {}, adaKolomHarga: false };
     const grid = {};
     let maxRow = 0, maxCol = 0;
     sheetDoc.querySelectorAll("row").forEach(row => {
@@ -6959,12 +6959,51 @@ async function parseBoqWorkbook(arrayBuffer) {
       const merged = {};
       for (const k of Object.keys(a)) merged[k] = a[k] > -1 ? a[k] : b[k];
       if ((merged.uraian > -1 || merged.spec > -1) && merged.vol > -1) {
-        headerRow = (a.uraian > -1 || a.spec > -1) && a.vol > -1 ? r : r + 1;
-        cols = merged;
+        if ((a.uraian > -1 || a.spec > -1) && a.vol > -1) {
+          headerRow = r;
+          cols = merged;
+        } else {
+          // Header sebenarnya di baris r+1 (baris r cuma pengantar/kosong):
+          // gabungkan ulang dengan baris r+2 supaya kolom harga/jumlah di
+          // baris kedua header tetap ikut terbaca.
+          headerRow = r + 1;
+          const b2 = scanHeaderRow(r + 2);
+          cols = {};
+          for (const k of Object.keys(b)) cols[k] = b[k] > -1 ? b[k] : b2[k];
+        }
       }
     }
-    if (headerRow === -1) return [];
+    if (headerRow === -1) return { items: [], meta: {}, adaKolomHarga: false };
     if (cols.uraian === -1) cols.uraian = cols.spec;
+
+    // Info dokumen di baris-baris atas header (mis. "PROYEK : ..." /
+    // "LOKASI : ...") ditangkap supaya nama proyek/lokasi/klien tidak
+    // perlu diketik ulang setelah import. Nilai bisa satu sel dengan
+    // labelnya ("PROYEK : X") atau di sel lain di kanannya.
+    const meta = {};
+    const metaLabels = [
+      [/^(nama\s*)?(proyek|pekerjaan|kegiatan)$/, "nama"],
+      [/^(lokasi|alamat)$/, "lokasi"],
+      [/^(klien|pemberi\s*tugas|owner|customer)$/, "klien"]
+    ];
+    for (let r = 1; r < headerRow; r++) {
+      for (let c = 1; c <= maxCol; c++) {
+        const txt = cellText(r, c);
+        if (!txt) continue;
+        const m = txt.match(/^([^:]{2,30}?)\s*:\s*(.*)$/);
+        let label = m ? m[1] : (txt.length <= 30 ? txt : null);
+        let value = m ? m[2].trim() : "";
+        if (!label) continue;
+        const hit = metaLabels.find(([re]) => re.test(label.trim().toLowerCase()));
+        if (!hit) continue;
+        for (let c2 = c + 1; c2 <= maxCol && !value; c2++) {
+          const t2 = cellText(r, c2);
+          if (t2 && t2 !== ":") value = t2.replace(/^:\s*/, "").trim();
+        }
+        if (value && !meta[hit[1]]) meta[hit[1]] = value;
+        break;
+      }
+    }
 
     const results = [];
     let pending = null;
@@ -6974,6 +7013,9 @@ async function parseBoqWorkbook(arrayBuffer) {
       const sat = cols.sat > -1 ? cellText(r, cols.sat) : "";
       const uraianText = cellText(r, cols.uraian);
       const specText = cols.spec > -1 && cols.spec !== cols.uraian ? cellText(r, cols.spec) : "";
+      // Baris rekap TOTAL/SUB TOTAL/JUMLAH bukan item maupun judul bagian.
+      if (!(vol !== null && vol > 0) &&
+          [uraianText, specText].some(t => /^(sub\s*|grand\s*)?total\b|^jumlah\b/i.test(t))) continue;
       if (vol !== null && vol > 0) {
         if (pending) results.push(pending);
         let harga = cols.harga > -1 ? cellNumber(r, cols.harga) : null;
@@ -6981,8 +7023,11 @@ async function parseBoqWorkbook(arrayBuffer) {
           const jumlah = cellNumber(r, cols.jumlah);
           if (jumlah != null && jumlah > 0) harga = Math.round(jumlah / vol);
         }
+        // Uraian menggabungkan kolom item + spesifikasi di baris yang sama
+        // (mis. "PJ1" + "4,51 m2" -> "PJ1 - 4,51 m2") supaya nama item
+        // berkode pendek tidak perlu diketik ulang.
         pending = {
-          uraian: uraianText || specText || "Item",
+          uraian: [uraianText, specText].filter(Boolean).join(" - ") || "Item",
           satuan: sat || "-",
           volume: vol,
           harga: harga != null && harga > 0 ? harga : 0,
@@ -7006,6 +7051,10 @@ async function parseBoqWorkbook(arrayBuffer) {
           (uraianText.length > 3 && uraianText === uraianText.toUpperCase() && /[A-Z]/.test(uraianText));
         if (!looksSection && pending && cellText(r - 1, cols.uraian)) {
           pending.matchText += " " + [uraianText, specText].filter(Boolean).join(" ");
+          // Nama item yang terpotong ke baris berikutnya (tanpa kolom
+          // spesifikasi sendiri) ikut disambung ke uraian; baris rincian
+          // komponen (punya teks spesifikasi) cukup masuk teks pencocokan.
+          if (!specText) pending.uraian += " " + uraianText;
         } else {
           kelompokAktif = uraianText.replace(/^[IVXLC0-9]+[.)]?\s*/i, "").trim() || uraianText;
           if (pending) { results.push(pending); pending = null; }
@@ -7016,14 +7065,14 @@ async function parseBoqWorkbook(arrayBuffer) {
       }
     }
     if (pending) results.push(pending);
-    return results;
+    return { items: results, meta, adaKolomHarga: cols.harga > -1 || cols.jumlah > -1 };
   }
 
   for (const sheetPath of sheetPaths) {
-    const rows = parseSheet(await readXml(sheetPath));
-    if (rows.length) return rows;
+    const hasil = parseSheet(await readXml(sheetPath));
+    if (hasil.items.length) return hasil;
   }
-  return [];
+  return { items: [], meta: {}, adaKolomHarga: false };
 }
 
 async function handleBoqFile(file, ctx) {
@@ -7033,17 +7082,19 @@ async function handleBoqFile(file, ctx) {
   }
   try {
     const buf = await file.arrayBuffer();
-    const rawRows = await parseBoqWorkbook(buf);
+    const { items: rawRows, meta, adaKolomHarga } = await parseBoqWorkbook(buf);
     if (!rawRows.length) {
       alert("Tidak ditemukan baris item di file ini. Pastikan ada baris judul kolom berisi \"Uraian\"/\"Pekerjaan\" dan \"Volume\"/\"Qty\" (kolom Satuan & Harga Satuan opsional) di salah satu sheet.");
       return;
     }
     // Harga dari FILE selalu diutamakan (dulu diabaikan dan selalu ditebak
     // dari AHSP -- sumber ketidaksesuaian dengan file BOQ). AHSP hanya
-    // dipakai sebagai penebak harga saat filenya tidak membawa harga.
+    // menebak harga saat file sama sekali TIDAK punya kolom harga; kalau
+    // kolomnya ada tapi sengaja dikosongkan (form penawaran yang harganya
+    // memang harus diisi sendiri), biarkan 0 -- jangan mengarang angka.
     const rows = rawRows.map(r => {
-      const match = findBestAhspMatch(r.matchText || r.uraian);
       const hargaFile = r.harga || 0;
+      const match = hargaFile <= 0 && !adaKolomHarga ? findBestAhspMatch(r.matchText || r.uraian) : null;
       return {
         uraian: r.uraian, satuan: r.satuan, volume: r.volume,
         hargaSatuan: hargaFile > 0 ? hargaFile : (match ? ahspHarga(match) : 0),
@@ -7051,7 +7102,7 @@ async function handleBoqFile(file, ctx) {
         kelompok: r.kelompok || ""
       };
     });
-    openImportPreview(ctx, rows, null);
+    openImportPreview({ ...ctx, meta: meta || {} }, rows, null);
   } catch (err) {
     alert("Gagal membaca file BOQ: " + err.message);
   }
@@ -7107,7 +7158,7 @@ let importPreviewRows = [];
 let importPreviewCtx = null;
 function openImportPreview(ctx, rows, rawText) {
   importPreviewCtx = ctx;
-  importPreviewRows = rows.map(r => ({ checked: true, uraian: r.uraian, satuan: r.satuan, volume: r.volume, hargaSatuan: r.hargaSatuan || 0, ahspId: r.ahspId || "" }));
+  importPreviewRows = rows.map(r => ({ checked: true, uraian: r.uraian, satuan: r.satuan, volume: r.volume, hargaSatuan: r.hargaSatuan || 0, ahspId: r.ahspId || "", kelompok: r.kelompok || "" }));
   document.getElementById("imp_rawTextWrap").style.display = rawText ? "block" : "none";
   document.getElementById("imp_rawText").textContent = rawText || "";
   document.getElementById("imp_count").textContent = importPreviewRows.length;
@@ -7165,6 +7216,18 @@ document.getElementById("imp_importBtn").addEventListener("click", () => {
     if (importPreviewCtx.kind === "rab" && r.kelompok) item.kelompok = r.kelompok;
     doc.items.push(item);
   });
+  // Info dokumen dari baris atas file BOQ (PROYEK/LOKASI/KLIEN) mengisi
+  // field yang masih kosong -- yang sudah diketik pengguna tidak ditimpa.
+  const meta = importPreviewCtx.meta || {};
+  if (importPreviewCtx.kind === "rab") {
+    if (meta.nama && !(doc.nama || "").trim()) doc.nama = meta.nama;
+    if (meta.lokasi && !(doc.lokasi || "").trim()) doc.lokasi = meta.lokasi;
+    if (meta.klien && !(doc.klien || "").trim()) doc.klien = meta.klien;
+  } else {
+    if (meta.nama && !(doc.perihal || "").trim()) doc.perihal = meta.nama;
+    if (meta.klien && !(doc.kepada || "").trim()) doc.kepada = meta.klien;
+    if (meta.lokasi && !(doc.alamatKlien || "").trim()) doc.alamatKlien = meta.lokasi;
+  }
   saveState();
   if (importPreviewCtx.kind === "rab") renderRabEditor(); else renderPwEditor();
   closeModals();
