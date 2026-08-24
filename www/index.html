@@ -188,6 +188,12 @@
         <div class="muted">✅ Semua aman, tidak ada yang perlu ditindaklanjuti saat ini.</div>
       </div>
 
+      <div class="panel">
+        <h3>Tren 12 Bulan Terakhir</h3>
+        <p class="muted" style="font-size:12px;">Pemasukan (hijau) vs pengeluaran (merah) Kas Perusahaan per bulan, hanya transaksi lunas.</p>
+        <div id="dashTrend12"></div>
+      </div>
+
       <div class="grid-2">
         <div class="panel">
           <h3>Pemasukan vs Pengeluaran</h3>
@@ -423,6 +429,9 @@
           <div class="form-grid">
             <div class="field"><label>Periode Mulai</label><input type="date" id="lr_mulai"></div>
             <div class="field"><label>Periode Selesai</label><input type="date" id="lr_selesai"></div>
+          </div>
+          <div class="settings-actions">
+            <button class="btn-ghost" id="lr_exportCsv">⬇️ Export CSV</button>
           </div>
         </div>
         <div class="stat-grid">
@@ -1082,6 +1091,7 @@
         <button class="subtab-item active" data-subtab="daftar" data-subtab-page="ky">Daftar Karyawan</button>
         <button class="subtab-item" data-subtab="absensi" data-subtab-page="ky">Absensi Harian</button>
         <button class="subtab-item" data-subtab="penggajian" data-subtab-page="ky">Penggajian &amp; Slip Gaji</button>
+        <button class="subtab-item" data-subtab="rekap" data-subtab-page="ky">Rekap Bulanan</button>
       </div>
 
       <!-- Daftar Karyawan -->
@@ -1215,6 +1225,22 @@
               <thead><tr>
                 <th>Periode</th><th class="num">Keterangan</th><th class="num">Upah Kotor</th><th class="num">Total Potongan</th><th class="num">Gaji Bersih</th><th></th>
               </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="subtab-panel" id="ky_rekapPanel">
+        <div class="panel">
+          <div class="toolbar">
+            <input type="month" id="rk_bulan">
+            <button class="btn-ghost" id="rk_cetakBtn">🖨️ Cetak Rekap</button>
+          </div>
+          <p class="muted" style="font-size:12px;">✓ = hadir, angka kecil = jam lembur hari itu, − = tercatat tidak hadir.</p>
+          <div class="table-wrap">
+            <table class="tbl" id="rk_table" style="font-size:11px;">
+              <thead></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -1440,7 +1466,7 @@
               <table class="tbl" id="alat_table">
                 <thead><tr>
                   <th>Nama Alat</th><th>Kategori</th><th>Kondisi</th><th class="num">Total Unit</th>
-                  <th class="num">Dipinjam</th><th class="num">Tersedia</th><th></th>
+                  <th class="num">Dipinjam</th><th class="num">Tersedia</th><th>Servis Berikutnya</th><th></th>
                 </tr></thead>
                 <tbody></tbody>
               </table>
@@ -2188,6 +2214,7 @@
           <input type="date" id="akt_mulai">
           <input type="date" id="akt_selesai">
           <button class="btn-ghost" id="akt_filterBtn">Terapkan Filter</button>
+          <button class="btn-ghost" id="akt_exportBtn">⬇️ Export CSV</button>
         </div>
         <div class="table-wrap">
           <table class="tbl" id="aktivitasTable">
@@ -2401,6 +2428,10 @@
             <option value="">Tidak ditentukan</option>
           </select>
         </div>
+        <div class="field full">
+          <label>Foto Nota / Bukti (opsional)</label>
+          <input type="file" id="bm_lampiran" accept="image/*,.pdf">
+        </div>
       </div>
       <p class="muted" style="font-size:12px;margin-top:4px;">Kalau status "Sudah Dibeli", otomatis tercatat sebagai pengeluaran "Biaya Bahan" di Kas Perusahaan (dan menambah stok di gudang yang dipilih kalau dikaitkan ke Stok Material).</p>
       <div class="modal-actions">
@@ -2545,6 +2576,10 @@
         <div class="field full">
           <label>Catatan</label>
           <input type="text" id="dok_catatan" placeholder="opsional">
+        </div>
+        <div class="field full">
+          <label>File Dokumen / Foto (opsional)</label>
+          <input type="file" id="dok_lampiran" accept="image/*,.pdf">
         </div>
       </div>
       <div class="modal-actions">
@@ -3167,6 +3202,14 @@
         <div class="field">
           <label>Total Unit</label>
           <input type="text" inputmode="numeric" id="al_jumlahUnit" placeholder="0">
+        </div>
+        <div class="field">
+          <label>Servis/Kalibrasi Berikutnya</label>
+          <input type="date" id="al_servis">
+        </div>
+        <div class="field">
+          <label>Foto Alat (opsional)</label>
+          <input type="file" id="al_foto" accept="image/*">
         </div>
         <div class="field full">
           <label>Catatan</label>

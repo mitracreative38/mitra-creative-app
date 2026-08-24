@@ -438,7 +438,7 @@ function buildSlipGajiPrintHtml(sl, profil) {
       </div>
       <div style="text-align:right;">
         Dibayar oleh,<br>${escapeHtml(profil.company || "CV. Mitra Creative")}
-        <div class="sign-space"></div>
+        ${(profil.ownerNama || "") === OWNER_TTD_NAMA ? `<img class="ttd-img" src="${OWNER_TTD_DATA_URI}" alt="tanda tangan">` : '<div class="sign-space"></div>'}
         <strong>${escapeHtml(profil.ownerNama || "")}</strong><br>${escapeHtml(profil.ownerJabatan || "")}
       </div>
     </div>
