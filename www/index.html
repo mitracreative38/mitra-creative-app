@@ -1651,6 +1651,8 @@
           <input type="file" id="ah_importInput" accept=".xlsx" hidden>
           <button class="btn-ghost" id="ah_templateBtn">📋 Template Standar</button>
           <button class="btn-ghost" id="ah_syncUpahBtn">🔄 Sinkronkan Upah</button>
+          <button class="btn-ghost" id="ah_syncStokBtn">🔄 Sinkronkan Harga Bahan/Alat</button>
+          <button class="btn-ghost" id="ah_exportCsvBtn">⬇️ Export CSV</button>
           <button class="btn-primary" data-open-modal="ahsp">+ Tambah Item AHSP</button>
         </div>
       </header>
@@ -1783,6 +1785,7 @@
         <div class="panel">
           <div class="toolbar">
             <div class="muted" style="flex:1">Daftar Item Pekerjaan</div>
+            <button class="btn-ghost" id="rab_refreshAhspBtn" title="Samakan harga item dengan harga AHSP terkini">🔄 Perbarui Harga dari AHSP</button>
             <button class="btn-ghost" id="rab_importBoqBtn">📁 Import BOQ (.xlsx)</button>
             <input type="file" id="rab_importBoqInput" accept=".xlsx" hidden>
             <button class="btn-ghost" id="rab_importImageBtn">🖼️ Baca dari Gambar (OCR)</button>
@@ -1978,6 +1981,7 @@
         <div class="panel">
           <div class="toolbar">
             <div class="muted" style="flex:1">Rincian Item Penawaran</div>
+            <button class="btn-ghost" id="pw_refreshAhspBtn" title="Samakan harga item dengan harga AHSP terkini">🔄 Perbarui Harga dari AHSP</button>
             <button class="btn-ghost" id="pw_importBoqBtn">📁 Import BOQ (.xlsx)</button>
             <input type="file" id="pw_importBoqInput" accept=".xlsx" hidden>
             <button class="btn-ghost" id="pw_importImageBtn">🖼️ Baca dari Gambar (OCR)</button>
