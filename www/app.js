@@ -1911,6 +1911,52 @@ function escapeHtml(s) {
   return (s ?? "").toString().replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+// Tren 12 bulan terakhir Kas Perusahaan (transaksi lunas saja): tiap bulan
+// digambar dua batang tipis (masuk hijau, keluar merah) + angka laba.
+// Transaksi Keluar negatif (slip gaji dengan potongan > upah kotor)
+// diperlakukan 0, konsisten dengan kasSummary()/computeLabaRugi().
+function computeTrend12Bulan() {
+  const now = new Date();
+  const months = [];
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push({ key: d.toISOString().slice(0, 7), label: d.toLocaleDateString("id-ID", { month: "short", year: "2-digit" }), masuk: 0, keluar: 0 });
+  }
+  const byKey = {};
+  months.forEach(m => { byKey[m.key] = m; });
+  state.kasUsaha.transactions.forEach(t => {
+    if ((t.status || "lunas") !== "lunas") return;
+    const m = byKey[(t.tanggal || "").slice(0, 7)];
+    if (!m) return;
+    if (t.tipe === "Masuk") m.masuk += t.jumlah || 0;
+    else if (t.tipe === "Keluar") m.keluar += Math.max(0, t.jumlah || 0);
+  });
+  return months;
+}
+function renderDashboardTrend() {
+  const container = document.getElementById("dashTrend12");
+  if (!container) return;
+  const months = computeTrend12Bulan();
+  const max = Math.max(1, ...months.map(m => Math.max(m.masuk, m.keluar)));
+  if (months.every(m => m.masuk === 0 && m.keluar === 0)) {
+    container.innerHTML = '<div class="bar-chart-empty">Belum ada transaksi dalam 12 bulan terakhir</div>';
+    return;
+  }
+  container.innerHTML = months.map(m => {
+    const laba = m.masuk - m.keluar;
+    return `
+      <div class="trend-row">
+        <div class="trend-label">${escapeHtml(m.label)}</div>
+        <div class="trend-bars">
+          <div class="trend-bar" style="width:${Math.max(1, Math.round((m.masuk / max) * 100))}%;background:var(--good,#16a34a);" title="Masuk ${rupiah(m.masuk)}"></div>
+          <div class="trend-bar" style="width:${Math.max(1, Math.round((m.keluar / max) * 100))}%;background:var(--critical,#dc2626);" title="Keluar ${rupiah(m.keluar)}"></div>
+        </div>
+        <div class="trend-value ${laba >= 0 ? "good" : "bad"}">${rupiah(laba)}</div>
+      </div>
+    `;
+  }).join("");
+}
+
 // ===== Rendering: Dashboard =====
 function renderDashboard() {
   const ku = kasSummary("kasUsaha");
@@ -1960,6 +2006,8 @@ function renderDashboard() {
     { label: "Pribadi - Masuk", value: kp.masukLunas, color: "var(--series-1)", formattedValue: rupiah(kp.masukLunas) },
     { label: "Pribadi - Keluar", value: kp.keluarLunas, color: "var(--series-2)", formattedValue: rupiah(kp.keluarLunas) }
   ]);
+
+  renderDashboardTrend();
 
   // value TIDAK di-clamp ke 0 -- renderBarChart() sudah menangani nilai
   // negatif dengan benar lewat Math.abs() saat menghitung lebar batang,
@@ -3152,6 +3200,19 @@ document.getElementById("paK_periode").addEventListener("change", renderProyeksi
 document.getElementById("lr_mulai").addEventListener("change", renderLabaRugi);
 document.getElementById("lr_selesai").addEventListener("change", renderLabaRugi);
 document.getElementById("nr_tanggal").addEventListener("change", renderNeraca);
+document.getElementById("lr_exportCsv").addEventListener("click", () => {
+  const mulai = document.getElementById("lr_mulai").value;
+  const selesai = document.getElementById("lr_selesai").value;
+  if (!mulai || !selesai) { alert("Pilih periode terlebih dahulu."); return; }
+  const { rows, pendapatan, beban, labaBersih } = computeLabaRugi(mulai, selesai);
+  const lines = [["Kategori", "Kelompok", "Jumlah"].join(",")];
+  rows.forEach(r => lines.push([r.kategori, r.kelompok, r.jumlah].map(csvEscape).join(",")));
+  lines.push("");
+  lines.push(["Total Pendapatan", "", pendapatan].map(csvEscape).join(","));
+  lines.push(["Total Beban", "", beban].map(csvEscape).join(","));
+  lines.push(["Laba Bersih", "", labaBersih].map(csvEscape).join(","));
+  downloadFile(`laba_rugi_${mulai}_${selesai}.csv`, lines.join("\n"), "text/csv");
+});
 function buildLaporanKeuanganPrintHtml() {
   const mulai = document.getElementById("lr_mulai").value;
   const selesai = document.getElementById("lr_selesai").value;
@@ -3919,6 +3980,7 @@ function showSubtab(pagePrefix, name) {
   if (pagePrefix === "ky") {
     if (name === "absensi") renderAbsensiPanel();
     if (name === "penggajian") renderPenggajianPanel();
+    if (name === "rekap") renderRekapAbsensi();
   }
   if (pagePrefix === "lk") {
     if (name === "labarugi") renderLabaRugi();
@@ -4465,6 +4527,89 @@ document.getElementById("pg_hitungBtn").addEventListener("click", () => computeP
   document.getElementById(id).addEventListener("input", refreshPenggajianSummary);
 });
 document.getElementById("pg_persenBonus").addEventListener("input", refreshPenggajianSummary);
+
+// ----- Rekap Absensi Bulanan -----
+// Grid karyawan x tanggal untuk satu bulan: cek cepat "si A bulan ini masuk
+// berapa hari" tanpa membuka Absensi tanggal demi tanggal. Kolom Uang Makan/
+// Bon hanya untuk Owner (data gaji, sama seperti kolom hariannya).
+function rekapBulanData(bulan) {
+  const [y, m] = bulan.split("-").map(Number);
+  const jumlahHari = new Date(y, m, 0).getDate();
+  const aktif = state.karyawan.filter(k => k.aktif !== false).slice().sort((a, b) => a.nama.localeCompare(b.nama));
+  const rows = aktif.map(k => {
+    const days = [];
+    let hadir = 0, lembur = 0, uangMakan = 0, bon = 0;
+    for (let d = 1; d <= jumlahHari; d++) {
+      const tanggal = `${bulan}-${String(d).padStart(2, "0")}`;
+      const rec = (k.absensi || []).find(a => a.tanggal === tanggal);
+      if (!rec) { days.push(""); continue; }
+      if (rec.hadir) {
+        hadir++;
+        uangMakan += rec.uangMakan || 0;
+        bon += rec.bon || 0;
+        days.push(rec.jamLembur > 0 ? `✓${rec.jamLembur}` : "✓");
+      } else {
+        days.push("−");
+      }
+      lembur += rec.jamLembur || 0;
+    }
+    return { nama: k.nama, days, hadir, lembur, uangMakan, bon };
+  });
+  return { jumlahHari, rows };
+}
+function renderRekapAbsensi() {
+  const bulanInput = document.getElementById("rk_bulan");
+  if (!bulanInput.value) bulanInput.value = new Date().toISOString().slice(0, 7);
+  const showGaji = currentTeamRole === "owner";
+  const { jumlahHari, rows } = rekapBulanData(bulanInput.value);
+  const thead = document.querySelector("#rk_table thead");
+  const tbody = document.querySelector("#rk_table tbody");
+  let head = "<tr><th>Nama</th>";
+  for (let d = 1; d <= jumlahHari; d++) head += `<th class="num">${d}</th>`;
+  head += '<th class="num">Hadir</th><th class="num">Lembur</th>';
+  if (showGaji) head += '<th class="num">Uang Makan</th><th class="num">Bon</th>';
+  thead.innerHTML = head + "</tr>";
+  if (!rows.length) {
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="${jumlahHari + (showGaji ? 5 : 3)}">Belum ada karyawan aktif</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    let tr = `<tr><td>${escapeHtml(r.nama)}</td>`;
+    r.days.forEach(v => { tr += `<td class="num">${v}</td>`; });
+    tr += `<td class="num"><strong>${r.hadir}</strong></td><td class="num">${r.lembur || 0}</td>`;
+    if (showGaji) tr += `<td class="num">${rupiah(r.uangMakan)}</td><td class="num">${rupiah(r.bon)}</td>`;
+    return tr + "</tr>";
+  }).join("");
+}
+document.getElementById("rk_bulan").addEventListener("change", renderRekapAbsensi);
+document.getElementById("rk_cetakBtn").addEventListener("click", () => {
+  const bulan = document.getElementById("rk_bulan").value;
+  if (!bulan) return;
+  const showGaji = currentTeamRole === "owner";
+  const { jumlahHari, rows } = rekapBulanData(bulan);
+  const labelBulan = new Date(bulan + "-01").toLocaleDateString("id-ID", { month: "long", year: "numeric" });
+  let head = "<tr><th>Nama</th>";
+  for (let d = 1; d <= jumlahHari; d++) head += `<th class="r">${d}</th>`;
+  head += '<th class="r">Hadir</th><th class="r">Lembur</th>';
+  if (showGaji) head += '<th class="r">Uang Makan</th><th class="r">Bon</th>';
+  const body = rows.map(r => {
+    let tr = `<tr><td>${escapeHtml(r.nama)}</td>`;
+    r.days.forEach(v => { tr += `<td class="r">${v}</td>`; });
+    tr += `<td class="r"><strong>${r.hadir}</strong></td><td class="r">${r.lembur || 0}</td>`;
+    if (showGaji) tr += `<td class="r">${rupiah(r.uangMakan)}</td><td class="r">${rupiah(r.bon)}</td>`;
+    return tr + "</tr>";
+  }).join("");
+  document.getElementById("printArea").innerHTML = `
+    <h3 style="text-align:center; margin:6px 0 4px;">REKAP ABSENSI — ${escapeHtml(labelBulan)}</h3>
+    <p style="text-align:center; font-size:11px; color:#777; margin:0 0 12px;">${escapeHtml(state.company || "")} — ✓ hadir (angka = jam lembur), − tidak hadir</p>
+    <table class="doc-items" style="font-size:9px;">
+      <thead>${head}</thead>
+      <tbody>${body || '<tr><td class="c">Belum ada karyawan aktif</td></tr>'}</tbody>
+    </table>
+  `;
+  document.body.classList.add("printing-quote");
+  window.print();
+});
 
 function renderPenggajianRiwayat() {
   const k = currentKaryawanForPayroll();
@@ -9113,6 +9258,38 @@ async function renderActivityLog(reset) {
 }
 document.getElementById("akt_filterBtn").addEventListener("click", () => renderActivityLog(true));
 document.getElementById("akt_loadMoreBtn").addEventListener("click", () => renderActivityLog(false));
+document.getElementById("akt_exportBtn").addEventListener("click", async () => {
+  if (!sb || !targetCompanyId) { alert("Masuk sebagai Owner terlebih dahulu untuk export log aktivitas."); return; }
+  try {
+    // Filter yang sama dengan tampilan, tapi TANPA paginasi -- ambil sampai
+    // 5000 baris sekaligus supaya arsip audit yang diunduh lengkap.
+    let q = sb.from("activity_log").select("*").eq("company_id", targetCompanyId).order("created_at", { ascending: false });
+    const anggota = document.getElementById("akt_filterAnggota").value;
+    const modul = document.getElementById("akt_filterModul").value;
+    const { mulai, selesai } = aktivitasWaktuRentang();
+    if (anggota) q = q.eq("actor_id", anggota);
+    if (modul) q = q.eq("module", modul);
+    if (mulai) q = q.gte("created_at", mulai);
+    if (selesai) q = q.lte("created_at", selesai + "T23:59:59");
+    q = q.range(0, 4999);
+    const { data, error } = await q;
+    if (error) throw error;
+    const lines = [["Waktu", "Anggota", "Peran", "Modul", "Aksi", "Ringkasan"].join(",")];
+    (data || []).forEach(row => {
+      lines.push([
+        new Date(row.created_at).toLocaleString("id-ID"),
+        row.actor_email,
+        ROLE_LABELS[row.actor_role] || row.actor_role,
+        ACTIVITY_MODULE_LABELS[row.module] || row.module,
+        { create: "Tambah", update: "Ubah", delete: "Hapus" }[row.action] || row.action,
+        row.summary
+      ].map(csvEscape).join(","));
+    });
+    downloadFile(`aktivitas_tim_${new Date().toISOString().slice(0, 10)}.csv`, lines.join("\n"), "text/csv");
+  } catch (err) {
+    alert("Gagal export log aktivitas: " + err.message);
+  }
+});
 const aktivitasDetailModal = document.getElementById("aktivitasDetailModal");
 document.getElementById("aktivitasTable").addEventListener("click", async e => {
   const tr = e.target.closest("[data-aktivitas-id]");
