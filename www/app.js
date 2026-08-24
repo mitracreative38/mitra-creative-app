@@ -6826,6 +6826,39 @@ document.getElementById("est_tambahkanBtn").addEventListener("click", () => {
 });
 
 // ===== BOQ (.xlsx) parsing =====
+// Angka gaya Indonesia ("1.234.567,89") MAUPUN gaya Inggris ("1,234,567.89")
+// dari sel bertipe teks. Sel bertipe angka asli tidak lewat sini (nilai
+// mentahnya sudah float). Titik tunggal diikuti tepat 3 digit dianggap
+// pemisah ribuan ("1.250" = 1250) -- konvensi penulisan BOQ Indonesia;
+// volume desimal lazim ditulis dengan koma ("1,25").
+function parseLocaleNumber(rawText) {
+  let s = String(rawText).trim().replace(/[^\d.,-]/g, "");
+  if (!s || !/\d/.test(s)) return null;
+  const lastComma = s.lastIndexOf(",");
+  const lastDot = s.lastIndexOf(".");
+  if (lastComma > -1 && lastDot > -1) {
+    if (lastComma > lastDot) s = s.replace(/\./g, "").replace(",", ".");
+    else s = s.replace(/,/g, "");
+  } else if (lastComma > -1) {
+    const parts = s.split(",");
+    s = (parts.length === 2 && parts[1].length <= 2) ? parts.join(".") : parts.join("");
+  } else if (lastDot > -1) {
+    const parts = s.split(".");
+    if (parts.length > 2 || (parts.length === 2 && parts[1].length === 3)) s = parts.join("");
+  }
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+
+// Ditulis ulang dari versi awal yang cuma mengenali header SPESIFIKASI/VOL/
+// SAT di sheet pertama, mengabaikan kolom harga di file (harga selalu
+// ditebak dari AHSP), dan salah membaca angka format Indonesia -- tiga hal
+// yang membuat Owner harus banyak input manual dan hasilnya tidak sesuai
+// file BOQ. Sekarang: header fleksibel (URAIAN/PEKERJAAN/DESKRIPSI +
+// VOLUME/QTY/KUANTITAS, satuan & harga opsional, header 2 baris didukung),
+// SEMUA sheet dicoba sampai ketemu, Harga Satuan diambil dari file (atau
+// dihitung dari kolom JUMLAH ÷ volume), angka lokal dibaca benar, baris
+// judul bagian (mis. "I. PEKERJAAN PERSIAPAN") ditangkap sebagai kelompok.
 async function parseBoqWorkbook(arrayBuffer) {
   const zip = await JSZip.loadAsync(arrayBuffer);
   const parser = new DOMParser();
@@ -6846,98 +6879,151 @@ async function parseBoqWorkbook(arrayBuffer) {
     relsDoc.querySelectorAll("Relationship").forEach(rel => { relMap[rel.getAttribute("Id")] = rel.getAttribute("Target"); });
   }
   const wbDoc = await readXml("xl/workbook.xml");
-  let sheetPath = "xl/worksheets/sheet1.xml";
+  const sheetPaths = [];
   if (wbDoc) {
-    const sheetEl = wbDoc.querySelector("sheets sheet");
-    if (sheetEl) {
+    wbDoc.querySelectorAll("sheets sheet").forEach(sheetEl => {
       const rid = sheetEl.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id");
       const target = rid ? relMap[rid] : null;
-      if (target) sheetPath = target.startsWith("/") ? target.slice(1) : "xl/" + target;
-    }
+      if (target) sheetPaths.push(target.startsWith("/") ? target.slice(1) : "xl/" + target);
+    });
   }
-  const sheetDoc = await readXml(sheetPath);
-  if (!sheetDoc) return [];
+  if (!sheetPaths.length) sheetPaths.push("xl/worksheets/sheet1.xml");
 
   function colToNum(letters) {
     let n = 0;
     for (const ch of letters) n = n * 26 + (ch.charCodeAt(0) - 64);
     return n;
   }
-  const grid = {};
-  let maxRow = 0, maxCol = 0;
-  sheetDoc.querySelectorAll("row").forEach(row => {
-    const r = parseInt(row.getAttribute("r"), 10);
-    if (r > maxRow) maxRow = r;
-    row.querySelectorAll("c").forEach(c => {
-      const ref = c.getAttribute("r");
-      if (!ref) return;
-      const m = ref.match(/[A-Z]+/);
-      if (!m) return;
-      const colNum = colToNum(m[0]);
-      if (colNum > maxCol) maxCol = colNum;
-      const type = c.getAttribute("t");
-      const vEl = c.querySelector("v");
-      const isEl = c.querySelector("is");
-      let val = null;
-      if (type === "s" && vEl) val = sharedStrings[parseInt(vEl.textContent, 10)] || "";
-      else if (isEl) val = isEl.textContent || "";
-      else if (vEl) val = vEl.textContent;
-      grid[`${r},${colNum}`] = { raw: val, type };
+
+  function parseSheet(sheetDoc) {
+    if (!sheetDoc) return [];
+    const grid = {};
+    let maxRow = 0, maxCol = 0;
+    sheetDoc.querySelectorAll("row").forEach(row => {
+      const r = parseInt(row.getAttribute("r"), 10);
+      if (r > maxRow) maxRow = r;
+      row.querySelectorAll("c").forEach(c => {
+        const ref = c.getAttribute("r");
+        if (!ref) return;
+        const m = ref.match(/[A-Z]+/);
+        if (!m) return;
+        const colNum = colToNum(m[0]);
+        if (colNum > maxCol) maxCol = colNum;
+        const type = c.getAttribute("t");
+        const vEl = c.querySelector("v");
+        const isEl = c.querySelector("is");
+        let val = null;
+        if (type === "s" && vEl) val = sharedStrings[parseInt(vEl.textContent, 10)] || "";
+        else if (isEl) val = isEl.textContent || "";
+        else if (vEl) val = vEl.textContent;
+        grid[`${r},${colNum}`] = { raw: val, type };
+      });
     });
-  });
 
-  let headerRow = -1, specCol = -1, volCol = -1, satCol = -1;
-  for (let r = 1; r <= maxRow && headerRow === -1; r++) {
-    let sc = -1, vc = -1, tc = -1;
-    for (let c = 1; c <= maxCol; c++) {
+    function cellText(r, c) {
       const cell = grid[`${r},${c}`];
-      if (!cell || cell.raw == null) continue;
-      const txt = String(cell.raw).trim().toLowerCase();
-      if (/spesifikasi/.test(txt)) sc = c;
-      if (/^vol/.test(txt)) vc = c;
-      if (/^sat/.test(txt)) tc = c;
+      if (!cell || cell.raw == null) return "";
+      return String(cell.raw).trim();
     }
-    if (sc > -1 && vc > -1 && tc > -1) { headerRow = r; specCol = sc; volCol = vc; satCol = tc; }
-  }
-  if (headerRow === -1) return [];
-
-  const nameCols = [];
-  for (let c = 2; c < specCol; c++) nameCols.push(c);
-
-  function cellText(r, c) {
-    const cell = grid[`${r},${c}`];
-    if (!cell || cell.raw == null) return "";
-    return String(cell.raw).trim();
-  }
-  function cellNumber(r, c) {
-    const cell = grid[`${r},${c}`];
-    if (!cell || cell.raw == null) return null;
-    if (cell.type === "s" || cell.type === "str" || cell.type === "inlineStr") {
-      const cleaned = String(cell.raw).replace(",", ".").replace(/[^\d.]/g, "");
-      const n = parseFloat(cleaned);
+    function cellNumber(r, c) {
+      const cell = grid[`${r},${c}`];
+      if (!cell || cell.raw == null) return null;
+      if (cell.type === "s" || cell.type === "str" || cell.type === "inlineStr") {
+        return parseLocaleNumber(cell.raw);
+      }
+      const n = parseFloat(cell.raw);
       return isNaN(n) ? null : n;
     }
-    const n = parseFloat(cell.raw);
-    return isNaN(n) ? null : n;
+
+    // Cari header: kolom uraian + volume wajib; satuan/harga/jumlah/
+    // spesifikasi opsional. Header yang terpecah 2 baris (sel gabungan)
+    // ikut dikenali dengan menggabungkan kandidat baris r dan r+1.
+    function scanHeaderRow(r) {
+      const found = { uraian: -1, spec: -1, vol: -1, sat: -1, harga: -1, jumlah: -1 };
+      for (let c = 1; c <= maxCol; c++) {
+        const txt = cellText(r, c).toLowerCase();
+        if (!txt) continue;
+        if (/uraian|pekerjaan|deskripsi|description/.test(txt) && found.uraian === -1 && !/harga|jumlah|total/.test(txt)) found.uraian = c;
+        if (/spesifikasi/.test(txt) && found.spec === -1) found.spec = c;
+        if (/^vol|volume|qty|kuantitas|quantity/.test(txt) && found.vol === -1) found.vol = c;
+        if (/^sat|satuan|^unit/.test(txt) && found.sat === -1) found.sat = c;
+        if (/harga/.test(txt) && !/jumlah|total/.test(txt) && found.harga === -1) found.harga = c;
+        if (/jumlah|total/.test(txt) && found.jumlah === -1) found.jumlah = c;
+      }
+      return found;
+    }
+    let headerRow = -1, cols = null;
+    for (let r = 1; r <= Math.min(maxRow, 40) && headerRow === -1; r++) {
+      const a = scanHeaderRow(r);
+      const b = scanHeaderRow(r + 1);
+      const merged = {};
+      for (const k of Object.keys(a)) merged[k] = a[k] > -1 ? a[k] : b[k];
+      if ((merged.uraian > -1 || merged.spec > -1) && merged.vol > -1) {
+        headerRow = (a.uraian > -1 || a.spec > -1) && a.vol > -1 ? r : r + 1;
+        cols = merged;
+      }
+    }
+    if (headerRow === -1) return [];
+    if (cols.uraian === -1) cols.uraian = cols.spec;
+
+    const results = [];
+    let pending = null;
+    let kelompokAktif = "";
+    for (let r = headerRow + 1; r <= maxRow; r++) {
+      const vol = cellNumber(r, cols.vol);
+      const sat = cols.sat > -1 ? cellText(r, cols.sat) : "";
+      const uraianText = cellText(r, cols.uraian);
+      const specText = cols.spec > -1 && cols.spec !== cols.uraian ? cellText(r, cols.spec) : "";
+      if (vol !== null && vol > 0) {
+        if (pending) results.push(pending);
+        let harga = cols.harga > -1 ? cellNumber(r, cols.harga) : null;
+        if ((harga == null || harga <= 0) && cols.jumlah > -1) {
+          const jumlah = cellNumber(r, cols.jumlah);
+          if (jumlah != null && jumlah > 0) harga = Math.round(jumlah / vol);
+        }
+        pending = {
+          uraian: uraianText || specText || "Item",
+          satuan: sat || "-",
+          volume: vol,
+          harga: harga != null && harga > 0 ? harga : 0,
+          kelompok: kelompokAktif,
+          matchText: [uraianText, specText].filter(Boolean).join(" ")
+        };
+      } else if (uraianText && !sat) {
+        // Baris teks tanpa volume: judul bagian (jadi kelompok item
+        // berikutnya) atau lanjutan uraian item sebelumnya kalau baris
+        // persis di bawahnya. Penanda judul bagian: angka romawi/huruf
+        // tunggal di kolom nomor, awalan romawi di uraian, atau teks
+        // kapital semua.
+        let noText = "";
+        for (let c = 1; c < cols.uraian; c++) {
+          const t = cellText(r, c);
+          if (t) noText += (noText ? " " : "") + t;
+        }
+        const looksSection =
+          /^[IVXLCDM]+$/i.test(noText) || /^[A-Z][.)]?$/.test(noText) ||
+          /^[IVXLCDM]+[.)]\s/i.test(uraianText) ||
+          (uraianText.length > 3 && uraianText === uraianText.toUpperCase() && /[A-Z]/.test(uraianText));
+        if (!looksSection && pending && cellText(r - 1, cols.uraian)) {
+          pending.matchText += " " + [uraianText, specText].filter(Boolean).join(" ");
+        } else {
+          kelompokAktif = uraianText.replace(/^[IVXLC0-9]+[.)]?\s*/i, "").trim() || uraianText;
+          if (pending) { results.push(pending); pending = null; }
+        }
+      } else if (pending) {
+        const extra = [uraianText, specText].filter(Boolean).join(" ");
+        if (extra) pending.matchText += " " + extra;
+      }
+    }
+    if (pending) results.push(pending);
+    return results;
   }
 
-  const results = [];
-  let pending = null;
-  for (let r = headerRow + 1; r <= maxRow; r++) {
-    const vol = cellNumber(r, volCol);
-    const sat = cellText(r, satCol);
-    const nameText = nameCols.map(c => cellText(r, c)).filter(Boolean).join(" ").trim();
-    const specText = cellText(r, specCol);
-    if (vol !== null && vol > 0 && sat) {
-      if (pending) results.push(pending);
-      pending = { uraian: nameText || specText || "Item", satuan: sat, volume: vol, matchText: [nameText, specText].filter(Boolean).join(" ") };
-    } else if (pending) {
-      const extra = [nameText, specText].filter(Boolean).join(" ");
-      if (extra) pending.matchText += " " + extra;
-    }
+  for (const sheetPath of sheetPaths) {
+    const rows = parseSheet(await readXml(sheetPath));
+    if (rows.length) return rows;
   }
-  if (pending) results.push(pending);
-  return results;
+  return [];
 }
 
 async function handleBoqFile(file, ctx) {
@@ -6949,12 +7035,21 @@ async function handleBoqFile(file, ctx) {
     const buf = await file.arrayBuffer();
     const rawRows = await parseBoqWorkbook(buf);
     if (!rawRows.length) {
-      alert("Tidak ditemukan baris item (kolom VOL & SAT terisi) di file ini. Pastikan file punya header SPESIFIKASI/VOL/SAT seperti format BOQ standar.");
+      alert("Tidak ditemukan baris item di file ini. Pastikan ada baris judul kolom berisi \"Uraian\"/\"Pekerjaan\" dan \"Volume\"/\"Qty\" (kolom Satuan & Harga Satuan opsional) di salah satu sheet.");
       return;
     }
+    // Harga dari FILE selalu diutamakan (dulu diabaikan dan selalu ditebak
+    // dari AHSP -- sumber ketidaksesuaian dengan file BOQ). AHSP hanya
+    // dipakai sebagai penebak harga saat filenya tidak membawa harga.
     const rows = rawRows.map(r => {
       const match = findBestAhspMatch(r.matchText || r.uraian);
-      return { uraian: r.uraian, satuan: r.satuan, volume: r.volume, hargaSatuan: match ? ahspHarga(match) : 0, ahspId: match ? match.id : "" };
+      const hargaFile = r.harga || 0;
+      return {
+        uraian: r.uraian, satuan: r.satuan, volume: r.volume,
+        hargaSatuan: hargaFile > 0 ? hargaFile : (match ? ahspHarga(match) : 0),
+        ahspId: match ? match.id : "",
+        kelompok: r.kelompok || ""
+      };
     });
     openImportPreview(ctx, rows, null);
   } catch (err) {
@@ -7064,7 +7159,11 @@ document.getElementById("imp_importBtn").addEventListener("click", () => {
   if (!doc) { closeModals(); return; }
   const toImport = importPreviewRows.filter(r => r.checked);
   toImport.forEach(r => {
-    doc.items.push({ id: uid(), uraian: (r.uraian || "").trim() || "Item", satuan: (r.satuan || "").trim() || "-", volume: r.volume || 0, hargaSatuan: r.hargaSatuan || 0, ahspId: r.ahspId || "" });
+    const item = { id: uid(), uraian: (r.uraian || "").trim() || "Item", satuan: (r.satuan || "").trim() || "-", volume: r.volume || 0, hargaSatuan: r.hargaSatuan || 0, ahspId: r.ahspId || "" };
+    // Judul bagian dari file BOQ jadi kelompok item -- fitur kelompok cuma
+    // ada di RAB, Penawaran tetap daftar rata.
+    if (importPreviewCtx.kind === "rab" && r.kelompok) item.kelompok = r.kelompok;
+    doc.items.push(item);
   });
   saveState();
   if (importPreviewCtx.kind === "rab") renderRabEditor(); else renderPwEditor();
