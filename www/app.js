@@ -299,6 +299,14 @@ const ACTIVITY_DIFF_FIELDS = {
   penawaran: ["nomor", "nama", "klien", "ppn", "pph", "diskon", "itemCount", "brand"],
   proyek: ["nama", "status", "nilaiKontrak"],
   karyawan: ["nama", "jabatan", "aktif", "upahHarian", "gajiBulanan"],
+  // Absensi Harian (jsonb bersarang di karyawan, bukan tabel sendiri) --
+  // dicatat sebagai "modul" tersendiri di Aktivitas Tim (bukan lewat
+  // karyawan) supaya perubahan Hadir/Jam Lembur/Uang Makan/Bon per hari
+  // benar-benar tercatat -- sebelumnya tidak pernah tercatat sama sekali
+  // (celah yang ditemukan Owner: 3 titik simpan Absensi lupa mengirim
+  // snapshot lama ke logActivityNow). Field "lokasi" sengaja tidak
+  // dilacak di sini (murni jejak GPS, bukan data yang perlu diaudit).
+  absensi: ["hadir", "jamLembur", "uangMakan", "bon"],
   karyawanGaji: ["gajiPokok", "tunjangan", "potongan", "periode"],
   stok: ["nama", "stokMinimum", "hargaSatuan"],
   gudang: ["nama", "alamat"],
@@ -309,7 +317,7 @@ const ACTIVITY_DIFF_FIELDS = {
 };
 const ACTIVITY_MODULE_LABELS = {
   klien: "Klien", ahsp: "AHSP", rab: "RAB", penawaran: "Penawaran",
-  proyek: "Proyek", karyawan: "Karyawan", karyawanGaji: "Slip Gaji",
+  proyek: "Proyek", karyawan: "Karyawan", absensi: "Absensi", karyawanGaji: "Slip Gaji",
   stok: "Stok Material", gudang: "Gudang", pemasok: "Pemasok",
   kasUsaha: "Kas Perusahaan", kasPribadi: "Kas Pribadi",
   companyProfile: "Profil Perusahaan", system: "Sistem"
@@ -333,6 +341,27 @@ function diffActivityFields(module, before, after) {
     if (JSON.stringify(a) !== JSON.stringify(b)) diff[f] = { from: a === undefined ? null : a, to: b === undefined ? null : b };
   });
   return diff;
+}
+// Absensi Harian: "record" bukan objek karyawan utuh (yang dipakai modul
+// lain), tapi cuma record absensi 1 tanggal -- snapshot lebih dulu sebelum
+// mutasi, lalu logAbsensiActivity() dipanggil setelah mutasi. Hanya benar-
+// benar menulis ke Aktivitas Tim kalau field yang dilacak (hadir/jamLembur/
+// uangMakan/bon) memang berubah -- supaya "Simpan Absensi" yang menyentuh
+// banyak baris karyawan sekaligus tidak membanjiri log dengan baris yang
+// sebenarnya tidak berubah.
+function absensiSnapshot(k, tanggal) {
+  const rec = (k.absensi || []).find(a => a.tanggal === tanggal);
+  if (!rec) return null;
+  return { nama: k.nama, tanggal, hadir: rec.hadir, jamLembur: rec.jamLembur || 0, uangMakan: rec.uangMakan || 0, bon: rec.bon || 0 };
+}
+function logAbsensiActivity(k, tanggal, before) {
+  const after = absensiSnapshot(k, tanggal);
+  if (!after) return;
+  const recordId = `${k.id}:${tanggal}`;
+  if (!before) { logActivityNow("absensi", "create", recordId, null, after); return; }
+  if (Object.keys(diffActivityFields("absensi", before, after)).length) {
+    logActivityNow("absensi", "update", recordId, before, after);
+  }
 }
 function buildActivitySummary(module, action, before, after) {
   const label = ACTIVITY_MODULE_LABELS[module] || module;
@@ -4070,12 +4099,14 @@ document.getElementById("ab_table").addEventListener("click", async e => {
   btn.disabled = true;
   navigator.geolocation.getCurrentPosition(
     pos => {
+      const before = absensiSnapshot(k, tanggal);
       if (!k.absensi) k.absensi = [];
       let rec = k.absensi.find(a => a.tanggal === tanggal);
       if (!rec) { rec = { id: uid(), tanggal, hadir: true, jamLembur: 0 }; k.absensi.push(rec); }
       rec.lokasi = { lat: pos.coords.latitude, lng: pos.coords.longitude, akurasi: pos.coords.accuracy, waktu: new Date().toISOString() };
       saveState();
       mirrorKaryawanUpsert(k);
+      logAbsensiActivity(k, tanggal, before);
       renderAbsensiPanel();
     },
     err => {
@@ -4095,6 +4126,7 @@ document.getElementById("ab_saveBtn").addEventListener("click", () => {
     if (!kId) return;
     const k = state.karyawan.find(x => x.id === kId);
     if (!k) return;
+    const before = absensiSnapshot(k, tanggal);
     const hadir = tr.querySelector(".ab-hadir").checked;
     const jamLembur = Math.max(0, parseFloat((tr.querySelector(".ab-lembur").value || "").replace(",", ".")) || 0);
     if (!k.absensi) k.absensi = [];
@@ -4109,6 +4141,7 @@ document.getElementById("ab_saveBtn").addEventListener("click", () => {
     if (bonInput) rec.bon = Math.max(0, parseFloat((bonInput.value || "").replace(",", ".")) || 0);
     if (idx >= 0) k.absensi[idx] = rec; else k.absensi.push(rec);
     mirrorKaryawanUpsert(k);
+    logAbsensiActivity(k, tanggal, before);
     count++;
   });
   saveState();
@@ -4128,12 +4161,14 @@ const absensiScanCooldownUntil = {};
 function catatAbsensiViaQR(karyawanId, tanggal) {
   const k = state.karyawan.find(x => x.id === karyawanId);
   if (!k) return null;
+  const before = absensiSnapshot(k, tanggal);
   if (!k.absensi) k.absensi = [];
   let rec = k.absensi.find(a => a.tanggal === tanggal);
   if (!rec) { rec = { id: uid(), tanggal, hadir: true, jamLembur: 0 }; k.absensi.push(rec); }
   else rec.hadir = true;
   saveState();
   mirrorKaryawanUpsert(k);
+  logAbsensiActivity(k, tanggal, before);
   const row = document.querySelector(`#ab_table tbody tr[data-karyawan-id="${karyawanId}"]`);
   if (row) { const cb = row.querySelector(".ab-hadir"); if (cb) cb.checked = true; }
   return k;
