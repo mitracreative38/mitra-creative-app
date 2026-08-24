@@ -32,6 +32,13 @@ jobs:
       - name: Sync web assets into the Android project
         run: |
           npm run build:mobile-init
+          # Stamp versi (SHA commit) ke salinan www/ yang dibekukan di dalam
+          # APK, supaya aplikasi bisa membandingkan dirinya dengan
+          # version.json live di GitHub Pages dan memperingatkan pemakai
+          # kalau APK-nya sudah usang.
+          SHA7="${GITHUB_SHA::7}"
+          printf '{"version":"%s"}\n' "$SHA7" > www/version.json
+          sed -i "s/window.__APP_VERSION__ || \"dev\"/window.__APP_VERSION__ || \"$SHA7\"/" www/app.js
           npx cap sync android
 
       - name: Setup JDK
