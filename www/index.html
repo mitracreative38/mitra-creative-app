@@ -15,6 +15,15 @@
 </head>
 <body>
 
+<!-- Banner peringatan versi usang: muncul kalau app.js yang termuat di
+     perangkat ini (cache browser lama / APK lama) tidak sama dengan versi
+     terbaru di server -- lihat checkAppUpdate() di app.js. -->
+<div id="appUpdateBar" class="app-update-bar" style="display:none;">
+  <span id="appUpdateText"></span>
+  <button id="appUpdateReloadBtn" type="button">Muat Ulang</button>
+  <button id="appUpdateCloseBtn" type="button" aria-label="Tutup">&times;</button>
+</div>
+
 <!-- Mode Pekerja: layar penuh pengganti seluruh aplikasi begitu HP ini
      dipasangkan (paired) sebagai perangkat pelacak lokasi pekerja lapangan
      -- lihat bootPekerjaMode() di app.js. Tidak pernah menampilkan data
@@ -2133,6 +2142,7 @@
           <button class="btn-danger" id="sync_logoutBtn">Keluar</button>
         </div>
       </div>
+      <p class="muted" style="font-size:11px;">Versi aplikasi: <span id="appVersionLabel">-</span></p>
 
       <div class="panel narrow" id="sync_teamPanel" style="display:none;">
         <h3>👥 Anggota Tim</h3>

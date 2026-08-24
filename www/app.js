@@ -1,6 +1,17 @@
 // ===== State & persistence =====
 const STORAGE_KEY = "mitraCreative_keuangan_v1";
 
+// Versi aplikasi. "dev" berarti berjalan dari sumber mentah (lokal/test) --
+// workflow deploy Pages & build APK mengganti "dev" di baris ini dengan SHA
+// commit, dan menulis www/version.json berisi SHA yang sama. Karena browser
+// HP bisa menyimpan app.js lama berhari-hari dan APK membekukan salinan www/
+// saat di-build, perbandingan APP_VERSION (yang termuat) vs version.json
+// (yang diambil segar dari server) adalah satu-satunya cara aplikasi tahu
+// dirinya sedang menjalankan kode usang.
+const APP_VERSION = window.__APP_VERSION__ || "dev";
+const PAGES_BASE_URL = "https://mitracreative38.github.io/mitra-creative-app/";
+const IS_NATIVE_APP = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+
 function loadState() {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (raw) {
@@ -9739,3 +9750,37 @@ function init() {
   renderAll();
 }
 init();
+
+// ===== Cek versi aplikasi (kode usang di cache browser / APK lama) =====
+async function checkAppUpdate() {
+  if (APP_VERSION === "dev") return;
+  try {
+    // Di APK, fetch relatif cuma membaca version.json beku yang ikut
+    // terbungkus di dalam APK itu sendiri -- harus ke URL live.
+    const base = IS_NATIVE_APP ? PAGES_BASE_URL : "./";
+    const res = await fetch(base + "version.json?t=" + Date.now(), { cache: "no-store" });
+    if (!res.ok) return;
+    const info = await res.json();
+    if (info && info.version && info.version !== APP_VERSION) showAppUpdateBar(info.version);
+  } catch (e) { /* offline atau server tidak terjangkau -- abaikan */ }
+}
+function showAppUpdateBar(latest) {
+  const bar = document.getElementById("appUpdateBar");
+  if (!bar) return;
+  document.getElementById("appUpdateText").textContent = IS_NATIVE_APP
+    ? `Versi aplikasi ini sudah lama (${APP_VERSION}, terbaru ${latest}). Pasang APK terbaru supaya perbaikan terbaru ikut terpasang -- tanpa itu, perangkat ini terus menjalankan kode lama.`
+    : `Versi aplikasi ini sudah lama (${APP_VERSION}, terbaru ${latest}). Muat ulang untuk memperbarui.`;
+  document.getElementById("appUpdateReloadBtn").style.display = IS_NATIVE_APP ? "none" : "";
+  bar.style.display = "";
+}
+document.getElementById("appUpdateReloadBtn").addEventListener("click", () => {
+  // location.reload() saja masih bisa disuguhi index.html dari cache --
+  // parameter unik memaksa browser mengambil halaman segar dari server.
+  location.href = location.pathname + "?nocache=" + Date.now() + location.hash;
+});
+document.getElementById("appUpdateCloseBtn").addEventListener("click", () => {
+  document.getElementById("appUpdateBar").style.display = "none";
+});
+const appVersionLabel = document.getElementById("appVersionLabel");
+if (appVersionLabel) appVersionLabel.textContent = APP_VERSION;
+checkAppUpdate();

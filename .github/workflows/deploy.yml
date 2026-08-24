@@ -27,6 +27,21 @@ jobs:
         uses: actions/configure-pages@v5
         with:
           enablement: true
+      # Stamp versi (SHA commit) + cache-busting: tanpa ini browser HP bisa
+      # terus memakai app.js lama dari cache walau server sudah diperbarui,
+      # dan aplikasi tidak punya cara tahu dirinya usang.
+      - name: Stamp app version + cache-busting
+        run: |
+          SHA7="${GITHUB_SHA::7}"
+          printf '{"version":"%s"}\n' "$SHA7" > www/version.json
+          sed -i "s/window.__APP_VERSION__ || \"dev\"/window.__APP_VERSION__ || \"$SHA7\"/" www/app.js
+          sed -i \
+            -e "s|src=\"app.js\"|src=\"app.js?v=$SHA7\"|" \
+            -e "s|src=\"data.js\"|src=\"data.js?v=$SHA7\"|" \
+            -e "s|src=\"qrcode.bundle.js\"|src=\"qrcode.bundle.js?v=$SHA7\"|" \
+            -e "s|src=\"mobile-init.bundle.js\"|src=\"mobile-init.bundle.js?v=$SHA7\"|" \
+            -e "s|href=\"style.css\"|href=\"style.css?v=$SHA7\"|" \
+            www/index.html
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
