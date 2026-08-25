@@ -95,6 +95,10 @@
         <svg viewBox="0 0 24 24"><path d="M4 4h16v4H4V4zm0 6h10v10H4V10zm12 0h4v10h-4V10z"/></svg>
         Margin Proyek
       </button>
+      <button class="nav-item" data-page="sewaAset">
+        <svg viewBox="0 0 24 24"><path d="M12 3L2 12h3v8h6v-6h2v6h6v-8h3L12 3zm0 2.7l6 5.4V18h-2v-6H8v6H7v-6.9l5-4.4z"/></svg>
+        Sewa Aset
+      </button>
       <div class="nav-sep"></div>
       <button class="nav-item" data-page="karyawan">
         <svg viewBox="0 0 24 24"><path d="M12 12a5 5 0 100-10 5 5 0 000 10zm0 2c-3.3 0-6.2 1.34-8.28 3.5A2 2 0 002 18.94V21h20v-2.06a2 2 0 00-1.72-1.44C18.2 15.34 15.3 14 12 14z"/></svg>
@@ -717,6 +721,55 @@
         <div class="panel">
           <h3>Tren Jam Lembur per Bulan (6 bulan terakhir)</h3>
           <div id="kpi_trendTim" class="bar-chart"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SEWA ASET -->
+    <section class="page" id="page-sewaAset">
+      <header class="page-header">
+        <div>
+          <h1>Sewa Aset</h1>
+          <p class="page-sub">Aset yang disewakan — baliho, kos-kosan, tanah, rental kendaraan/alat, ruko, dll. Pembayaran sewa otomatis tercatat ke Kas Perusahaan.</p>
+        </div>
+        <button class="btn-primary" id="sa_addBtn">+ Tambah Aset</button>
+      </header>
+
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-label">Aset Aktif</div>
+          <div class="stat-value" id="sa_totalAset">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Tersewa (hari ini)</div>
+          <div class="stat-value good" id="sa_tersewa">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Kosong / Tersedia</div>
+          <div class="stat-value" id="sa_kosong">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Pendapatan Sewa Bulan Ini</div>
+          <div class="stat-value good" id="sa_pendapatanBulan">Rp 0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Piutang Sewa (belum dibayar)</div>
+          <div class="stat-value bad" id="sa_piutang">Rp 0</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="form-grid">
+          <div class="field"><label>Cari</label><input type="text" id="sa_search" placeholder="Nama / lokasi / penyewa..."></div>
+          <div class="field"><label>Jenis</label><select id="sa_filterJenis"><option value="">Semua Jenis</option></select></div>
+        </div>
+        <div class="table-wrap">
+          <table class="tbl" id="sa_table">
+            <thead><tr>
+              <th>Aset</th><th>Jenis</th><th>Lokasi</th><th class="num">Harga Sewa</th><th>Status Sewa</th><th class="num">Total Pendapatan</th><th></th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
         </div>
       </div>
     </section>
@@ -2631,6 +2684,132 @@
 
 <!-- Modal: pembayaran subkontraktor -->
 <!-- Modal: perbaiki slip gaji -->
+<div class="modal-backdrop" id="asetSewaModal">
+  <div class="modal">
+    <div class="modal-head"><h3 id="asetSewaModalTitle">Tambah Aset Sewa</h3><button class="icon-btn" data-close-modal>✕</button></div>
+    <form id="asetSewaForm">
+      <input type="hidden" id="sa_id">
+      <div class="form-grid">
+        <div class="field full">
+          <label>Nama Aset</label>
+          <input type="text" id="sa_nama" required placeholder="cth. Baliho Jl. Sudirman 4x6m / Kos Melati Kamar 1">
+        </div>
+        <div class="field">
+          <label>Jenis</label>
+          <select id="sa_jenis"></select>
+        </div>
+        <div class="field">
+          <label>Lokasi</label>
+          <input type="text" id="sa_lokasi" placeholder="Alamat / titik lokasi">
+        </div>
+        <div class="field">
+          <label>Harga Sewa Standar (Rp)</label>
+          <input type="text" inputmode="numeric" id="sa_hargaSewa" placeholder="0">
+        </div>
+        <div class="field">
+          <label>Satuan Sewa</label>
+          <select id="sa_satuanSewa"></select>
+        </div>
+        <div class="field">
+          <label>Status Aset</label>
+          <select id="sa_aktif"><option value="1">Aktif (disewakan)</option><option value="0">Nonaktif</option></select>
+        </div>
+        <div class="field full">
+          <label>Deskripsi / Spesifikasi</label>
+          <input type="text" id="sa_deskripsi" placeholder="cth. ukuran 4x6 m, 2 muka, listrik; atau luas tanah 200 m2">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="asetKontrakModal">
+  <div class="modal" style="max-width:900px;">
+    <div class="modal-head"><h3 id="asetKontrakModalTitle">Kontrak Sewa</h3><button class="icon-btn" data-close-modal>✕</button></div>
+    <div class="table-wrap">
+      <table class="tbl" id="swk_table">
+        <thead><tr>
+          <th>Penyewa</th><th>Kontak</th><th>Periode</th><th class="num">Nilai Kontrak</th><th class="num">Sudah Dibayar</th><th>Status</th><th></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <h4 style="margin:16px 0 6px;" id="swk_formTitle">Tambah Kontrak Baru</h4>
+    <form id="asetKontrakForm">
+      <input type="hidden" id="swk_id">
+      <div class="form-grid">
+        <div class="field">
+          <label>Nama Penyewa</label>
+          <input type="text" id="swk_penyewa" required placeholder="Nama orang/perusahaan">
+        </div>
+        <div class="field">
+          <label>Kontak (No. HP)</label>
+          <input type="text" id="swk_kontak" placeholder="08xxxxxxxxxx">
+        </div>
+        <div class="field">
+          <label>Mulai Sewa</label>
+          <input type="date" id="swk_mulai" required>
+        </div>
+        <div class="field">
+          <label>Selesai Sewa</label>
+          <input type="date" id="swk_selesai" required>
+        </div>
+        <div class="field">
+          <label>Nilai Kontrak (Rp)</label>
+          <input type="text" inputmode="numeric" id="swk_nilai" placeholder="0">
+        </div>
+        <div class="field">
+          <label>Catatan</label>
+          <input type="text" id="swk_catatan" placeholder="opsional">
+        </div>
+      </div>
+      <div class="modal-actions" style="justify-content:flex-start;">
+        <button type="submit" class="btn-primary" id="swk_submitBtn">Simpan Kontrak</button>
+        <button type="button" class="btn-ghost" id="swk_batalEditBtn" style="display:none;">Batal Edit</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="asetBayarModal">
+  <div class="modal">
+    <div class="modal-head"><h3>Catat Pembayaran Sewa</h3><button class="icon-btn" data-close-modal>✕</button></div>
+    <p class="muted" id="swb_info" style="margin:0 0 10px;"></p>
+    <form id="asetBayarForm">
+      <div class="form-grid">
+        <div class="field">
+          <label>Tanggal</label>
+          <input type="date" id="swb_tanggal" required>
+        </div>
+        <div class="field">
+          <label>Jumlah (Rp)</label>
+          <input type="text" inputmode="numeric" id="swb_jumlah" required placeholder="0">
+        </div>
+        <div class="field">
+          <label>Status</label>
+          <select id="swb_status">
+            <option value="lunas">Lunas (uang sudah diterima)</option>
+            <option value="pending">Piutang (belum dibayar / tagihan)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Keterangan Tambahan</label>
+          <input type="text" id="swb_keterangan" placeholder="cth. sewa bulan Agustus">
+        </div>
+      </div>
+      <p class="muted" style="font-size:12px;">Tercatat otomatis ke Kas Perusahaan (Masuk — Pendapatan Sewa Aset) dan ikut Laporan Keuangan, piutang, & KPI.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Catat</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="slipGajiEditModal">
   <div class="modal">
     <div class="modal-head">
