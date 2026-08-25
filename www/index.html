@@ -1351,6 +1351,7 @@
             </div>
             <div class="summary-row"><span>Sisa Pinjaman Sebelum</span><strong id="pg_sisaSebelum">Rp 0</strong></div>
             <div class="summary-row"><span>Sisa Pinjaman Sesudah</span><strong id="pg_sisaSesudah">Rp 0</strong></div>
+            <div class="summary-row"><span>Metode Pembayaran</span><strong id="pg_metodeBayar">Tunai</strong></div>
             <div class="summary-row total"><span>Gaji Bersih (Take Home)</span><strong id="pg_gajiBersih">Rp 0</strong></div>
           </div>
           <div class="modal-actions" style="justify-content:flex-start; margin-top:16px; align-items:center; gap:12px;">
@@ -3701,6 +3702,33 @@
         <div class="field full">
           <label>Pinjaman Awal (Rp)</label>
           <input type="text" inputmode="numeric" id="kym_pinjamanAwal" placeholder="0">
+        </div>
+      </div>
+
+      <div id="kym_pembayaranFields" style="margin-top:6px;">
+        <div class="form-grid">
+          <div class="field">
+            <label>Metode Pembayaran Gaji</label>
+            <select id="kym_bayarMetode">
+              <option value="Tunai">Tunai</option>
+              <option value="Transfer Bank">Transfer Bank</option>
+              <option value="E-Wallet">E-Wallet (DANA/OVO/GoPay)</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-grid" id="kym_bayarDetailFields">
+          <div class="field">
+            <label>Bank / E-Wallet</label>
+            <input type="text" id="kym_bayarBank" placeholder="BCA / BRI / DANA / OVO ...">
+          </div>
+          <div class="field">
+            <label>No. Rekening / No. HP E-Wallet</label>
+            <input type="text" id="kym_bayarNoRek" placeholder="cth. 1234567890">
+          </div>
+          <div class="field">
+            <label>Atas Nama</label>
+            <input type="text" id="kym_bayarAtasNama" placeholder="Nama pemilik rekening">
+          </div>
         </div>
       </div>
 
