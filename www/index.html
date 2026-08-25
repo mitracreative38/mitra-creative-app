@@ -47,6 +47,36 @@
     <p style="margin:0 0 24px;font-weight:600;" id="pekerjaAbsenStatus">Belum absen hari ini.</p>
 
     <hr style="border:none;border-top:1px solid #eee;margin:0 0 20px;">
+    <h2 style="font-size:16px;margin:0 0 12px;">📸 Lapor Pekerjaan</h2>
+    <p class="muted" style="font-size:12px;margin-bottom:12px;">Ganti kirim foto ke grup WA: isi lokasi + jumlah + foto, laporan langsung masuk sistem kantor lengkap dengan watermark waktu &amp; GPS.</p>
+    <div style="text-align:left;">
+      <label class="muted" style="font-size:11px;">Jenis pekerjaan</label>
+      <select id="pl_jenis" style="width:100%;margin-bottom:6px;">
+        <option>Pemasangan Poster/Pamflet</option>
+        <option>Pemasangan Spanduk/Banner</option>
+        <option>Pemasangan Reklame/Signage</option>
+        <option>Pemasangan/Instalasi</option>
+        <option>Survey Lokasi</option>
+        <option>Perbaikan/Servis</option>
+        <option>Pengiriman</option>
+        <option>Lainnya</option>
+      </select>
+      <label class="muted" style="font-size:11px;">Titik / lokasi</label>
+      <input type="text" id="pl_lokasi" placeholder="cth. Jalan Raya Demak - Kudus" style="width:100%;margin-bottom:6px;">
+      <div style="display:flex;gap:8px;">
+        <div style="flex:1;"><label class="muted" style="font-size:11px;">Jumlah</label><input type="number" id="pl_qty" min="0" step="any" placeholder="10" style="width:100%;margin-bottom:6px;"></div>
+        <div style="flex:1;"><label class="muted" style="font-size:11px;">Satuan</label><input type="text" id="pl_satuan" value="pcs" style="width:100%;margin-bottom:6px;"></div>
+      </div>
+      <label class="muted" style="font-size:11px;">Catatan (opsional)</label>
+      <input type="text" id="pl_catatan" style="width:100%;margin-bottom:6px;">
+      <label class="muted" style="font-size:11px;">Foto bukti (boleh banyak, maks 12)</label>
+      <input type="file" id="pl_foto" accept="image/*" capture="environment" multiple style="width:100%;margin-bottom:4px;">
+      <p class="muted" id="pl_fotoInfo" style="font-size:11px;margin:0 0 8px;"></p>
+      <button class="btn-primary" id="pl_submitBtn" style="width:100%;">📤 Kirim Laporan</button>
+      <p style="margin:8px 0 20px;font-size:12px;font-weight:600;" id="pl_status"></p>
+    </div>
+
+    <hr style="border:none;border-top:1px solid #eee;margin:0 0 20px;">
     <h2 style="font-size:16px;margin:0 0 4px;">Alat yang Sedang Anda Bawa</h2>
     <p class="muted" style="font-size:12px;margin-bottom:16px;">Pengingat -- tandai "Sudah Saya Kembalikan" begitu alat fisik dikembalikan ke Owner/Admin.</p>
     <div id="pekerjaAlatList" style="text-align:left;margin-bottom:24px;"></div>
@@ -102,6 +132,10 @@
       <button class="nav-item" data-page="proyek">
         <svg viewBox="0 0 24 24"><path d="M4 4h16v4H4V4zm0 6h10v10H4V10zm12 0h4v10h-4V10z"/></svg>
         Margin Proyek
+      </button>
+      <button class="nav-item" data-page="laporanKerja">
+        <svg viewBox="0 0 24 24"><path d="M12 15.2a3.2 3.2 0 100-6.4 3.2 3.2 0 000 6.4zM9 3l-1.8 2H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V7a2 2 0 00-2-2h-3.2L15 3H9zm3 15a6 6 0 110-12 6 6 0 010 12z"/></svg>
+        Laporan Kerja
       </button>
       <button class="nav-item" data-page="qc">
         <svg viewBox="0 0 24 24"><path d="M12 2l8 3v6c0 5-3.4 9.4-8 11-4.6-1.6-8-6-8-11V5l8-3zm-1.2 13.6l6-6-1.4-1.4-4.6 4.6-2.2-2.2-1.4 1.4 3.6 3.6z"/></svg>
@@ -868,6 +902,67 @@
     </section>
 
     <!-- SOP PERUSAHAAN -->
+    <section class="page" id="page-laporanKerja">
+      <div id="lkr_listView">
+        <header class="page-header">
+          <div>
+            <h1>Laporan Kerja Lapangan</h1>
+            <p class="page-sub">Bukti pekerjaan lapangan (pemasangan pamflet/spanduk/reklame, survey, servis, dll) per titik lokasi — foto otomatis berwatermark waktu + GPS. Pekerja bisa mengirim langsung dari HP lewat Mode Pekerja, lalu cetak jadi Bukti Laporan resmi untuk klien.</p>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="btn-primary" id="lkr_addBtn">+ Laporan Baru</button>
+            <button class="btn-ghost" id="lkr_cetakRekapBtn">🖨️ Cetak Rekap (hasil filter)</button>
+          </div>
+        </header>
+        <div class="stat-grid">
+          <div class="stat-card"><div class="stat-label">Laporan (hasil filter)</div><div class="stat-value" id="lkr_statLaporan">0</div></div>
+          <div class="stat-card"><div class="stat-label">Titik Lokasi</div><div class="stat-value" id="lkr_statTitik">0</div></div>
+          <div class="stat-card"><div class="stat-label">Foto Bukti</div><div class="stat-value" id="lkr_statFoto">0</div></div>
+        </div>
+        <div class="panel">
+          <div class="form-grid">
+            <div class="field"><label>Jenis</label><select id="lkr_filterJenis"></select></div>
+            <div class="field"><label>Klien</label><select id="lkr_filterKlien"></select></div>
+            <div class="field"><label>Dari Tanggal</label><input type="date" id="lkr_filterMulai"></div>
+            <div class="field"><label>Sampai Tanggal</label><input type="date" id="lkr_filterSelesai"></div>
+            <div class="field full"><label>Cari</label><input type="text" id="lkr_search" placeholder="judul / lokasi / petugas / klien..."></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="table-wrap">
+            <table class="tbl" id="lkr_table">
+              <thead><tr><th>Tanggal</th><th>Judul</th><th>Jenis</th><th>Klien</th><th>Titik</th><th>Total</th><th>Foto</th><th>Petugas</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div id="lkr_detailView" style="display:none;">
+        <header class="page-header">
+          <div>
+            <h1 id="lkr_detailJudul">Laporan Kerja</h1>
+            <p class="page-sub">Klik foto untuk memperbesar. Tautkan Klien/Proyek lewat ✏️ Edit supaya bukti ini rapi masuk arsip klien.</p>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="btn-ghost" id="lkr_backBtn">← Kembali</button>
+            <button class="btn-ghost" id="lkr_editBtn">✏️ Edit Info</button>
+            <button class="btn-primary" id="lkr_addTitikBtn">+ Tambah Titik &amp; Foto</button>
+            <button class="btn-primary" id="lkr_printBtn">🖨️ Cetak Bukti Laporan</button>
+            <button class="btn-ghost" id="lkr_deleteBtn">🗑️ Hapus</button>
+          </div>
+        </header>
+        <div class="panel" id="lkr_infoPanel"></div>
+        <div class="panel">
+          <div class="table-wrap">
+            <table class="tbl" id="lkr_titikTable">
+              <thead><tr><th>Titik / Lokasi</th><th>Jumlah</th><th>Waktu</th><th>Foto Bukti</th><th>Jml Foto</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="page" id="page-sop">
       <header class="page-header">
         <div>
@@ -3031,6 +3126,54 @@
       </table>
     </div>
     <p class="muted" style="font-size:12px; margin-top:8px;">Riwayat ini menjadi dasar keputusan bonus, kenaikan, maupun sanksi yang adil (SOP HRD). Tombol 🖨️ mencetak surat resmi berkop (SP/teguran/penghargaan) untuk ditandatangani karyawan — simpan sebagai PDF dari dialog cetak.</p>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="laporanKerjaModal">
+  <div class="modal">
+    <div class="modal-head"><h3 id="laporanKerjaModalTitle">Laporan Kerja Baru</h3><button class="icon-btn" data-close-modal>✕</button></div>
+    <form id="laporanKerjaForm">
+      <input type="hidden" id="lkr_id">
+      <div class="form-grid">
+        <div class="field"><label>Tanggal</label><input type="date" id="lkr_tanggal" required></div>
+        <div class="field"><label>Jenis Pekerjaan</label><select id="lkr_jenis"></select></div>
+        <div class="field full"><label>Judul Laporan</label><input type="text" id="lkr_judul" required placeholder="cth. Pemasangan Pamflet Pitulasan NSS Demak"></div>
+        <div class="field"><label>Klien (opsional)</label><select id="lkr_klienId"></select></div>
+        <div class="field"><label>Proyek Terkait (opsional)</label><select id="lkr_proyekId"></select></div>
+        <div class="field"><label>Petugas Lapangan</label><input type="text" id="lkr_petugas" placeholder="nama pekerja/tim"></div>
+        <div class="field full"><label>Catatan (opsional)</label><input type="text" id="lkr_catatan"></div>
+      </div>
+      <div class="modal-actions"><button type="submit" class="btn-primary">Simpan</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="titikLaporanModal">
+  <div class="modal">
+    <div class="modal-head"><h3>Tambah Titik &amp; Foto Bukti</h3><button class="icon-btn" data-close-modal>✕</button></div>
+    <form id="titikLaporanForm">
+      <div class="form-grid">
+        <div class="field full"><label>Titik / Lokasi</label><input type="text" id="tk_lokasi" required placeholder="cth. Jalan Raya Demak - Kudus"></div>
+        <div class="field"><label>Jumlah</label><input type="number" id="tk_qty" min="0" step="any" required placeholder="cth. 10"></div>
+        <div class="field"><label>Satuan</label><input type="text" id="tk_satuan" value="pcs"></div>
+        <div class="field full"><label>Catatan (opsional)</label><input type="text" id="tk_catatan"></div>
+        <div class="field full">
+          <label>Foto Bukti (boleh banyak, maks 20)</label>
+          <input type="file" id="tk_foto" accept="image/*" multiple>
+          <p class="muted" id="tk_fotoInfo" style="font-size:12px; margin:4px 0 0;"></p>
+        </div>
+      </div>
+      <p class="muted" style="font-size:12px;">Setiap foto otomatis diberi watermark nama perusahaan + waktu + lokasi + koordinat GPS (kalau izin lokasi diberikan) — sama seperti aplikasi kamera timestamp, tapi langsung tersimpan rapi di laporan.</p>
+      <div class="modal-actions"><button type="submit" class="btn-primary" id="tk_submitBtn">Simpan Titik</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="lkFotoModal">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-head"><h3>Foto Bukti</h3><button class="icon-btn" data-close-modal>✕</button></div>
+    <img id="lkFoto_img" src="" alt="foto bukti" style="width:100%; border-radius:8px;">
+    <p class="muted" id="lkFoto_ket" style="font-size:12px; margin-top:8px;"></p>
   </div>
 </div>
 
