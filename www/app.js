@@ -71,6 +71,7 @@ function withDefaults(s) {
   if (!s.utangUsaha) s.utangUsaha = [];
   if (!s.kasOpname) s.kasOpname = [];
   if (!s.anggaranBiaya) s.anggaranBiaya = {};
+  if (typeof s.periodeTerkunci !== "string") s.periodeTerkunci = "";
   if (typeof s.approvalThreshold !== "number") s.approvalThreshold = 0;
   if (typeof s.targetOmzetBulanan !== "number") s.targetOmzetBulanan = 0;
   if (typeof s.targetLababersihBulanan !== "number") s.targetLababersihBulanan = 0;
@@ -1367,6 +1368,7 @@ function companyProfileToRow() {
     rekening: state.rekening || "",
     invoice_counter: state.invoiceCounter || 0,
     anggaran_biaya: state.anggaranBiaya || {},
+    periode_terkunci: state.periodeTerkunci || "",
     updated_at: new Date().toISOString()
   };
 }
@@ -1733,6 +1735,7 @@ async function buildStateFromRelational(companyId) {
     rekening: (profileRow && profileRow.rekening) || "",
     invoiceCounter: (profileRow && profileRow.invoice_counter) || 0,
     anggaranBiaya: (profileRow && profileRow.anggaran_biaya) || {},
+    periodeTerkunci: (profileRow && profileRow.periode_terkunci) || "",
     klien: klienRows.map(rowToKlien),
     ahsp: ahspRows.map(rowToAhsp),
     proyekRab: rabRows.map(rowToRab),
@@ -2175,6 +2178,205 @@ function renderDashboardTrend() {
     `;
   }).join("");
 }
+
+// ===== Gelombang 2: Tutup Buku Bulanan (kunci periode) & Kalender Perusahaan =====
+// Bulan yang sudah ditutup bukunya (state.periodeTerkunci = "YYYY-MM"):
+// transaksi Kas Perusahaan bertanggal di dalam/atau sebelum bulan itu
+// tidak bisa ditambah/diubah/dihapus lagi -- laporan yang sudah
+// diarsipkan tidak berubah diam-diam. Return true = DIBLOKIR.
+function guardPeriodeTerkunci(tanggal) {
+  if (!state.periodeTerkunci || !tanggal) return false;
+  if (tanggal.slice(0, 7) > state.periodeTerkunci) return false;
+  alert(`Periode s/d ${state.periodeTerkunci} sudah DITUTUP BUKUNYA — transaksi bertanggal di periode itu tidak bisa ditambah/diubah/dihapus lagi.\n\nKalau memang perlu koreksi, Owner bisa membuka kuncinya dulu di Laporan Keuangan → Tutup Buku.`);
+  return true;
+}
+function computeTutupBuku(bulan) {
+  const mulai = bulan + "-01";
+  const d = new Date(bulan + "-01T00:00:00");
+  const selesai = isoTanggalLokal(new Date(d.getFullYear(), d.getMonth() + 1, 0));
+  const lr = computeLabaRugi(mulai, selesai);
+  const txns = state.kasUsaha.transactions.filter(t => (t.tanggal || "") >= mulai && (t.tanggal || "") <= selesai);
+  const masuk = txns.filter(t => t.tipe === "Masuk" && (t.status || "lunas") === "lunas").reduce((s, t) => s + (t.jumlah || 0), 0);
+  const keluar = txns.filter(t => t.tipe === "Keluar" && (t.status || "lunas") !== "menunggu_persetujuan").reduce((s, t) => s + Math.max(0, t.jumlah || 0), 0);
+  const sdAkhir = state.kasUsaha.transactions.filter(t => (t.tanggal || "") <= selesai);
+  const saldoAkhir = (state.kasUsaha.saldoAwal || 0)
+    + sdAkhir.filter(t => t.tipe === "Masuk" && (t.status || "lunas") === "lunas").reduce((s, t) => s + (t.jumlah || 0), 0)
+    - sdAkhir.filter(t => t.tipe === "Keluar" && (t.status || "lunas") !== "menunggu_persetujuan").reduce((s, t) => s + Math.max(0, t.jumlah || 0), 0);
+  const piutang = kasSummary("kasUsaha").pending;
+  const utang = (state.utangUsaha || []).reduce((s, u) => s + Math.max(0, utangSisa(u)), 0);
+  let gaji = 0;
+  state.karyawan.forEach(k => (k.slipGaji || []).forEach(sl => {
+    if ((sl.selesai || "") >= mulai && (sl.selesai || "") <= selesai) gaji += slipGajiBersih(sl);
+  }));
+  const sewa = state.kasUsaha.transactions
+    .filter(t => t.sumberSewaId && (t.status || "lunas") === "lunas" && (t.tanggal || "") >= mulai && (t.tanggal || "") <= selesai)
+    .reduce((s, t) => s + (t.jumlah || 0), 0);
+  return { mulai, selesai, lr, masuk, keluar, saldoAkhir, piutang, utang, gaji, sewa, jmlTxn: txns.length };
+}
+function tbBulanTerpilih() {
+  const inp = document.getElementById("tb_bulan");
+  if (!inp.value) {
+    // Default: bulan lalu (tutup buku biasanya dilakukan awal bulan berikutnya).
+    const now = new Date();
+    inp.value = isoTanggalLokal(new Date(now.getFullYear(), now.getMonth() - 1, 1)).slice(0, 7);
+  }
+  return inp.value;
+}
+function renderTutupBuku() {
+  const bulan = tbBulanTerpilih();
+  const t = computeTutupBuku(bulan);
+  document.getElementById("tb_rows").innerHTML = `
+    <div class="summary-row"><span>Pendapatan (Laba Rugi)</span><strong class="good">${rupiah(t.lr.pendapatan)}</strong></div>
+    <div class="summary-row"><span>Beban (Laba Rugi)</span><strong class="bad">${rupiah(t.lr.beban)}</strong></div>
+    <div class="summary-row total"><span>Laba Bersih Bulan Ini</span><strong>${rupiah(t.lr.labaBersih)}</strong></div>
+    <div class="summary-row"><span>Kas Masuk / Keluar (${t.jmlTxn} transaksi)</span><strong>${rupiah(t.masuk)} / ${rupiah(t.keluar)}</strong></div>
+    ${currentTeamRole === "owner" ? `<div class="summary-row"><span>Saldo Kas Akhir Bulan</span><strong>${rupiah(t.saldoAkhir)}</strong></div>` : ""}
+    <div class="summary-row"><span>Piutang Belum Diterima (saat ini)</span><strong>${rupiah(t.piutang)}</strong></div>
+    <div class="summary-row"><span>Utang Usaha Belum Lunas (saat ini)</span><strong>${rupiah(t.utang)}</strong></div>
+    ${currentTeamRole === "owner" ? `<div class="summary-row"><span>Total Gaji Dibayarkan</span><strong>${rupiah(t.gaji)}</strong></div>` : ""}
+    <div class="summary-row"><span>Pendapatan Sewa Aset</span><strong>${rupiah(t.sewa)}</strong></div>
+  `;
+  const status = document.getElementById("tb_kunciStatus");
+  status.textContent = state.periodeTerkunci
+    ? `🔒 Periode s/d ${state.periodeTerkunci} TERKUNCI — transaksi Kas Perusahaan di periode itu tidak bisa diubah lagi.`
+    : "Belum ada periode yang dikunci.";
+  const isOwner = currentTeamRole === "owner";
+  document.getElementById("tb_kunciBtn").style.display = isOwner ? "inline-block" : "none";
+  document.getElementById("tb_bukaKunciBtn").style.display = isOwner && state.periodeTerkunci ? "inline-block" : "none";
+}
+document.getElementById("tb_bulan").addEventListener("change", renderTutupBuku);
+document.getElementById("tb_kunciBtn").addEventListener("click", () => {
+  const bulan = tbBulanTerpilih();
+  if (!confirm(`Tutup buku & KUNCI periode s/d ${bulan}?\nSemua transaksi Kas Perusahaan bertanggal di dalam/atau sebelum bulan itu tidak bisa ditambah/diubah/dihapus lagi (bisa dibuka kembali kapan saja oleh Owner).`)) return;
+  state.periodeTerkunci = bulan;
+  saveState();
+  mirrorCompanyProfileUpsert();
+  renderAll();
+  alert(`Periode s/d ${bulan} terkunci. Jangan lupa cetak Paket Laporan Bulanan sebagai arsip.`);
+});
+document.getElementById("tb_bukaKunciBtn").addEventListener("click", () => {
+  if (!confirm(`Buka kunci periode (saat ini terkunci s/d ${state.periodeTerkunci})?\nTransaksi lama bisa diubah lagi sampai Anda menguncinya kembali.`)) return;
+  state.periodeTerkunci = "";
+  saveState();
+  mirrorCompanyProfileUpsert();
+  renderAll();
+});
+function buildTutupBukuPrintHtml(bulan) {
+  const t = computeTutupBuku(bulan);
+  const namaBulan = new Date(bulan + "-01T00:00:00").toLocaleDateString("id-ID", { month: "long", year: "numeric" });
+  const lrRows = t.lr.rows.map(r => `
+    <tr><td>${escapeHtml(r.kategori)}</td><td>${r.kelompok}</td><td class="r">${rupiah(r.jumlah)}</td></tr>
+  `).join("");
+  return `
+    <div class="letterhead">
+      <div class="letterhead-logo">${LOGO_SVG}</div>
+      <div class="letterhead-text">
+        <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+      </div>
+    </div>
+    <div class="letterhead-rule"></div>
+    <h3 style="text-align:center; margin:6px 0 16px; letter-spacing:.5px;">LAPORAN TUTUP BUKU — ${escapeHtml(namaBulan.toUpperCase())}</h3>
+    <table class="doc-items">
+      <thead><tr><th>Kategori</th><th>Kelompok</th><th class="r">Jumlah</th></tr></thead>
+      <tbody>${lrRows || '<tr><td colspan="3" class="c">Tidak ada transaksi</td></tr>'}</tbody>
+    </table>
+    <table class="doc-summary-table">
+      <tr><td>Total Pendapatan</td><td class="r">${rupiah(t.lr.pendapatan)}</td></tr>
+      <tr><td>Total Beban</td><td class="r">${rupiah(t.lr.beban)}</td></tr>
+      <tr class="total-row"><td>Laba Bersih</td><td class="r">${rupiah(t.lr.labaBersih)}</td></tr>
+      <tr><td>Kas Masuk / Keluar (${t.jmlTxn} transaksi)</td><td class="r">${rupiah(t.masuk)} / ${rupiah(t.keluar)}</td></tr>
+      <tr><td>Saldo Kas Akhir Bulan</td><td class="r">${rupiah(t.saldoAkhir)}</td></tr>
+      <tr><td>Piutang Belum Diterima</td><td class="r">${rupiah(t.piutang)}</td></tr>
+      <tr><td>Utang Usaha Belum Lunas</td><td class="r">${rupiah(t.utang)}</td></tr>
+      <tr><td>Total Gaji Dibayarkan</td><td class="r">${rupiah(t.gaji)}</td></tr>
+      <tr><td>Pendapatan Sewa Aset</td><td class="r">${rupiah(t.sewa)}</td></tr>
+    </table>
+    <p class="doc-p">Periode: ${formatTanggal(t.mulai)} — ${formatTanggal(t.selesai)}. Dicetak ${formatTanggal(hariIniIso())}.</p>
+    <div style="display:flex; justify-content:flex-end; margin-top:30px; font-size:12.5px;">
+      <div style="text-align:right;">
+        Disahkan oleh,<br>${escapeHtml(state.company || "CV. Mitra Creative")}
+        ${ownerTtdOrSpace(state.ownerNama)}
+        <strong>${escapeHtml(state.ownerNama)}</strong><br>${escapeHtml(state.ownerJabatan)}
+      </div>
+    </div>
+  `;
+}
+document.getElementById("tb_printBtn").addEventListener("click", () => {
+  document.getElementById("printArea").innerHTML = buildTutupBukuPrintHtml(tbBulanTerpilih());
+  document.body.classList.add("printing-quote");
+  window.print();
+});
+// ----- Kalender Perusahaan -----
+let kalBulan = hariIniIso().slice(0, 7);
+function computeKalenderEvents(bulan) {
+  const events = {};
+  const tambah = (tanggal, icon, label, page, merah) => {
+    if (!tanggal || tanggal.slice(0, 7) !== bulan) return;
+    (events[tanggal] = events[tanggal] || []).push({ icon, label, page, merah: !!merah });
+  };
+  const today = hariIniIso();
+  (state.utangUsaha || []).forEach(u => {
+    if (utangSisa(u) > 0) tambah(u.jatuhTempo, "💳", `Utang ${u.pemasokNama} ${rupiah(Math.max(0, utangSisa(u)))}`, "kasUsaha", u.jatuhTempo < today);
+  });
+  (state.asetSewa || []).forEach(a => {
+    if (a.aktif === false) return;
+    (a.kontrak || []).forEach(kt => {
+      if (kontrakSewaStatus(kt, today) !== "selesai") tambah(kt.selesai, "🏠", `Sewa ${a.nama} berakhir (${kt.penyewa})`, "sewaAset");
+    });
+  });
+  const finalTahap = ["Selesai", "Hilang"];
+  (state.klien || []).forEach(k => {
+    if (!finalTahap.includes(k.tahap)) tambah(k.followUpTanggal, "📞", `Follow-up ${k.nama}`, "klien", k.followUpTanggal < today);
+  });
+  (state.proyek || []).forEach(p => {
+    if (p.status === "berjalan" && !p.arsip) tambah(p.tanggalSelesai, "🏗️", `Target selesai ${p.nama}`, "proyek");
+  });
+  (state.alat || []).forEach(a => tambah(a.servisBerikutnya, "🔧", `Servis ${a.nama}`, "stok"));
+  (state.penawaran || []).forEach(pw => {
+    if (["draft", "terkirim"].includes(pw.status) && pw.tanggal) tambah(addDaysIso(pw.tanggal, 14), "📄", `Penawaran ${pw.nomor} kadaluarsa`, "penawaran");
+  });
+  return events;
+}
+function renderKalender() {
+  const grid = document.getElementById("kal_grid");
+  const d = new Date(kalBulan + "-01T00:00:00");
+  document.getElementById("kal_label").textContent = d.toLocaleDateString("id-ID", { month: "long", year: "numeric" });
+  const events = computeKalenderEvents(kalBulan);
+  const today = hariIniIso();
+  const hariAwal = d.getDay(); // 0 = Minggu
+  const jumlahHari = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  let html = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"].map(h => `<div class="kal-head">${h}</div>`).join("");
+  for (let i = 0; i < hariAwal; i++) html += '<div class="kal-day kal-luar"></div>';
+  for (let tgl = 1; tgl <= jumlahHari; tgl++) {
+    const iso = `${kalBulan}-${String(tgl).padStart(2, "0")}`;
+    const hari = new Date(iso + "T00:00:00").getDay();
+    const items = (events[iso] || []).slice();
+    // Gajian mingguan tiap Sabtu (siklus penggajian Owner).
+    if (hari === 6) items.push({ icon: "💰", label: "Gajian mingguan", page: "karyawan" });
+    const shown = items.slice(0, 3).map(ev => `
+      <button class="kal-event ${ev.merah ? "kal-merah" : ""}" data-goto-page="${ev.page}" title="${escapeHtml(ev.label)}">${ev.icon} ${escapeHtml(ev.label)}</button>
+    `).join("");
+    const lebih = items.length > 3 ? `<span class="kal-more">+${items.length - 3} lagi</span>` : "";
+    html += `<div class="kal-day ${iso === today ? "kal-hariini" : ""}"><div class="kal-tgl">${tgl}</div>${shown}${lebih}</div>`;
+  }
+  grid.innerHTML = html;
+}
+document.getElementById("kal_prevBtn").addEventListener("click", () => {
+  const d = new Date(kalBulan + "-01T00:00:00");
+  kalBulan = isoTanggalLokal(new Date(d.getFullYear(), d.getMonth() - 1, 1)).slice(0, 7);
+  renderKalender();
+});
+document.getElementById("kal_nextBtn").addEventListener("click", () => {
+  const d = new Date(kalBulan + "-01T00:00:00");
+  kalBulan = isoTanggalLokal(new Date(d.getFullYear(), d.getMonth() + 1, 1)).slice(0, 7);
+  renderKalender();
+});
+document.getElementById("kal_grid").addEventListener("click", e => {
+  const btn = e.target.closest("[data-goto-page]");
+  if (btn) showPage(btn.dataset.gotoPage);
+});
 
 // ===== Gelombang 1 kontrol uang: Utang Usaha, Anggaran Biaya, Opname Kas =====
 const KATEGORI_BIAYA = KATEGORI_USAHA.filter(k => !k.startsWith("Pendapatan"));
@@ -5506,6 +5708,7 @@ function showSubtab(pagePrefix, name) {
     if (name === "labarugi") renderLabaRugi();
     if (name === "neraca") renderNeraca();
     if (name === "proyeksi") renderProyeksiArusKas();
+    if (name === "tutupbuku") renderTutupBuku();
   }
   if (pagePrefix === "kpi") renderKpiActiveSubtab();
   if (pagePrefix === "pm" && name === "performa") renderVendorPerforma();
@@ -10071,6 +10274,7 @@ function renderAll() {
     const lkName = activeLkSubtab ? activeLkSubtab.dataset.subtab : "labarugi";
     if (lkName === "neraca") renderNeraca();
     else if (lkName === "proyeksi") renderProyeksiArusKas();
+    else if (lkName === "tutupbuku") renderTutupBuku();
     else renderLabaRugi(); }
   renderKpiActiveSubtab();
   document.getElementById("stok_listView").style.display = currentStokId ? "none" : "block";
@@ -10089,6 +10293,7 @@ function renderAll() {
   renderAnggaranBiaya();
   renderAnggaranSettings();
   renderKasOpname();
+  renderKalender();
   { const activePmSubtab = document.querySelector('.subtab-item[data-subtab-page="pm"].active');
     if (activePmSubtab && activePmSubtab.dataset.subtab === "performa") renderVendorPerforma(); }
   renderAhsp();
@@ -10127,7 +10332,7 @@ function renderAll() {
 // hanya halaman yang terdaftar di sini yang boleh diakses.
 const ROLE_PAGE_ACCESS = {
   owner: null,
-  admin: ["dashboard", "klien", "kasUsaha", "laporan", "kpi", "proyek", "sewaAset", "karyawan", "lokasi", "stok", "pemasok", "ahsp", "rab", "penawaran", "pengaturan"],
+  admin: ["dashboard", "kalender", "klien", "kasUsaha", "laporan", "kpi", "proyek", "sewaAset", "karyawan", "lokasi", "stok", "pemasok", "ahsp", "rab", "penawaran", "pengaturan"],
   marketing: ["klien", "ahsp", "rab", "penawaran", "pengaturan"]
 };
 function canAccessPage(name) {
@@ -10282,6 +10487,9 @@ document.getElementById("txnForm").addEventListener("submit", async e => {
   const id = document.getElementById("txn_id").value;
   const arr = state[book].transactions;
   const existing = id ? arr.find(t => t.id === id) : null;
+  // Tutup Buku: transaksi Kas Perusahaan di periode terkunci tidak bisa
+  // ditambah/diubah (cek tanggal baru MAUPUN tanggal lama saat edit).
+  if (book === "kasUsaha" && (guardPeriodeTerkunci(document.getElementById("txn_tanggal").value) || (existing && guardPeriodeTerkunci(existing.tanggal)))) return;
   const txn = {
     ...existing,
     id: id || uid(),
@@ -10322,6 +10530,8 @@ document.getElementById("txnForm").addEventListener("submit", async e => {
       if (t) openTxnModal(book, t);
     } else if (delBtn) {
       const book = delBtn.dataset.book;
+      const target = state[book].transactions.find(x => x.id === delBtn.dataset.delete);
+      if (book === "kasUsaha" && target && guardPeriodeTerkunci(target.tanggal)) return;
       if (confirm("Hapus transaksi ini?")) {
         const deleted = state[book].transactions.find(x => x.id === delBtn.dataset.delete);
         state[book].transactions = state[book].transactions.filter(x => x.id !== delBtn.dataset.delete);
