@@ -148,7 +148,7 @@ function stripSensitiveForBlob(data) {
   // nol -- lihat guard "typeof === number" di karyawanGajiToRow).
   copy.karyawan = (copy.karyawan || []).map(k => {
     const clean = Object.assign({}, k, { slipGaji: [] });
-    ["upahHarian", "tarifLembur", "uangMakanHarian", "gajiBulanan", "targetBulanan", "persenBonus", "pinjamanAwal"].forEach(f => { delete clean[f]; });
+    ["upahHarian", "tarifLembur", "uangMakanHarian", "gajiBulanan", "targetBulanan", "persenBonus", "pinjamanAwal", "pembayaranGaji"].forEach(f => { delete clean[f]; });
     clean.absensi = (clean.absensi || []).map(a => {
       const rec = Object.assign({}, a);
       delete rec.uangMakan;
@@ -250,6 +250,7 @@ async function hydrateSensitiveFields(data) {
           merged.targetBulanan = g.target_bulanan || 0;
           merged.persenBonus = g.persen_bonus || 0;
           merged.pinjamanAwal = g.pinjaman_awal || 0;
+          merged.pembayaranGaji = g.pembayaran || {};
           const absensiGaji = g.absensi_gaji || {};
           merged.absensi = (merged.absensi || []).map(a => {
             const extra = a.tanggal ? absensiGaji[a.tanggal] : null;
@@ -945,6 +946,8 @@ function karyawanGajiToRow(k, opts) {
     row.persen_bonus = k.persenBonus || 0;
     row.pinjaman_awal = k.pinjamanAwal || 0;
   }
+  // Rekening/e-wallet gaji: rahasia Owner, satu rumah dengan nominal upah.
+  if (k.pembayaranGaji !== undefined) row.pembayaran = k.pembayaranGaji || {};
   const gajiMap = {};
   (k.absensi || []).forEach(a => {
     if (!a.tanggal) return;
@@ -4912,8 +4915,24 @@ function toggleKaryawanTipeFields() {
   document.getElementById("kym_harianFields").style.display = showNominal && !isBulanan ? "grid" : "none";
   document.getElementById("kym_bulananFields").style.display = showNominal && isBulanan ? "grid" : "none";
   document.getElementById("kym_pinjamanFields").style.display = showNominal ? "grid" : "none";
+  // Rekening/e-wallet ikut rahasia gaji (tersimpan di karyawan_gaji,
+  // Owner-only); detail rekening cuma relevan kalau bukan Tunai.
+  document.getElementById("kym_pembayaranFields").style.display = showNominal ? "block" : "none";
+  const metode = document.getElementById("kym_bayarMetode").value;
+  document.getElementById("kym_bayarDetailFields").style.display = metode === "Tunai" ? "none" : "grid";
 }
 document.getElementById("kym_tipeGaji").addEventListener("change", toggleKaryawanTipeFields);
+document.getElementById("kym_bayarMetode").addEventListener("change", toggleKaryawanTipeFields);
+// Label ringkas metode pembayaran gaji untuk ringkasan Penggajian & slip:
+// "Tunai" atau "Transfer Bank — BCA 1234567890 (a.n. Budi)".
+function formatPembayaranGaji(pb) {
+  if (!pb || !pb.metode || pb.metode === "Tunai") return "Tunai";
+  let s = pb.metode;
+  const rincian = [pb.bank, pb.noRek].filter(Boolean).join(" ");
+  if (rincian) s += ` — ${rincian}`;
+  if (pb.atasNama) s += ` (a.n. ${pb.atasNama})`;
+  return s;
+}
 function openKaryawanModal(existing) {
   document.getElementById("kym_id").value = existing ? existing.id : "";
   document.getElementById("karyawanModalTitle").textContent = existing ? "Edit Karyawan" : "Tambah Karyawan";
@@ -4928,6 +4947,11 @@ function openKaryawanModal(existing) {
   document.getElementById("kym_targetBulanan").value = existing ? formatNumberInput(existing.targetBulanan || 0) : "";
   document.getElementById("kym_persenBonus").value = existing ? (existing.persenBonus || 0) : 0;
   document.getElementById("kym_pinjamanAwal").value = existing ? formatNumberInput(existing.pinjamanAwal || 0) : "";
+  const pb = (existing && existing.pembayaranGaji) || {};
+  document.getElementById("kym_bayarMetode").value = ["Tunai", "Transfer Bank", "E-Wallet"].includes(pb.metode) ? pb.metode : "Tunai";
+  document.getElementById("kym_bayarBank").value = pb.bank || "";
+  document.getElementById("kym_bayarNoRek").value = pb.noRek || "";
+  document.getElementById("kym_bayarAtasNama").value = pb.atasNama || "";
   toggleKaryawanTipeFields();
   karyawanModal.classList.add("open");
 }
@@ -4962,10 +4986,17 @@ document.getElementById("karyawanForm").addEventListener("submit", e => {
     k.targetBulanan = parseNumberInput(document.getElementById("kym_targetBulanan").value);
     k.persenBonus = parseFloat(document.getElementById("kym_persenBonus").value) || 0;
     k.pinjamanAwal = parseNumberInput(document.getElementById("kym_pinjamanAwal").value);
+    const metode = document.getElementById("kym_bayarMetode").value;
+    k.pembayaranGaji = metode === "Tunai" ? { metode: "Tunai" } : {
+      metode,
+      bank: document.getElementById("kym_bayarBank").value.trim(),
+      noRek: document.getElementById("kym_bayarNoRek").value.trim(),
+      atasNama: document.getElementById("kym_bayarAtasNama").value.trim()
+    };
   } else if (existing) {
     // Field nominal disembunyikan dari non-Owner (Fix 30) -- pertahankan
     // nilai yang sudah ada di state, jangan ditimpa 0 dari input kosong.
-    ["upahHarian", "tarifLembur", "uangMakanHarian", "gajiBulanan", "targetBulanan", "persenBonus", "pinjamanAwal"].forEach(f => {
+    ["upahHarian", "tarifLembur", "uangMakanHarian", "gajiBulanan", "targetBulanan", "persenBonus", "pinjamanAwal", "pembayaranGaji"].forEach(f => {
       if (existing[f] !== undefined) k[f] = existing[f];
     });
   }
@@ -5373,6 +5404,7 @@ function refreshPenggajianSummary() {
   const gajiBersih = upahKotor - uangMakan - bon - potonganPinjaman;
   document.getElementById("pg_sisaSebelum").textContent = rupiah(sisaSebelum);
   document.getElementById("pg_sisaSesudah").textContent = rupiah(sisaSesudah);
+  document.getElementById("pg_metodeBayar").textContent = k ? formatPembayaranGaji(k.pembayaranGaji) : "Tunai";
   document.getElementById("pg_gajiBersih").textContent = rupiah(gajiBersih);
 }
 document.getElementById("pg_karyawan").addEventListener("change", () => computePayrollFromAbsensi(true));
@@ -5682,6 +5714,9 @@ document.getElementById("pg_simpanCetakBtn").addEventListener("click", () => {
     bon: parseNumberInput(document.getElementById("pg_bon").value),
     potonganPinjaman: parseNumberInput(document.getElementById("pg_potonganPinjaman").value),
     sisaSebelum: sisaPinjaman(k),
+    // Snapshot metode pembayaran saat slip dibuat -- slip lama tetap
+    // menampilkan rekening yang dipakai waktu itu walau data karyawan berubah.
+    pembayaran: Object.assign({ metode: "Tunai" }, k.pembayaranGaji || {}),
     tanggalDibuat: hariIniIso()
   };
   if (isBulanan) {
@@ -5744,6 +5779,7 @@ function buildSlipGajiPrintHtml(k, sl) {
       <tr><td>Nama</td><td>:</td><td><strong>${escapeHtml(sl.namaKaryawan)}</strong></td></tr>
       <tr><td>Jabatan</td><td>:</td><td>${escapeHtml(sl.jabatan || "-")}</td></tr>
       <tr><td>Periode</td><td>:</td><td>${formatTanggal(sl.mulai)} — ${formatTanggal(sl.selesai)}</td></tr>
+      <tr><td>Pembayaran</td><td>:</td><td>${escapeHtml(formatPembayaranGaji(sl.pembayaran))}</td></tr>
     </table>
     <table class="doc-items">
       <thead><tr><th>Uraian</th><th>Keterangan</th><th class="r">Jumlah</th></tr></thead>

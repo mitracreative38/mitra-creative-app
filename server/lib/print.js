@@ -393,6 +393,16 @@ function slipGajiBersih(sl) {
 // sl: satu entri dari array karyawan_gaji.slip_gaji (sudah membawa
 // namaKaryawan/jabatan/tipeGaji apa adanya sejak dibuat, tidak perlu
 // join ke tabel karyawan lagi).
+// Label metode pembayaran gaji -- duplikat kecil dari formatPembayaranGaji
+// di www/app.js supaya PDF server identik dengan cetak browser.
+function formatPembayaranGaji(pb) {
+  if (!pb || !pb.metode || pb.metode === "Tunai") return "Tunai";
+  let s = pb.metode;
+  const rincian = [pb.bank, pb.noRek].filter(Boolean).join(" ");
+  if (rincian) s += ` — ${rincian}`;
+  if (pb.atasNama) s += ` (a.n. ${pb.atasNama})`;
+  return s;
+}
 function buildSlipGajiPrintHtml(sl, profil) {
   return `
     <div class="letterhead">
@@ -409,6 +419,7 @@ function buildSlipGajiPrintHtml(sl, profil) {
       <tr><td>Nama</td><td>:</td><td><strong>${escapeHtml(sl.namaKaryawan)}</strong></td></tr>
       <tr><td>Jabatan</td><td>:</td><td>${escapeHtml(sl.jabatan || "-")}</td></tr>
       <tr><td>Periode</td><td>:</td><td>${formatTanggal(sl.mulai)} — ${formatTanggal(sl.selesai)}</td></tr>
+      <tr><td>Pembayaran</td><td>:</td><td>${escapeHtml(formatPembayaranGaji(sl.pembayaran))}</td></tr>
     </table>
     <table class="doc-items">
       <thead><tr><th>Uraian</th><th>Keterangan</th><th class="r">Jumlah</th></tr></thead>
