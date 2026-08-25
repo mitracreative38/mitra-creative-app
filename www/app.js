@@ -4134,6 +4134,106 @@ function terbilangRupiah(n) {
   const kata = terbilang(n).replace(/\s+/g, " ").trim() || "nol";
   return kata.charAt(0).toUpperCase() + kata.slice(1) + " rupiah";
 }
+// ----- Cetak SPK & BAST (Integrasi B: dokumen tersusun otomatis dari
+// data yang SUDAH ada -- proyek, item penawaran/RAB, QC serah terima,
+// garansi -- tidak perlu mengetik ulang di Word) -----
+function dokSumberProyek(p) {
+  return (p.sumberPenawaranId && (state.penawaran || []).find(x => x.id === p.sumberPenawaranId)) ||
+    (p.sumberRabId && (state.proyekRab || []).find(x => x.id === p.sumberRabId)) || null;
+}
+function nomorDokProyek(p, jenis) {
+  const d = new Date();
+  const urut = (p.dokumen || []).filter(x => (x.jenis || "").toUpperCase().includes(jenis)).length + 1;
+  return `${jenis}-${String(urut).padStart(2, "0")}/MC/${ROMAWI_BULAN[d.getMonth()]}/${d.getFullYear()}`;
+}
+function daftarPekerjaanHtml(p) {
+  const doc = dokSumberProyek(p);
+  const items = (doc && doc.items) || [];
+  if (!items.length) return `<p class="doc-p">Lingkup pekerjaan: ${escapeHtml(p.nama)}.</p>`;
+  return `
+    <table class="doc-items">
+      <thead><tr><th class="c" style="width:34px;">No</th><th>Uraian Pekerjaan</th><th class="c" style="width:90px;">Volume</th><th class="c" style="width:80px;">Satuan</th></tr></thead>
+      <tbody>${items.map((it, i) => `<tr><td class="c">${i + 1}</td><td>${escapeHtml(it.uraian)}</td><td class="c">${it.volume || 0}</td><td class="c">${escapeHtml(it.satuan || "-")}</td></tr>`).join("")}</tbody>
+    </table>`;
+}
+function paraPihakHtml(p) {
+  return `
+    <p class="doc-p">Yang bertanda tangan di bawah ini:</p>
+    <table class="doc-summary-table">
+      <tr><td style="width:140px;">PIHAK PERTAMA</td><td><strong>${escapeHtml(p.klien || "(nama pemberi kerja)")}</strong> — selaku Pemberi Kerja</td></tr>
+      <tr><td>PIHAK KEDUA</td><td><strong>${escapeHtml(state.ownerNama || "")}</strong>, ${escapeHtml(state.ownerJabatan || "Direktur")} <strong>${escapeHtml(state.company || "CV. Mitra Creative")}</strong> — selaku Pelaksana Pekerjaan</td></tr>
+    </table>`;
+}
+function ttdDuaPihakHtml(p, kiriLabel, kananLabel) {
+  return `
+    <div style="display:flex; justify-content:space-between; margin-top:36px; font-size:12.5px;">
+      <div style="text-align:center; width:45%;">
+        ${kiriLabel},<br><br><br><br><br>
+        <strong>${escapeHtml(p.klien || "(..............................)")}</strong>
+      </div>
+      <div style="text-align:center; width:45%;">
+        ${kananLabel},<br>${escapeHtml(state.company || "CV. Mitra Creative")}
+        ${ownerTtdOrSpace(state.ownerNama)}
+        <strong>${escapeHtml(state.ownerNama)}</strong><br>${escapeHtml(state.ownerJabatan)}
+      </div>
+    </div>`;
+}
+function buildSpkPrintHtml(p, nomor) {
+  return `
+    ${invoiceLetterhead("SURAT PERINTAH KERJA (SPK)")}
+    <p class="doc-p" style="text-align:center;">Nomor: ${escapeHtml(nomor)}</p>
+    ${paraPihakHtml(p)}
+    <p class="doc-p">PIHAK PERTAMA memberikan pekerjaan kepada PIHAK KEDUA, dan PIHAK KEDUA menerima serta sanggup melaksanakan pekerjaan dengan ketentuan sebagai berikut:</p>
+    <table class="doc-summary-table">
+      <tr><td style="width:160px;">Nama Pekerjaan</td><td><strong>${escapeHtml(p.nama)}</strong></td></tr>
+      ${p.lokasi ? `<tr><td>Lokasi</td><td>${escapeHtml(p.lokasi)}</td></tr>` : ""}
+      <tr><td>Nilai Pekerjaan</td><td><strong>${rupiah(p.nilaiKontrak || 0)}</strong> (${terbilangRupiah(p.nilaiKontrak || 0)})</td></tr>
+      <tr><td>Waktu Pelaksanaan</td><td>${p.tanggalMulai ? formatTanggal(p.tanggalMulai) : "-"} s/d ${p.tanggalSelesai ? formatTanggal(p.tanggalSelesai) : "-"}</td></tr>
+      <tr><td>Pembayaran</td><td>DP 50% saat SPK ditandatangani, pelunasan setelah pekerjaan selesai (BAST), atau sesuai kesepakatan tertulis kedua pihak.</td></tr>
+    </table>
+    ${daftarPekerjaanHtml(p)}
+    <p class="doc-p">Demikian Surat Perintah Kerja ini dibuat dalam keadaan sadar tanpa paksaan untuk dilaksanakan dengan penuh tanggung jawab.</p>
+    ${ttdDuaPihakHtml(p, "PIHAK PERTAMA (Pemberi Kerja)", "PIHAK KEDUA (Pelaksana)")}
+  `;
+}
+function buildBastPrintHtml(p, nomor) {
+  const qcAcc = (p.qc || []).find(q => q.jenis === "lapangan" && q.acc && q.acc.status === "disetujui");
+  const dokBast = (p.dokumen || []).find(d => (d.jenis || "").toUpperCase().includes("BAST"));
+  return `
+    ${invoiceLetterhead("BERITA ACARA SERAH TERIMA PEKERJAAN (BAST)")}
+    <p class="doc-p" style="text-align:center;">Nomor: ${escapeHtml(nomor)}</p>
+    <p class="doc-p">Pada hari ini, ${formatTanggal(hariIniIso())}, yang bertanda tangan di bawah ini:</p>
+    ${paraPihakHtml(p)}
+    <p class="doc-p">Dengan ini menyatakan bahwa PIHAK KEDUA telah menyelesaikan pekerjaan
+      <strong>${escapeHtml(p.nama)}</strong>${p.lokasi ? ` di ${escapeHtml(p.lokasi)}` : ""}
+      dengan nilai ${rupiah(p.nilaiKontrak || 0)} secara lengkap (100%), dan PIHAK PERTAMA telah
+      memeriksa serta MENERIMA hasil pekerjaan tersebut dalam keadaan baik.</p>
+    ${qcAcc ? `<p class="doc-p">Pemeriksaan bersama (Quality Control serah terima) telah dilakukan dan disetujui oleh <strong>${escapeHtml(qcAcc.acc.nama || "perwakilan klien")}</strong> pada ${formatTanggal(qcAcc.acc.tanggal)}.</p>` : ""}
+    ${daftarPekerjaanHtml(p)}
+    <p class="doc-p">Masa garansi/pemeliharaan berlaku ${dokBast && dokBast.garansiSampai ? `sampai dengan <strong>${formatTanggal(dokBast.garansiSampai)}</strong>` : "sesuai kesepakatan kedua pihak"} terhitung sejak berita acara ini ditandatangani.</p>
+    ${ttdDuaPihakHtml(p, "PIHAK PERTAMA (Yang Menerima)", "PIHAK KEDUA (Yang Menyerahkan)")}
+  `;
+}
+// Setelah dicetak, dokumen langsung terdaftar di registrasi Dokumen Proyek
+// (kalau belum ada) -- sehingga tahapan "SPK/Kontrak Diterima" atau "BAST
+// Ditandatangani" ikut tercentang otomatis, tanpa input ulang.
+function cetakDokProyek(jenis, builder) {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) return;
+  const sudahAda = (p.dokumen || []).find(d => (d.jenis || "").toUpperCase().includes(jenis));
+  const nomor = sudahAda && sudahAda.nomor ? sudahAda.nomor : nomorDokProyek(p, jenis);
+  document.getElementById("printArea").innerHTML = builder(p, nomor);
+  cetakPrintArea();
+  if (!sudahAda && !p.arsip) {
+    if (!p.dokumen) p.dokumen = [];
+    p.dokumen.push({ id: uid(), jenis, nomor, tanggalTerbit: hariIniIso(), garansiSampai: "", catatan: "Disusun otomatis dari aplikasi" });
+    saveState();
+    mirrorProyekUpsert(p);
+    renderProyekDetail();
+  }
+}
+document.getElementById("pd_cetakSpkBtn").addEventListener("click", () => cetakDokProyek("SPK", buildSpkPrintHtml));
+document.getElementById("pd_cetakBastBtn").addEventListener("click", () => cetakDokProyek("BAST", buildBastPrintHtml));
 function renderInvoiceProyek(p) {
   if (!p.invoices) p.invoices = [];
   const rows = p.invoices.slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
@@ -4742,6 +4842,71 @@ function openLaporanHarianModal(existing) {
   laporanHarianModal.classList.add("open");
 }
 document.getElementById("lap_addBtn").addEventListener("click", () => openLaporanHarianModal(null));
+// Integrasi C: isi otomatis laporan harian dari data yang SUDAH tercatat
+// hari itu -- absensi (per proyek), belanja material, stok keluar, QC,
+// dan progres -- supaya tidak mengetik ulang.
+document.getElementById("lap_autoBtn").addEventListener("click", () => {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) return;
+  const tgl = document.getElementById("lap_tanggal").value || hariIniIso();
+  const hadir = (state.karyawan || []).filter(k =>
+    (k.absensi || []).some(a => a.tanggal === tgl && a.hadir && (a.proyekId || "") === p.id));
+  const bagian = [];
+  if (hadir.length) bagian.push(`Tenaga kerja: ${hadir.map(k => k.nama).join(", ")}.`);
+  const belanja = (p.belanjaMaterial || []).filter(b => b.tanggal === tgl);
+  if (belanja.length) bagian.push(`Belanja material: ${belanja.map(b => `${b.nama} ${b.qty || 0} ${b.satuan || ""}`.trim()).join("; ")}.`);
+  const stokKeluar = (state.stok || []).flatMap(st => (st.transactions || [])
+    .filter(t => t.tipe === "Keluar" && t.proyekId === p.id && t.tanggal === tgl)
+    .map(t => `${st.nama} ${t.qty || 0} ${st.satuan || ""}`.trim()));
+  if (stokKeluar.length) bagian.push(`Material dari stok: ${stokKeluar.join(", ")}.`);
+  (p.qc || []).filter(q => q.tanggal === tgl).forEach(q => {
+    const st = qcStatus(q);
+    bagian.push(`${QC_JENIS_LABEL[q.jenis] || "QC"}: ${st === "lulus" ? "LULUS" : st === "perbaikan" ? "ada temuan perbaikan" : "berjalan"}.`);
+  });
+  const prog = (p.progressRealisasi || []).find(pr => pr.tanggal === tgl);
+  if (prog) bagian.push(`Progres tercatat ${prog.persen || 0}%.`);
+  if (!hadir.length && !bagian.length) {
+    alert(`Belum ada data tercatat untuk ${formatTanggal(tgl)} di proyek ini (absensi, belanja, stok keluar, QC, atau progres).`);
+    return;
+  }
+  document.getElementById("lap_tenagaKerja").value = hadir.length || document.getElementById("lap_tenagaKerja").value || 0;
+  if (bagian.length) document.getElementById("lap_uraian").value = bagian.join(" ");
+});
+// Integrasi C: rekap seluruh pelaksanaan dalam satu dokumen berkop surat.
+function buildLaporanPelaksanaanPrintHtml(p) {
+  const calc = projectCalc(p);
+  const progTerakhir = (p.progressRealisasi || []).slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""))[0];
+  const laporan = (p.laporanHarian || []).slice().sort((a, b) => (a.tanggal || "").localeCompare(b.tanggal || ""));
+  const qcRingkas = (p.qc || []).length
+    ? `${(p.qc || []).length} inspeksi (${(p.qc || []).filter(q => qcStatus(q) === "lulus").length} lulus)`
+    : "-";
+  return `
+    ${invoiceLetterhead("LAPORAN PELAKSANAAN PEKERJAAN")}
+    <table class="doc-summary-table">
+      <tr><td style="width:160px;">Pekerjaan</td><td><strong>${escapeHtml(p.nama)}</strong>${p.klien ? ` — ${escapeHtml(p.klien)}` : ""}</td></tr>
+      ${p.lokasi ? `<tr><td>Lokasi</td><td>${escapeHtml(p.lokasi)}</td></tr>` : ""}
+      <tr><td>Periode</td><td>${p.tanggalMulai ? formatTanggal(p.tanggalMulai) : "-"} s/d ${p.tanggalSelesai ? formatTanggal(p.tanggalSelesai) : "-"}</td></tr>
+      <tr><td>Progres Terakhir</td><td><strong>${progTerakhir ? `${progTerakhir.persen || 0}% (${formatTanggal(progTerakhir.tanggal)})` : "-"}</strong></td></tr>
+      <tr><td>Quality Control</td><td>${qcRingkas}</td></tr>
+      <tr><td>Pembayaran</td><td>Diterima ${rupiah(calc.terminDiterima)} dari nilai ${rupiah(p.nilaiKontrak || 0)}${calc.terminPiutang ? ` (piutang ${rupiah(calc.terminPiutang)})` : ""}</td></tr>
+    </table>
+    <p class="doc-p" style="font-weight:700; margin-bottom:6px;">Catatan Harian Pelaksanaan</p>
+    <table class="doc-items">
+      <thead><tr><th style="width:90px;">Tanggal</th><th style="width:80px;">Cuaca</th><th class="c" style="width:60px;">Tenaga</th><th>Uraian Kegiatan</th><th>Kendala</th></tr></thead>
+      <tbody>${laporan.length ? laporan.map(l => `
+        <tr><td>${formatTanggal(l.tanggal)}</td><td>${escapeHtml(l.cuaca || "-")}</td><td class="c">${l.tenagaKerja || 0}</td><td>${escapeHtml(l.uraian || "-")}</td><td>${escapeHtml(l.kendala || "-")}</td></tr>
+      `).join("") : '<tr><td colspan="5" class="c">Belum ada laporan harian</td></tr>'}</tbody>
+    </table>
+    <p class="doc-p">Dicetak ${formatTanggal(hariIniIso())}.</p>
+    ${ttdDuaPihakHtml(p, "Mengetahui, Pemberi Kerja", "Dibuat oleh, Pelaksana")}
+  `;
+}
+document.getElementById("pd_cetakPelaksanaanBtn").addEventListener("click", () => {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) return;
+  document.getElementById("printArea").innerHTML = buildLaporanPelaksanaanPrintHtml(p);
+  cetakPrintArea();
+});
 document.getElementById("laporanHarianForm").addEventListener("submit", e => {
   e.preventDefault();
   const p = state.proyek.find(x => x.id === currentProyekId);

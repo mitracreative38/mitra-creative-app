@@ -1398,6 +1398,8 @@
         <div class="panel">
           <div class="toolbar">
             <div class="muted" style="flex:1">Dokumen Proyek (SPK/BAST) &amp; Garansi</div>
+            <button class="btn-ghost" id="pd_cetakSpkBtn" title="Susun SPK otomatis dari data proyek & penawaran — tidak perlu mengetik ulang di Word">🖨️ Cetak SPK</button>
+            <button class="btn-ghost" id="pd_cetakBastBtn" title="Susun BAST otomatis dari data proyek, QC serah terima & garansi">🖨️ Cetak BAST</button>
             <button class="btn-primary" id="dok_addBtn">+ Tambah Dokumen</button>
           </div>
           <p class="muted" style="font-size:12px; margin:-6px 0 12px;">Registrasi metadata dokumen (nomor, tanggal, garansi) — bukan unggah file, supaya data browser tetap ringan.</p>
@@ -1441,6 +1443,7 @@
         <div class="panel">
           <div class="toolbar">
             <div class="muted" style="flex:1">Laporan Harian Lapangan</div>
+            <button class="btn-ghost" id="pd_cetakPelaksanaanBtn" title="Rekap seluruh laporan harian + progres + QC + pembayaran dalam satu dokumen berkop surat siap kirim ke klien">🖨️ Cetak Laporan Pelaksanaan</button>
             <button class="btn-primary" id="lap_addBtn">+ Tambah Laporan</button>
           </div>
           <div class="table-wrap">
@@ -3397,6 +3400,7 @@
           <input type="text" id="lap_kendala" placeholder="mis. Material terlambat datang">
         </div>
       </div>
+      <button type="button" class="btn-ghost" id="lap_autoBtn" style="margin-top:4px;" title="Tenaga kerja dari absensi proyek hari itu; uraian dari belanja material, stok keluar, QC, dan progres yang sudah tercatat">⚡ Isi Otomatis dari Data Hari Itu</button>
       <div class="modal-actions">
         <button type="button" class="btn-ghost" data-close-modal>Batal</button>
         <button type="submit" class="btn-primary">Simpan</button>
