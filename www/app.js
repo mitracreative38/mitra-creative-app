@@ -70,6 +70,7 @@ function withDefaults(s) {
   if (!s.asetSewa) s.asetSewa = [];
   if (!s.utangUsaha) s.utangUsaha = [];
   if (!s.kasOpname) s.kasOpname = [];
+  if (!s.asetTetap) s.asetTetap = [];
   if (!s.anggaranBiaya) s.anggaranBiaya = {};
   if (typeof s.periodeTerkunci !== "string") s.periodeTerkunci = "";
   if (typeof s.approvalThreshold !== "number") s.approvalThreshold = 0;
@@ -341,7 +342,7 @@ async function resolveTeamMembership(user) {
 // jauh lebih dari cukup dibanding reducer per-tabel yang rumit.
 const REALTIME_RELATIONAL_TABLES = [
   "company_profile", "klien", "ahsp", "rab", "penawaran", "proyek", "karyawan",
-  "stok_material", "gudang", "pemasok", "alat", "stok_opname", "aset_sewa", "utang_usaha", "kas_opname",
+  "stok_material", "gudang", "pemasok", "alat", "stok_opname", "aset_sewa", "utang_usaha", "kas_opname", "aset_tetap",
   "kas_usaha_transaksi", "kas_pribadi_transaksi", "karyawan_gaji", "kas_saldo_awal"
 ];
 let realtimeReloadTimer = null;
@@ -414,6 +415,7 @@ const ACTIVITY_DIFF_FIELDS = {
   pemasok: ["nama", "telepon", "kategori"],
   asetSewa: ["nama", "jenis", "lokasi", "hargaSewa", "satuanSewa", "aktif"],
   utangUsaha: ["pemasokNama", "keterangan", "jumlah", "jatuhTempo"],
+  asetTetap: ["nama", "kategori", "tanggalBeli", "hargaBeli", "nilaiResidu", "umurTahun", "status"],
   kasUsaha: ["jumlah", "tipe", "kategori", "keterangan", "tanggal", "status"],
   kasPribadi: ["jumlah", "tipe", "kategori", "keterangan", "tanggal", "status"],
   companyProfile: ["company", "alamat", "telepon", "approvalThreshold"]
@@ -421,7 +423,7 @@ const ACTIVITY_DIFF_FIELDS = {
 const ACTIVITY_MODULE_LABELS = {
   klien: "Klien", ahsp: "AHSP", rab: "RAB", penawaran: "Penawaran",
   proyek: "Proyek", karyawan: "Karyawan", absensi: "Absensi", karyawanGaji: "Slip Gaji",
-  stok: "Stok Material", gudang: "Gudang", pemasok: "Pemasok", asetSewa: "Sewa Aset", utangUsaha: "Utang Usaha",
+  stok: "Stok Material", gudang: "Gudang", pemasok: "Pemasok", asetSewa: "Sewa Aset", utangUsaha: "Utang Usaha", asetTetap: "Aset Tetap",
   kasUsaha: "Kas Perusahaan", kasPribadi: "Kas Pribadi",
   companyProfile: "Profil Perusahaan", system: "Sistem"
 };
@@ -1325,6 +1327,44 @@ async function mirrorKasOpnameDelete(id) {
     setSyncStatus("Gagal menghapus Opname Kas di tabel relasional: " + err.message);
   }
 }
+// ===== Mirror: Aset Tetap (Gelombang 3) =====
+function asetTetapToRow(a) {
+  return {
+    id: a.id,
+    company_id: targetCompanyId,
+    nama: a.nama || "",
+    kategori: a.kategori || "",
+    tanggal_beli: a.tanggalBeli || null,
+    harga_beli: a.hargaBeli || 0,
+    nilai_residu: a.nilaiResidu || 0,
+    umur_tahun: a.umurTahun || 0,
+    status: a.status || "aktif",
+    tanggal_lepas: a.tanggalLepas || null,
+    nilai_lepas: a.nilaiLepas || 0,
+    catatan: a.catatan || "",
+    updated_at: new Date().toISOString()
+  };
+}
+async function mirrorAsetTetapUpsert(a, existing) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("aset_tetap").upsert(asetTetapToRow(a));
+    if (error) throw error;
+    if (existing !== undefined) logActivityNow("asetTetap", existing ? "update" : "create", a.id, existing, a);
+  } catch (err) {
+    setSyncStatus("Gagal menyimpan Aset Tetap ke tabel relasional: " + err.message);
+  }
+}
+async function mirrorAsetTetapDelete(id, deletedRecord) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("aset_tetap").delete().eq("id", id).eq("company_id", targetCompanyId);
+    if (error) throw error;
+    if (deletedRecord) logActivityNow("asetTetap", "delete", id, deletedRecord, null);
+  } catch (err) {
+    setSyncStatus("Gagal menghapus Aset Tetap di tabel relasional: " + err.message);
+  }
+}
 async function migratePemasokIfNeeded() {
   if (!sb || !targetCompanyId) return;
   try {
@@ -1665,6 +1705,15 @@ function rowToKasOpname(r) {
     fisik: r.fisik || 0, selisih: r.selisih || 0, catatan: r.catatan || ""
   };
 }
+function rowToAsetTetap(r) {
+  return {
+    id: r.id, nama: r.nama || "", kategori: r.kategori || "",
+    tanggalBeli: r.tanggal_beli || "", hargaBeli: r.harga_beli || 0,
+    nilaiResidu: r.nilai_residu || 0, umurTahun: r.umur_tahun || 0,
+    status: r.status || "aktif", tanggalLepas: r.tanggal_lepas || "",
+    nilaiLepas: r.nilai_lepas || 0, catatan: r.catatan || ""
+  };
+}
 async function buildStateFromRelational(companyId) {
   // company_profile diambil terpisah dengan try/catch sendiri -- ini
   // tabel yang PALING BARU (Fase 0.4), jadi selama jeda deploy sudah
@@ -1680,9 +1729,9 @@ async function buildStateFromRelational(companyId) {
 
   let klienRows = [], ahspRows = [], rabRows = [], penawaranRows = [], proyekRows = [],
     karyawanRows = [], stokRows = [], gudangRows = [], pemasokRows = [], alatRows = [], opnameRows = [], asetSewaRows = [],
-    utangRows = [], kasOpnameRows = [];
+    utangRows = [], kasOpnameRows = [], asetTetapRows = [];
   try {
-    const [klienRes, ahspRes, rabRes, penawaranRes, proyekRes, karyawanRes, stokRes, gudangRes, pemasokRes, alatRes, opnameRes, asetSewaRes, utangRes, kasOpnameRes] = await Promise.all([
+    const [klienRes, ahspRes, rabRes, penawaranRes, proyekRes, karyawanRes, stokRes, gudangRes, pemasokRes, alatRes, opnameRes, asetSewaRes, utangRes, kasOpnameRes, asetTetapRes] = await Promise.all([
       sb.from("klien").select("*").eq("company_id", companyId),
       sb.from("ahsp").select("*").eq("company_id", companyId),
       sb.from("rab").select("*").eq("company_id", companyId),
@@ -1696,7 +1745,8 @@ async function buildStateFromRelational(companyId) {
       sb.from("stok_opname").select("*").eq("company_id", companyId).order("tanggal", { ascending: false }),
       sb.from("aset_sewa").select("*").eq("company_id", companyId),
       sb.from("utang_usaha").select("*").eq("company_id", companyId),
-      sb.from("kas_opname").select("*").eq("company_id", companyId).order("tanggal", { ascending: false })
+      sb.from("kas_opname").select("*").eq("company_id", companyId).order("tanggal", { ascending: false }),
+      sb.from("aset_tetap").select("*").eq("company_id", companyId)
     ]);
     klienRows = klienRes.error ? [] : (klienRes.data || []);
     ahspRows = ahspRes.error ? [] : (ahspRes.data || []);
@@ -1714,6 +1764,7 @@ async function buildStateFromRelational(companyId) {
     asetSewaRows = asetSewaRes.error ? [] : (asetSewaRes.data || []);
     utangRows = utangRes.error ? [] : (utangRes.data || []);
     kasOpnameRows = kasOpnameRes.error ? [] : (kasOpnameRes.data || []);
+    asetTetapRows = asetTetapRes.error ? [] : (asetTetapRes.data || []);
   } catch (e) { /* biarkan semua kosong -- jaring pengaman di bawah akan pakai blob */ }
 
   let built = {
@@ -1750,6 +1801,7 @@ async function buildStateFromRelational(companyId) {
     asetSewa: asetSewaRows.map(rowToAsetSewa),
     utangUsaha: utangRows.map(rowToUtangUsaha),
     kasOpname: kasOpnameRows.map(rowToKasOpname),
+    asetTetap: asetTetapRows.map(rowToAsetTetap),
     kasUsaha: { transactions: [], saldoAwal: 0 },
     kasPribadi: { transactions: [], saldoAwal: 0 }
   };
@@ -2945,6 +2997,156 @@ document.getElementById("asetBayarForm").addEventListener("submit", e => {
   renderAll();
   openAsetKontrakModal(a.id);
 });
+
+// ===== Aset Tetap + penyusutan garis lurus (Gelombang 3) =====
+// Aset jangka panjang perusahaan (kendaraan, mesin, komputer, bangunan).
+// Penyusutan dihitung garis lurus per BULAN penuh sejak tanggal beli:
+// (hargaBeli - nilaiResidu) / (umurTahun * 12). Nilai buku = hargaBeli -
+// akumulasi penyusutan, tidak pernah turun di bawah nilai residu. Aset
+// berstatus dijual/dihapus berhenti menyusut di tanggalLepas dan tidak
+// ikut dihitung di Neraca.
+const KATEGORI_ASET_TETAP = [
+  "Kendaraan", "Mesin & Peralatan Produksi", "Komputer & Elektronik",
+  "Perabot & Perlengkapan Kantor", "Bangunan", "Tanah (tidak menyusut)", "Lainnya"
+];
+function bulanPenuhAntara(mulaiIso, sampaiIso) {
+  if (!mulaiIso || !sampaiIso || sampaiIso < mulaiIso) return 0;
+  const [y1, m1, d1] = mulaiIso.split("-").map(Number);
+  const [y2, m2, d2] = sampaiIso.split("-").map(Number);
+  return Math.max(0, (y2 - y1) * 12 + (m2 - m1) - (d2 < d1 ? 1 : 0));
+}
+function asetTetapCalc(a, tanggalRef) {
+  const ref = tanggalRef || hariIniIso();
+  // Kategori tanah tidak pernah menyusut -- nilai buku tetap harga beli.
+  const takMenyusut = (a.kategori || "").startsWith("Tanah");
+  const umurBulan = takMenyusut ? 0 : Math.max(0, Math.round((a.umurTahun || 0) * 12));
+  const basis = Math.max(0, (a.hargaBeli || 0) - (a.nilaiResidu || 0));
+  // Tanah tidak menyusut (umur 0 juga berarti tidak menyusut).
+  const perBulan = umurBulan > 0 ? basis / umurBulan : 0;
+  // Aset yang sudah dilepas berhenti menyusut di tanggal lepasnya.
+  const batasRef = a.status !== "aktif" && a.tanggalLepas && a.tanggalLepas < ref ? a.tanggalLepas : ref;
+  const bulanTerpakai = Math.min(umurBulan, bulanPenuhAntara(a.tanggalBeli, batasRef));
+  const akumulasi = Math.min(basis, perBulan * bulanTerpakai);
+  const nilaiBuku = Math.max(a.nilaiResidu || 0, (a.hargaBeli || 0) - akumulasi);
+  return { umurBulan, perBulan, bulanTerpakai, akumulasi, nilaiBuku };
+}
+// Total nilai buku aset AKTIF yang sudah dibeli per tanggal tertentu --
+// dipakai Neraca.
+function totalNilaiBukuAsetTetap(tanggal) {
+  return (state.asetTetap || [])
+    .filter(a => a.status === "aktif" && (a.tanggalBeli || "") <= tanggal)
+    .reduce((s, a) => s + asetTetapCalc(a, tanggal).nilaiBuku, 0);
+}
+function renderAsetTetap() {
+  const tbody = document.querySelector("#at_table tbody");
+  if (!tbody) return;
+  const cari = (document.getElementById("at_search").value || "").toLowerCase();
+  const filterStatus = document.getElementById("at_filterStatus").value;
+  const semua = state.asetTetap || [];
+  const aktif = semua.filter(a => a.status === "aktif");
+  document.getElementById("at_jumlahAktif").textContent = aktif.length;
+  document.getElementById("at_totalBeli").textContent = rupiah(aktif.reduce((s, a) => s + (a.hargaBeli || 0), 0));
+  document.getElementById("at_totalPenyusutan").textContent = rupiah(aktif.reduce((s, a) => s + asetTetapCalc(a).akumulasi, 0));
+  document.getElementById("at_totalNilaiBuku").textContent = rupiah(aktif.reduce((s, a) => s + asetTetapCalc(a).nilaiBuku, 0));
+  const daftar = semua.filter(a => {
+    if (filterStatus && a.status !== filterStatus) return false;
+    if (cari && !(`${a.nama} ${a.kategori} ${a.catatan}`.toLowerCase().includes(cari))) return false;
+    return true;
+  }).slice().sort((a, b) => (b.tanggalBeli || "").localeCompare(a.tanggalBeli || ""));
+  const STATUS_LABEL = { aktif: "Aktif", dijual: "Dijual", dihapus: "Dihapus" };
+  tbody.innerHTML = daftar.length ? daftar.map(a => {
+    const c = asetTetapCalc(a);
+    const statusExtra = a.status !== "aktif" && a.tanggalLepas ? `<br><small class="muted">${formatTanggal(a.tanggalLepas)}${a.status === "dijual" ? " — " + rupiah(a.nilaiLepas || 0) : ""}</small>` : "";
+    return `
+    <tr>
+      <td><strong>${escapeHtml(a.nama)}</strong>${a.catatan ? `<br><small class="muted">${escapeHtml(a.catatan)}</small>` : ""}</td>
+      <td>${escapeHtml(a.kategori || "-")}</td>
+      <td>${a.tanggalBeli ? formatTanggal(a.tanggalBeli) : "-"}</td>
+      <td class="num">${rupiah(a.hargaBeli || 0)}</td>
+      <td class="num">${c.perBulan > 0 ? rupiah(Math.round(c.perBulan)) : "-"}</td>
+      <td class="num">${rupiah(Math.round(c.akumulasi))}<br><small class="muted">${c.bulanTerpakai}/${c.umurBulan} bln</small></td>
+      <td class="num"><strong>${rupiah(Math.round(c.nilaiBuku))}</strong></td>
+      <td><span class="badge ${a.status === "aktif" ? "badge-lunas" : "status-draft"}">${STATUS_LABEL[a.status] || a.status}</span>${statusExtra}</td>
+      <td class="row-actions">
+        <button class="icon-btn" data-edit-asettetap="${a.id}" title="Edit">✏️</button>
+        <button class="icon-btn" data-delete-asettetap="${a.id}" title="Hapus">🗑️</button>
+      </td>
+    </tr>`;
+  }).join("") : '<tr class="empty-row"><td colspan="9">Belum ada aset tetap. Klik "+ Tambah Aset Tetap".</td></tr>';
+}
+const asetTetapModal = document.getElementById("asetTetapModal");
+function toggleAtLepasFields() {
+  document.getElementById("at_lepasFields").style.display =
+    document.getElementById("at_status").value === "aktif" ? "none" : "";
+}
+function openAsetTetapModal(existing) {
+  document.getElementById("asetTetapModalTitle").textContent = existing ? "Edit Aset Tetap" : "Tambah Aset Tetap";
+  const sel = document.getElementById("at_kategori");
+  sel.innerHTML = KATEGORI_ASET_TETAP.map(k => `<option>${k}</option>`).join("");
+  document.getElementById("at_id").value = existing ? existing.id : "";
+  document.getElementById("at_nama").value = existing ? existing.nama : "";
+  sel.value = existing && KATEGORI_ASET_TETAP.includes(existing.kategori) ? existing.kategori : KATEGORI_ASET_TETAP[0];
+  document.getElementById("at_tanggalBeli").value = existing ? existing.tanggalBeli : hariIniIso();
+  document.getElementById("at_hargaBeli").value = existing && existing.hargaBeli ? existing.hargaBeli.toLocaleString("id-ID") : "";
+  document.getElementById("at_umurTahun").value = existing ? (existing.umurTahun || 4) : 4;
+  document.getElementById("at_nilaiResidu").value = existing && existing.nilaiResidu ? existing.nilaiResidu.toLocaleString("id-ID") : "";
+  document.getElementById("at_status").value = existing ? existing.status : "aktif";
+  document.getElementById("at_tanggalLepas").value = existing ? (existing.tanggalLepas || "") : "";
+  document.getElementById("at_nilaiLepas").value = existing && existing.nilaiLepas ? existing.nilaiLepas.toLocaleString("id-ID") : "";
+  document.getElementById("at_catatan").value = existing ? (existing.catatan || "") : "";
+  toggleAtLepasFields();
+  asetTetapModal.classList.add("open");
+}
+document.getElementById("at_addBtn").addEventListener("click", () => openAsetTetapModal(null));
+document.getElementById("at_status").addEventListener("change", toggleAtLepasFields);
+attachNumberFormatting(document.getElementById("at_hargaBeli"));
+attachNumberFormatting(document.getElementById("at_nilaiLepas"));
+attachNumberFormatting(document.getElementById("at_nilaiResidu"));
+document.getElementById("asetTetapForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const id = document.getElementById("at_id").value;
+  const idx = state.asetTetap.findIndex(a => a.id === id);
+  const existing = idx >= 0 ? state.asetTetap[idx] : null;
+  const hargaBeli = parseNumberInput(document.getElementById("at_hargaBeli").value);
+  const nilaiResidu = parseNumberInput(document.getElementById("at_nilaiResidu").value);
+  if (hargaBeli <= 0) { alert("Harga beli harus lebih dari 0."); return; }
+  if (nilaiResidu >= hargaBeli) { alert("Nilai residu harus lebih kecil dari harga beli."); return; }
+  const status = document.getElementById("at_status").value;
+  const a = {
+    id: existing ? existing.id : uid(),
+    nama: document.getElementById("at_nama").value.trim(),
+    kategori: document.getElementById("at_kategori").value,
+    tanggalBeli: document.getElementById("at_tanggalBeli").value,
+    hargaBeli,
+    nilaiResidu,
+    umurTahun: Math.max(1, parseInt(document.getElementById("at_umurTahun").value, 10) || 1),
+    status,
+    tanggalLepas: status !== "aktif" ? document.getElementById("at_tanggalLepas").value : "",
+    nilaiLepas: status !== "aktif" ? parseNumberInput(document.getElementById("at_nilaiLepas").value) : 0,
+    catatan: document.getElementById("at_catatan").value.trim()
+  };
+  if (idx >= 0) state.asetTetap[idx] = a; else state.asetTetap.push(a);
+  saveState();
+  mirrorAsetTetapUpsert(a, existing);
+  closeModals();
+  renderAll();
+});
+document.querySelector("#at_table tbody").addEventListener("click", e => {
+  const editBtn = e.target.closest("[data-edit-asettetap]");
+  const delBtn = e.target.closest("[data-delete-asettetap]");
+  if (editBtn) openAsetTetapModal(state.asetTetap.find(a => a.id === editBtn.dataset.editAsettetap));
+  else if (delBtn) {
+    const a = state.asetTetap.find(x => x.id === delBtn.dataset.deleteAsettetap);
+    if (!a) return;
+    if (!confirm(`Hapus aset tetap "${a.nama}" dari daftar?\nNilai bukunya akan hilang dari Neraca. Kalau aset dijual/rusak, lebih baik EDIT lalu ubah statusnya supaya riwayatnya tetap tercatat.`)) return;
+    state.asetTetap = state.asetTetap.filter(x => x.id !== a.id);
+    saveState();
+    mirrorAsetTetapDelete(a.id, a);
+    renderAll();
+  }
+});
+document.getElementById("at_search").addEventListener("input", renderAsetTetap);
+document.getElementById("at_filterStatus").addEventListener("change", renderAsetTetap);
 
 // ===== Rendering: Dashboard =====
 function renderDashboard() {
@@ -4589,8 +4791,9 @@ function computeNeraca(tanggal) {
   const piutangUsaha = txnsUpTo.filter(t => t.tipe === "Masuk" && (t.status || "lunas") === "pending").reduce((s, t) => s + (t.jumlah || 0), 0);
   const nilaiStok = state.stok.reduce((s, item) => s + stokValue(item), 0);
   const piutangKaryawan = state.karyawan.reduce((s, k) => s + Math.max(0, sisaPinjaman(k)), 0);
-  const totalAset = saldoKas + piutangUsaha + nilaiStok + piutangKaryawan;
-  return { saldoKas, piutangUsaha, nilaiStok, piutangKaryawan, totalAset };
+  const asetTetapNilaiBuku = totalNilaiBukuAsetTetap(tanggal);
+  const totalAset = saldoKas + piutangUsaha + nilaiStok + piutangKaryawan + asetTetapNilaiBuku;
+  return { saldoKas, piutangUsaha, nilaiStok, piutangKaryawan, asetTetapNilaiBuku, totalAset };
 }
 function renderLabaRugi() {
   const mulaiInput = document.getElementById("lr_mulai");
@@ -4619,6 +4822,7 @@ function renderNeraca() {
     <div class="summary-row"><span>Piutang Usaha (belum cair)</span><strong>${rupiah(n.piutangUsaha)}</strong></div>
     <div class="summary-row"><span>Nilai Stok Material &amp; Alat</span><strong>${rupiah(n.nilaiStok)}</strong></div>
     <div class="summary-row"><span>Piutang Karyawan (pinjaman belum lunas)</span><strong>${rupiah(n.piutangKaryawan)}</strong></div>
+    <div class="summary-row"><span>Aset Tetap (nilai buku setelah penyusutan)</span><strong>${rupiah(Math.round(n.asetTetapNilaiBuku))}</strong></div>
     <div class="summary-row total"><span>Total Aset</span><strong>${rupiah(n.totalAset)}</strong></div>
   `;
   document.getElementById("nr_modal").textContent = rupiah(n.totalAset);
@@ -4811,9 +5015,10 @@ function buildLaporanKeuanganPrintHtml() {
       <tr><td>Piutang Usaha</td><td class="r">${rupiah(nr.piutangUsaha)}</td></tr>
       <tr><td>Nilai Stok Material &amp; Alat</td><td class="r">${rupiah(nr.nilaiStok)}</td></tr>
       <tr><td>Piutang Karyawan</td><td class="r">${rupiah(nr.piutangKaryawan)}</td></tr>
+      <tr><td>Aset Tetap (nilai buku)</td><td class="r">${rupiah(Math.round(nr.asetTetapNilaiBuku))}</td></tr>
       <tr class="total-row"><td>Total Aset = Total Modal Pemilik</td><td class="r">${rupiah(nr.totalAset)}</td></tr>
     </table>
-    <p style="font-size:11px; color:#777; margin-top:6px;">Ringkasan sederhana berbasis kas — belum mencatat utang usaha/aset tetap seperti neraca akuntansi penuh.</p>
+    <p style="font-size:11px; color:#777; margin-top:6px;">Ringkasan sederhana berbasis kas — nilai aset tetap dihitung dari harga beli dikurangi penyusutan garis lurus; utang usaha belum mengurangi total seperti neraca akuntansi penuh.</p>
     <div style="display:flex; justify-content:flex-end; margin-top:30px; font-size:12.5px;">
       <div style="text-align:right;">
         Dibuat oleh,<br>${escapeHtml(state.company || "CV. Mitra Creative")}
@@ -4852,6 +5057,7 @@ document.getElementById("lk_exportExcelBtn").addEventListener("click", () => {
     { Pos: "Piutang Usaha (belum cair)", Jumlah: neraca.piutangUsaha },
     { Pos: "Nilai Stok Material & Alat", Jumlah: neraca.nilaiStok },
     { Pos: "Piutang Karyawan (pinjaman belum lunas)", Jumlah: neraca.piutangKaryawan },
+    { Pos: "Aset Tetap (nilai buku setelah penyusutan)", Jumlah: Math.round(neraca.asetTetapNilaiBuku) },
     { Pos: "Total Aset", Jumlah: neraca.totalAset },
     { Pos: "Total Modal (= Total Aset)", Jumlah: neraca.totalAset }
   ]), "Neraca");
@@ -10289,6 +10495,7 @@ function renderAll() {
   document.getElementById("pm_detailView").style.display = currentPemasokId ? "block" : "none";
   if (currentPemasokId) renderPemasokDetail(); else renderPemasokList();
   renderSewaAset();
+  renderAsetTetap();
   renderUtangUsaha();
   renderAnggaranBiaya();
   renderAnggaranSettings();
@@ -10332,7 +10539,7 @@ function renderAll() {
 // hanya halaman yang terdaftar di sini yang boleh diakses.
 const ROLE_PAGE_ACCESS = {
   owner: null,
-  admin: ["dashboard", "kalender", "klien", "kasUsaha", "laporan", "kpi", "proyek", "sewaAset", "karyawan", "lokasi", "stok", "pemasok", "ahsp", "rab", "penawaran", "pengaturan"],
+  admin: ["dashboard", "kalender", "klien", "kasUsaha", "laporan", "kpi", "proyek", "sewaAset", "asetTetap", "karyawan", "lokasi", "stok", "pemasok", "ahsp", "rab", "penawaran", "pengaturan"],
   marketing: ["klien", "ahsp", "rab", "penawaran", "pengaturan"]
 };
 function canAccessPage(name) {
@@ -11643,6 +11850,7 @@ async function mirrorAllToRelational() {
   (state.klien || []).forEach(k => mirrorKlienUpsert(k));
   (state.asetSewa || []).forEach(a => mirrorAsetSewaUpsert(a));
   (state.utangUsaha || []).forEach(u => mirrorUtangUsahaUpsert(u));
+  (state.asetTetap || []).forEach(a => mirrorAsetTetapUpsert(a));
   (state.kasOpname || []).forEach(o => mirrorKasOpnameUpsert(o));
   (state.ahsp || []).forEach(a => mirrorAhspUpsert(a));
   (state.proyekRab || []).forEach(r => mirrorRabUpsert(r));

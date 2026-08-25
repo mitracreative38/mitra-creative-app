@@ -62,6 +62,99 @@ async function notifyRecipients(recipients, subject, pesan) {
   }
 }
 
+// Tanggal & jam dihitung dalam WIB (UTC+7, tanpa DST) -- server bisa saja
+// berjalan di zona UTC, dan ringkasan "hari ini" harus mengikuti hari
+// kalender pemiliknya, bukan hari UTC (pelajaran dari bug uang makan
+// mingguan di www/app.js).
+function wibNow() {
+  return new Date(Date.now() + 7 * 60 * 60 * 1000);
+}
+function wibTodayIso() {
+  return wibNow().toISOString().slice(0, 10);
+}
+const rp = n => `Rp${(n || 0).toLocaleString("id-ID")}`;
+
+// Ringkasan harian untuk Owner (Gelombang 3): satu pesan tiap sore berisi
+// uang masuk/keluar hari itu, piutang & utang yang harus dikejar, dan
+// follow-up yang jatuh tempo -- supaya Owner tetap memantau tanpa harus
+// membuka aplikasi. Dikirim HANYA setelah jam kirim WIB (default 17:00,
+// bisa diubah lewat env RINGKASAN_HARIAN_JAM); pola cooldown reminder_log
+// yang sama menjaga maksimal sekali sehari.
+async function kirimRingkasanHarian(supabaseAdmin, c) {
+  const jamKirim = parseInt(process.env.RINGKASAN_HARIAN_JAM || "17", 10);
+  if (wibNow().getUTCHours() < jamKirim) return false;
+  if (!await shouldSend(supabaseAdmin, c.company_id, "ringkasan_harian")) return false;
+  const today = wibTodayIso();
+
+  const { data: txnHariIni } = await supabaseAdmin.from("kas_usaha_transaksi")
+    .select("tipe, status, jumlah")
+    .eq("company_id", c.company_id)
+    .eq("tanggal", today);
+  const masuk = (txnHariIni || []).filter(t => t.tipe === "Masuk" && (t.status || "lunas") === "lunas");
+  const keluar = (txnHariIni || []).filter(t => t.tipe === "Keluar" && (t.status || "lunas") !== "menunggu_persetujuan");
+  const totalMasuk = masuk.reduce((s, t) => s + (t.jumlah || 0), 0);
+  const totalKeluar = keluar.reduce((s, t) => s + Math.max(0, t.jumlah || 0), 0);
+
+  const { data: piutangRows } = await supabaseAdmin.from("kas_usaha_transaksi")
+    .select("jumlah")
+    .eq("company_id", c.company_id)
+    .eq("tipe", "Masuk")
+    .eq("status", "pending");
+  const totalPiutang = (piutangRows || []).reduce((s, t) => s + (t.jumlah || 0), 0);
+
+  // Utang usaha jatuh tempo <= 7 hari yang masih ada sisanya (pembayaran
+  // tertaut lewat kas_usaha_transaksi.sumber_utang_id).
+  const batasUtang = new Date(wibNow().getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const { data: utangRows } = await supabaseAdmin.from("utang_usaha")
+    .select("id, pemasok_nama, jumlah, jatuh_tempo")
+    .eq("company_id", c.company_id)
+    .lte("jatuh_tempo", batasUtang);
+  let utangSegera = [];
+  if ((utangRows || []).length) {
+    const { data: bayarRows } = await supabaseAdmin.from("kas_usaha_transaksi")
+      .select("sumber_utang_id, jumlah")
+      .eq("company_id", c.company_id)
+      .in("sumber_utang_id", utangRows.map(u => u.id));
+    const dibayar = {};
+    (bayarRows || []).forEach(b => { dibayar[b.sumber_utang_id] = (dibayar[b.sumber_utang_id] || 0) + (b.jumlah || 0); });
+    utangSegera = utangRows
+      .map(u => ({ ...u, sisa: (u.jumlah || 0) - (dibayar[u.id] || 0) }))
+      .filter(u => u.sisa > 0);
+  }
+
+  const { data: followUp } = await supabaseAdmin.from("klien")
+    .select("nama")
+    .eq("company_id", c.company_id)
+    .lte("follow_up_berikutnya", today)
+    .not("tahap", "in", "(Selesai,Hilang)");
+
+  const adaIsi = (txnHariIni || []).length || utangSegera.length || (followUp || []).length;
+  if (!adaIsi) return false; // hari benar-benar sepi -- jangan kirim pesan kosong
+
+  const baris = [
+    `📊 Ringkasan Harian ${today} -- ${c.company || "Perusahaan Anda"}`,
+    "",
+    `💵 Uang masuk hari ini: ${rp(totalMasuk)} (${masuk.length} transaksi)`,
+    `💸 Uang keluar hari ini: ${rp(totalKeluar)} (${keluar.length} transaksi)`,
+    `📈 Selisih: ${rp(totalMasuk - totalKeluar)}`,
+    `🧾 Piutang belum cair (total): ${rp(totalPiutang)}`
+  ];
+  if (utangSegera.length) {
+    const totalUtang = utangSegera.reduce((s, u) => s + u.sisa, 0);
+    baris.push(`💳 Utang jatuh tempo ≤7 hari: ${utangSegera.length} tagihan, total ${rp(totalUtang)}`);
+    utangSegera.slice(0, 5).forEach(u => baris.push(`   - ${u.pemasok_nama || "(tanpa nama)"}: sisa ${rp(u.sisa)} (jatuh tempo ${u.jatuh_tempo})`));
+  }
+  if ((followUp || []).length) {
+    baris.push(`📞 Follow-up klien jatuh tempo: ${followUp.length} klien (${followUp.slice(0, 5).map(k => k.nama).join(", ")}${followUp.length > 5 ? ", ..." : ""})`);
+  }
+  baris.push("", "Buka aplikasi untuk detail lengkap.");
+
+  const recipients = await getRecipients(supabaseAdmin, c.company_id, false);
+  await notifyRecipients(recipients, `Ringkasan Harian ${today}`, baris.join("\n"));
+  await markSent(supabaseAdmin, c.company_id, "ringkasan_harian");
+  return true;
+}
+
 async function checkAndSendReminders(supabaseAdmin) {
   if (!supabaseAdmin) return { skipped: true };
 
@@ -144,6 +237,9 @@ async function checkAndSendReminders(supabaseAdmin) {
         await markSent(supabaseAdmin, c.company_id, "stok_menipis");
         terkirim++;
       }
+
+      // ----- Ringkasan harian Owner (Gelombang 3) -----
+      if (await kirimRingkasanHarian(supabaseAdmin, c)) terkirim++;
     } catch (err) {
       console.error(`[reminders] gagal proses perusahaan ${c.company_id}:`, err.message);
     }
