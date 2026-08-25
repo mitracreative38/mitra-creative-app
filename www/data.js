@@ -60,7 +60,7 @@ const SEED_DATA = {
   ]
 };
 
-const KATEGORI_USAHA = ["Pendapatan Jasa", "Pendapatan Lain-lain", "Biaya Bahan", "Biaya Upah/Tenaga", "Biaya Subkontraktor", "Biaya Operasional", "Biaya Transport", "Biaya Alat", "Biaya Lain-lain"];
+const KATEGORI_USAHA = ["Pendapatan Jasa", "Pendapatan Sewa Aset", "Pendapatan Lain-lain", "Biaya Bahan", "Biaya Upah/Tenaga", "Biaya Subkontraktor", "Biaya Operasional", "Biaya Transport", "Biaya Alat", "Biaya Lain-lain"];
 const KLIEN_TAHAP = ["Leads", "Penawaran Terkirim", "Nego", "Deal/SPK", "Selesai", "Hilang"];
 const KLIEN_SUMBER = ["Referral", "Online/Sosmed", "Pameran", "Follow-up Lama", "Lainnya"];
 const KLIEN_KONTAK_TIPE = ["Pusat", "Area"];

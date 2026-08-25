@@ -67,6 +67,7 @@ function withDefaults(s) {
   if (!s.gudang) s.gudang = [];
   if (!s.alat) s.alat = [];
   if (!s.stokOpname) s.stokOpname = [];
+  if (!s.asetSewa) s.asetSewa = [];
   if (typeof s.approvalThreshold !== "number") s.approvalThreshold = 0;
   if (typeof s.targetOmzetBulanan !== "number") s.targetOmzetBulanan = 0;
   if (typeof s.targetLababersihBulanan !== "number") s.targetLababersihBulanan = 0;
@@ -217,6 +218,7 @@ async function hydrateSensitiveFields(data) {
         transactions: (kasRes.data || []).map(t => ({
           id: t.id, proyekId: t.proyek_id || "", subkonId: t.subkon_id || "",
           sumberSlipId: t.sumber_slip_id || "", sumberBelanjaId: t.sumber_belanja_id || "",
+          sumberSewaId: t.sumber_sewa_id || "",
           tipe: t.tipe, status: t.status, tanggal: t.tanggal, jumlah: t.jumlah,
           keterangan: t.keterangan || "", kategori: t.kategori || "", extra: t.extra || "", catatan: t.catatan || "",
           lampiranPath: t.lampiran_path || ""
@@ -334,7 +336,7 @@ async function resolveTeamMembership(user) {
 // jauh lebih dari cukup dibanding reducer per-tabel yang rumit.
 const REALTIME_RELATIONAL_TABLES = [
   "company_profile", "klien", "ahsp", "rab", "penawaran", "proyek", "karyawan",
-  "stok_material", "gudang", "pemasok", "alat", "stok_opname",
+  "stok_material", "gudang", "pemasok", "alat", "stok_opname", "aset_sewa",
   "kas_usaha_transaksi", "kas_pribadi_transaksi", "karyawan_gaji", "kas_saldo_awal"
 ];
 let realtimeReloadTimer = null;
@@ -405,6 +407,7 @@ const ACTIVITY_DIFF_FIELDS = {
   stok: ["nama", "stokMinimum", "hargaSatuan"],
   gudang: ["nama", "alamat"],
   pemasok: ["nama", "telepon", "kategori"],
+  asetSewa: ["nama", "jenis", "lokasi", "hargaSewa", "satuanSewa", "aktif"],
   kasUsaha: ["jumlah", "tipe", "kategori", "keterangan", "tanggal", "status"],
   kasPribadi: ["jumlah", "tipe", "kategori", "keterangan", "tanggal", "status"],
   companyProfile: ["company", "alamat", "telepon", "approvalThreshold"]
@@ -412,7 +415,7 @@ const ACTIVITY_DIFF_FIELDS = {
 const ACTIVITY_MODULE_LABELS = {
   klien: "Klien", ahsp: "AHSP", rab: "RAB", penawaran: "Penawaran",
   proyek: "Proyek", karyawan: "Karyawan", absensi: "Absensi", karyawanGaji: "Slip Gaji",
-  stok: "Stok Material", gudang: "Gudang", pemasok: "Pemasok",
+  stok: "Stok Material", gudang: "Gudang", pemasok: "Pemasok", asetSewa: "Sewa Aset",
   kasUsaha: "Kas Perusahaan", kasPribadi: "Kas Pribadi",
   companyProfile: "Profil Perusahaan", system: "Sistem"
 };
@@ -1221,6 +1224,42 @@ async function mirrorPemasokDelete(id, deletedRecord) {
     setSyncStatus("Gagal menghapus Pemasok di tabel relasional: " + err.message);
   }
 }
+// ===== Mirror: Sewa Aset (baliho, kos-kosan, tanah, rental, dst.) =====
+function asetSewaToRow(a) {
+  return {
+    id: a.id,
+    company_id: targetCompanyId,
+    nama: a.nama || "",
+    jenis: a.jenis || "",
+    lokasi: a.lokasi || "",
+    deskripsi: a.deskripsi || "",
+    harga_sewa: a.hargaSewa || 0,
+    satuan_sewa: a.satuanSewa || "",
+    aktif: a.aktif !== false,
+    kontrak: a.kontrak || [],
+    updated_at: new Date().toISOString()
+  };
+}
+async function mirrorAsetSewaUpsert(a, existing) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("aset_sewa").upsert(asetSewaToRow(a));
+    if (error) throw error;
+    if (existing !== undefined) logActivityNow("asetSewa", existing ? "update" : "create", a.id, existing, a);
+  } catch (err) {
+    setSyncStatus("Gagal menyimpan Aset Sewa ke tabel relasional: " + err.message);
+  }
+}
+async function mirrorAsetSewaDelete(id, deletedRecord) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("aset_sewa").delete().eq("id", id).eq("company_id", targetCompanyId);
+    if (error) throw error;
+    if (deletedRecord) logActivityNow("asetSewa", "delete", id, deletedRecord, null);
+  } catch (err) {
+    setSyncStatus("Gagal menghapus Aset Sewa di tabel relasional: " + err.message);
+  }
+}
 async function migratePemasokIfNeeded() {
   if (!sb || !targetCompanyId) return;
   try {
@@ -1307,6 +1346,7 @@ function kasUsahaTxnToRow(t) {
     subkon_id: t.subkonId || null,
     sumber_slip_id: t.sumberSlipId || null,
     sumber_belanja_id: t.sumberBelanjaId || null,
+    sumber_sewa_id: t.sumberSewaId || null,
     tipe: t.tipe || "",
     status: t.status || "lunas",
     tanggal: t.tanggal || null,
@@ -1537,6 +1577,13 @@ function rowToAlat(r) {
 function rowToOpname(r) {
   return { id: r.id, tanggal: r.tanggal, items: r.items || [] };
 }
+function rowToAsetSewa(r) {
+  return {
+    id: r.id, nama: r.nama || "", jenis: r.jenis || "", lokasi: r.lokasi || "",
+    deskripsi: r.deskripsi || "", hargaSewa: r.harga_sewa || 0, satuanSewa: r.satuan_sewa || "",
+    aktif: r.aktif !== false, kontrak: r.kontrak || []
+  };
+}
 async function buildStateFromRelational(companyId) {
   // company_profile diambil terpisah dengan try/catch sendiri -- ini
   // tabel yang PALING BARU (Fase 0.4), jadi selama jeda deploy sudah
@@ -1551,9 +1598,9 @@ async function buildStateFromRelational(companyId) {
   } catch (e) { /* tabel belum ada -- biarkan profileRow null */ }
 
   let klienRows = [], ahspRows = [], rabRows = [], penawaranRows = [], proyekRows = [],
-    karyawanRows = [], stokRows = [], gudangRows = [], pemasokRows = [], alatRows = [], opnameRows = [];
+    karyawanRows = [], stokRows = [], gudangRows = [], pemasokRows = [], alatRows = [], opnameRows = [], asetSewaRows = [];
   try {
-    const [klienRes, ahspRes, rabRes, penawaranRes, proyekRes, karyawanRes, stokRes, gudangRes, pemasokRes, alatRes, opnameRes] = await Promise.all([
+    const [klienRes, ahspRes, rabRes, penawaranRes, proyekRes, karyawanRes, stokRes, gudangRes, pemasokRes, alatRes, opnameRes, asetSewaRes] = await Promise.all([
       sb.from("klien").select("*").eq("company_id", companyId),
       sb.from("ahsp").select("*").eq("company_id", companyId),
       sb.from("rab").select("*").eq("company_id", companyId),
@@ -1564,7 +1611,8 @@ async function buildStateFromRelational(companyId) {
       sb.from("gudang").select("*").eq("company_id", companyId),
       sb.from("pemasok").select("*").eq("company_id", companyId),
       sb.from("alat").select("*").eq("company_id", companyId),
-      sb.from("stok_opname").select("*").eq("company_id", companyId).order("tanggal", { ascending: false })
+      sb.from("stok_opname").select("*").eq("company_id", companyId).order("tanggal", { ascending: false }),
+      sb.from("aset_sewa").select("*").eq("company_id", companyId)
     ]);
     klienRows = klienRes.error ? [] : (klienRes.data || []);
     ahspRows = ahspRes.error ? [] : (ahspRes.data || []);
@@ -1577,6 +1625,9 @@ async function buildStateFromRelational(companyId) {
     pemasokRows = pemasokRes.error ? [] : (pemasokRes.data || []);
     alatRows = alatRes.error ? [] : (alatRes.data || []);
     opnameRows = opnameRes.error ? [] : (opnameRes.data || []);
+    // aset_sewa tabel paling baru (fix36): selama jeda SQL belum dijalankan,
+    // error "relation does not exist" cukup berarti daftar kosong sementara.
+    asetSewaRows = asetSewaRes.error ? [] : (asetSewaRes.data || []);
   } catch (e) { /* biarkan semua kosong -- jaring pengaman di bawah akan pakai blob */ }
 
   let built = {
@@ -1608,6 +1659,7 @@ async function buildStateFromRelational(companyId) {
     pemasok: pemasokRows.map(rowToPemasok),
     alat: alatRows.map(rowToAlat),
     stokOpname: opnameRows.map(rowToOpname),
+    asetSewa: asetSewaRows.map(rowToAsetSewa),
     kasUsaha: { transactions: [], saldoAwal: 0 },
     kasPribadi: { transactions: [], saldoAwal: 0 }
   };
@@ -2037,6 +2089,316 @@ function renderDashboardTrend() {
   }).join("");
 }
 
+// ===== Sewa Aset (baliho, kos-kosan, tanah, rental kendaraan/alat, dst.) =====
+const JENIS_ASET_SEWA = ["Baliho/Reklame", "Kos-kosan", "Tanah", "Bangunan/Ruko", "Kendaraan", "Alat", "Lainnya"];
+const SATUAN_SEWA = ["per Hari", "per Minggu", "per Bulan", "per Tahun", "per Periode"];
+let currentAsetKontrakId = null; // aset yang sedang dibuka di modal kontrak
+
+function kontrakSewaStatus(kt, today) {
+  if ((kt.selesai || "") < today) return "selesai";
+  if ((kt.mulai || "") > today) return "akan";
+  return "aktif";
+}
+function asetKontrakAktif(a, today) {
+  return (a.kontrak || []).find(kt => kontrakSewaStatus(kt, today) === "aktif") || null;
+}
+function sewaDibayar(kontrakId) {
+  return state.kasUsaha.transactions
+    .filter(t => t.sumberSewaId === kontrakId && (t.status || "lunas") === "lunas")
+    .reduce((s, t) => s + (t.jumlah || 0), 0);
+}
+function asetPendapatanTotal(a) {
+  const ids = new Set((a.kontrak || []).map(kt => kt.id));
+  return state.kasUsaha.transactions
+    .filter(t => t.sumberSewaId && ids.has(t.sumberSewaId) && (t.status || "lunas") === "lunas")
+    .reduce((s, t) => s + (t.jumlah || 0), 0);
+}
+// Kontrak aktif yang selesai <= 14 hari lagi -- bahan alert Dashboard
+// supaya perpanjangan/pencarian penyewa baru tidak kelewatan.
+function sewaBerakhirSegera(today) {
+  const batas = addDaysIso(today, 14);
+  const rows = [];
+  (state.asetSewa || []).forEach(a => {
+    if (a.aktif === false) return;
+    (a.kontrak || []).forEach(kt => {
+      if (kontrakSewaStatus(kt, today) === "aktif" && (kt.selesai || "") <= batas) rows.push({ aset: a, kontrak: kt });
+    });
+  });
+  return rows;
+}
+function renderSewaAset() {
+  const today = hariIniIso();
+  const semua = state.asetSewa || [];
+  const aktif = semua.filter(a => a.aktif !== false);
+  const tersewa = aktif.filter(a => asetKontrakAktif(a, today)).length;
+  document.getElementById("sa_totalAset").textContent = aktif.length;
+  document.getElementById("sa_tersewa").textContent = tersewa;
+  document.getElementById("sa_kosong").textContent = aktif.length - tersewa;
+  const bulanIni = today.slice(0, 7);
+  const sewaTxnsSemua = state.kasUsaha.transactions.filter(t => t.sumberSewaId);
+  const pendapatanBulan = sewaTxnsSemua
+    .filter(t => (t.status || "lunas") === "lunas" && (t.tanggal || "").startsWith(bulanIni))
+    .reduce((s, t) => s + (t.jumlah || 0), 0);
+  const piutang = sewaTxnsSemua
+    .filter(t => (t.status || "lunas") === "pending")
+    .reduce((s, t) => s + (t.jumlah || 0), 0);
+  document.getElementById("sa_pendapatanBulan").textContent = rupiah(pendapatanBulan);
+  document.getElementById("sa_piutang").textContent = rupiah(piutang);
+
+  const filterSel = document.getElementById("sa_filterJenis");
+  if (filterSel.options.length <= 1) {
+    filterSel.innerHTML = '<option value="">Semua Jenis</option>' + JENIS_ASET_SEWA.map(j => `<option>${j}</option>`).join("");
+  }
+  const search = (document.getElementById("sa_search").value || "").toLowerCase();
+  const filterJenis = filterSel.value;
+  const tbody = document.querySelector("#sa_table tbody");
+  const rows = semua
+    .filter(a => !filterJenis || a.jenis === filterJenis)
+    .filter(a => {
+      if (!search) return true;
+      const penyewaAktif = asetKontrakAktif(a, today);
+      return [a.nama, a.lokasi, a.deskripsi, penyewaAktif && penyewaAktif.penyewa]
+        .some(v => (v || "").toLowerCase().includes(search));
+    })
+    .slice().sort((a, b) => (a.nama || "").localeCompare(b.nama || ""));
+  tbody.innerHTML = rows.length ? rows.map(a => {
+    const kt = asetKontrakAktif(a, today);
+    let statusHtml;
+    if (a.aktif === false) statusHtml = '<span class="badge">Nonaktif</span>';
+    else if (kt) {
+      const segera = (kt.selesai || "") <= addDaysIso(today, 14);
+      statusHtml = `<span class="badge ${segera ? "badge-pending" : "badge-lunas"}">${segera ? "⏳ " : ""}Tersewa: ${escapeHtml(kt.penyewa || "-")} s/d ${formatTanggal(kt.selesai)}</span>`;
+    } else statusHtml = '<span class="badge badge-keluar">KOSONG</span>';
+    return `
+      <tr>
+        <td><strong>${escapeHtml(a.nama)}</strong>${a.deskripsi ? `<div class="muted" style="font-size:11.5px;">${escapeHtml(a.deskripsi)}</div>` : ""}</td>
+        <td>${escapeHtml(a.jenis || "-")}</td>
+        <td>${escapeHtml(a.lokasi || "-")}</td>
+        <td class="num">${a.hargaSewa ? `${rupiah(a.hargaSewa)} <span class="muted">${escapeHtml(a.satuanSewa || "")}</span>` : "-"}</td>
+        <td>${statusHtml}</td>
+        <td class="num">${rupiah(asetPendapatanTotal(a))}</td>
+        <td><div class="row-actions">
+          <button class="icon-btn" data-kontrak-aset="${a.id}" title="Kontrak & Pembayaran">📋</button>
+          <button class="icon-btn" data-edit-aset="${a.id}" title="Edit">✏️</button>
+          <button class="icon-btn" data-delete-aset="${a.id}" title="Hapus">🗑️</button>
+        </div></td>
+      </tr>`;
+  }).join("") : '<tr class="empty-row"><td colspan="7">Belum ada aset — klik "+ Tambah Aset" untuk mendaftarkan baliho, kamar kos, tanah, kendaraan, dll.</td></tr>';
+}
+const asetSewaModal = document.getElementById("asetSewaModal");
+function openAsetSewaModal(existing) {
+  const jenisSel = document.getElementById("sa_jenis");
+  if (!jenisSel.options.length) jenisSel.innerHTML = JENIS_ASET_SEWA.map(j => `<option>${j}</option>`).join("");
+  const satuanSel = document.getElementById("sa_satuanSewa");
+  if (!satuanSel.options.length) satuanSel.innerHTML = SATUAN_SEWA.map(sn => `<option>${sn}</option>`).join("");
+  document.getElementById("asetSewaModalTitle").textContent = existing ? "Edit Aset Sewa" : "Tambah Aset Sewa";
+  document.getElementById("sa_id").value = existing ? existing.id : "";
+  document.getElementById("sa_nama").value = existing ? existing.nama : "";
+  jenisSel.value = existing && JENIS_ASET_SEWA.includes(existing.jenis) ? existing.jenis : JENIS_ASET_SEWA[0];
+  document.getElementById("sa_lokasi").value = existing ? (existing.lokasi || "") : "";
+  document.getElementById("sa_hargaSewa").value = existing ? formatNumberInput(existing.hargaSewa || 0) : "";
+  satuanSel.value = existing && SATUAN_SEWA.includes(existing.satuanSewa) ? existing.satuanSewa : "per Bulan";
+  document.getElementById("sa_aktif").value = existing && existing.aktif === false ? "0" : "1";
+  document.getElementById("sa_deskripsi").value = existing ? (existing.deskripsi || "") : "";
+  asetSewaModal.classList.add("open");
+}
+attachNumberFormatting(document.getElementById("sa_hargaSewa"));
+attachNumberFormatting(document.getElementById("swk_nilai"));
+attachNumberFormatting(document.getElementById("swb_jumlah"));
+document.getElementById("sa_addBtn").addEventListener("click", () => openAsetSewaModal(null));
+document.getElementById("sa_search").addEventListener("input", renderSewaAset);
+document.getElementById("sa_filterJenis").addEventListener("change", renderSewaAset);
+document.getElementById("asetSewaForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const id = document.getElementById("sa_id").value;
+  const idx = state.asetSewa.findIndex(a => a.id === id);
+  const existing = idx >= 0 ? state.asetSewa[idx] : null;
+  const a = {
+    id: id || uid(),
+    nama: document.getElementById("sa_nama").value.trim(),
+    jenis: document.getElementById("sa_jenis").value,
+    lokasi: document.getElementById("sa_lokasi").value.trim(),
+    deskripsi: document.getElementById("sa_deskripsi").value.trim(),
+    hargaSewa: parseNumberInput(document.getElementById("sa_hargaSewa").value),
+    satuanSewa: document.getElementById("sa_satuanSewa").value,
+    aktif: document.getElementById("sa_aktif").value === "1",
+    kontrak: existing ? existing.kontrak || [] : []
+  };
+  if (idx >= 0) state.asetSewa[idx] = a; else state.asetSewa.push(a);
+  saveState();
+  mirrorAsetSewaUpsert(a, existing);
+  renderAll();
+  closeModals();
+});
+document.getElementById("sa_table").addEventListener("click", e => {
+  const kontrakBtn = e.target.closest("[data-kontrak-aset]");
+  const editBtn = e.target.closest("[data-edit-aset]");
+  const delBtn = e.target.closest("[data-delete-aset]");
+  if (kontrakBtn) openAsetKontrakModal(kontrakBtn.dataset.kontrakAset);
+  else if (editBtn) openAsetSewaModal(state.asetSewa.find(a => a.id === editBtn.dataset.editAset));
+  else if (delBtn) {
+    const a = state.asetSewa.find(x => x.id === delBtn.dataset.deleteAset);
+    if (!a) return;
+    const jml = (a.kontrak || []).length;
+    if (!confirm(`Hapus aset "${a.nama}"?${jml ? `\n${jml} kontrak sewanya ikut terhapus.` : ""}\nTransaksi Kas Perusahaan yang sudah tercatat TIDAK ikut terhapus (uangnya nyata).`)) return;
+    state.asetSewa = state.asetSewa.filter(x => x.id !== a.id);
+    saveState();
+    mirrorAsetSewaDelete(a.id, a);
+    renderAll();
+  }
+});
+// ----- Modal kontrak per aset -----
+const asetKontrakModal = document.getElementById("asetKontrakModal");
+function resetKontrakForm() {
+  document.getElementById("swk_id").value = "";
+  document.getElementById("asetKontrakForm").reset();
+  document.getElementById("swk_formTitle").textContent = "Tambah Kontrak Baru";
+  document.getElementById("swk_submitBtn").textContent = "Simpan Kontrak";
+  document.getElementById("swk_batalEditBtn").style.display = "none";
+}
+function openAsetKontrakModal(asetId) {
+  currentAsetKontrakId = asetId;
+  resetKontrakForm();
+  renderAsetKontrakTable();
+  asetKontrakModal.classList.add("open");
+}
+function renderAsetKontrakTable() {
+  const a = state.asetSewa.find(x => x.id === currentAsetKontrakId);
+  if (!a) return;
+  const today = hariIniIso();
+  document.getElementById("asetKontrakModalTitle").textContent = `Kontrak Sewa — ${a.nama}`;
+  const statusLabel = { aktif: '<span class="badge badge-lunas">Aktif</span>', selesai: '<span class="badge">Selesai</span>', akan: '<span class="badge badge-pending">Akan Datang</span>' };
+  const rows = (a.kontrak || []).slice().sort((x, y) => (y.mulai || "").localeCompare(x.mulai || ""));
+  document.querySelector("#swk_table tbody").innerHTML = rows.length ? rows.map(kt => {
+    const dibayar = sewaDibayar(kt.id);
+    const kurang = (kt.nilai || 0) - dibayar;
+    return `
+      <tr>
+        <td><strong>${escapeHtml(kt.penyewa || "-")}</strong>${kt.catatan ? `<div class="muted" style="font-size:11.5px;">${escapeHtml(kt.catatan)}</div>` : ""}</td>
+        <td>${kt.kontak ? `<a href="${waLink(kt.kontak)}" target="_blank" rel="noopener">${escapeHtml(kt.kontak)}</a>` : "-"}</td>
+        <td>${formatTanggal(kt.mulai)} — ${formatTanggal(kt.selesai)}</td>
+        <td class="num">${rupiah(kt.nilai || 0)}</td>
+        <td class="num">${rupiah(dibayar)}${kurang > 0 ? `<div class="muted" style="font-size:11.5px;">kurang ${rupiah(kurang)}</div>` : ""}</td>
+        <td>${statusLabel[kontrakSewaStatus(kt, today)]}</td>
+        <td><div class="row-actions">
+          <button class="icon-btn" data-bayar-kontrak="${kt.id}" title="Catat Pembayaran">💰</button>
+          <button class="icon-btn" data-edit-kontrak="${kt.id}" title="Edit">✏️</button>
+          <button class="icon-btn" data-delete-kontrak="${kt.id}" title="Hapus">🗑️</button>
+        </div></td>
+      </tr>`;
+  }).join("") : '<tr class="empty-row"><td colspan="7">Belum ada kontrak sewa untuk aset ini</td></tr>';
+}
+document.getElementById("swk_batalEditBtn").addEventListener("click", resetKontrakForm);
+document.getElementById("asetKontrakForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const a = state.asetSewa.find(x => x.id === currentAsetKontrakId);
+  if (!a) return;
+  const mulai = document.getElementById("swk_mulai").value;
+  const selesai = document.getElementById("swk_selesai").value;
+  if (selesai < mulai) { alert("Tanggal Selesai Sewa tidak boleh sebelum Mulai Sewa."); return; }
+  const sebelum = JSON.parse(JSON.stringify(a));
+  const id = document.getElementById("swk_id").value;
+  const kt = {
+    id: id || uid(),
+    penyewa: document.getElementById("swk_penyewa").value.trim(),
+    kontak: document.getElementById("swk_kontak").value.trim(),
+    mulai, selesai,
+    nilai: parseNumberInput(document.getElementById("swk_nilai").value),
+    catatan: document.getElementById("swk_catatan").value.trim()
+  };
+  // Cegah dobel sewa: periode kontrak baru tidak boleh beririsan dengan
+  // kontrak lain di aset yang sama (kecuali kontrak yang sedang diedit).
+  const bentrok = (a.kontrak || []).find(x => x.id !== kt.id && (x.mulai || "") <= selesai && (x.selesai || "") >= mulai);
+  if (bentrok && !confirm(`PERHATIAN: periode ini TUMPANG TINDIH dengan kontrak ${bentrok.penyewa} (${formatTanggal(bentrok.mulai)} - ${formatTanggal(bentrok.selesai)}).\nUntuk kos-kosan per kamar / baliho, satu periode wajarnya satu penyewa.\n\nTetap simpan?`)) return;
+  if (!a.kontrak) a.kontrak = [];
+  const idx = a.kontrak.findIndex(x => x.id === kt.id);
+  if (idx >= 0) a.kontrak[idx] = kt; else a.kontrak.push(kt);
+  saveState();
+  mirrorAsetSewaUpsert(a, sebelum);
+  resetKontrakForm();
+  renderAsetKontrakTable();
+  renderAll();
+});
+document.getElementById("swk_table").addEventListener("click", e => {
+  const a = state.asetSewa.find(x => x.id === currentAsetKontrakId);
+  if (!a) return;
+  const bayarBtn = e.target.closest("[data-bayar-kontrak]");
+  const editBtn = e.target.closest("[data-edit-kontrak]");
+  const delBtn = e.target.closest("[data-delete-kontrak]");
+  if (bayarBtn) openAsetBayarModal(a.id, bayarBtn.dataset.bayarKontrak);
+  else if (editBtn) {
+    const kt = (a.kontrak || []).find(x => x.id === editBtn.dataset.editKontrak);
+    if (!kt) return;
+    document.getElementById("swk_id").value = kt.id;
+    document.getElementById("swk_penyewa").value = kt.penyewa || "";
+    document.getElementById("swk_kontak").value = kt.kontak || "";
+    document.getElementById("swk_mulai").value = kt.mulai || "";
+    document.getElementById("swk_selesai").value = kt.selesai || "";
+    document.getElementById("swk_nilai").value = formatNumberInput(kt.nilai || 0);
+    document.getElementById("swk_catatan").value = kt.catatan || "";
+    document.getElementById("swk_formTitle").textContent = `Edit Kontrak — ${kt.penyewa}`;
+    document.getElementById("swk_submitBtn").textContent = "Simpan Perubahan";
+    document.getElementById("swk_batalEditBtn").style.display = "inline-block";
+  } else if (delBtn) {
+    const kt = (a.kontrak || []).find(x => x.id === delBtn.dataset.deleteKontrak);
+    if (!kt) return;
+    if (!confirm(`Hapus kontrak ${kt.penyewa} (${formatTanggal(kt.mulai)} - ${formatTanggal(kt.selesai)})?\nTransaksi Kas yang sudah tercatat dari kontrak ini TIDAK ikut terhapus.`)) return;
+    const sebelum = JSON.parse(JSON.stringify(a));
+    a.kontrak = a.kontrak.filter(x => x.id !== kt.id);
+    saveState();
+    mirrorAsetSewaUpsert(a, sebelum);
+    resetKontrakForm();
+    renderAsetKontrakTable();
+    renderAll();
+  }
+});
+// ----- Modal catat pembayaran sewa -----
+const asetBayarModal = document.getElementById("asetBayarModal");
+let bayarKontrakCtx = null; // { asetId, kontrakId }
+function openAsetBayarModal(asetId, kontrakId) {
+  const a = state.asetSewa.find(x => x.id === asetId);
+  const kt = a && (a.kontrak || []).find(x => x.id === kontrakId);
+  if (!a || !kt) return;
+  bayarKontrakCtx = { asetId, kontrakId };
+  const sisa = Math.max(0, (kt.nilai || 0) - sewaDibayar(kt.id));
+  document.getElementById("swb_info").textContent = `${a.nama} — ${kt.penyewa} (${formatTanggal(kt.mulai)} - ${formatTanggal(kt.selesai)}) · sisa tagihan ${rupiah(sisa)}`;
+  document.getElementById("swb_tanggal").value = hariIniIso();
+  document.getElementById("swb_jumlah").value = sisa ? formatNumberInput(sisa) : "";
+  document.getElementById("swb_status").value = "lunas";
+  document.getElementById("swb_keterangan").value = "";
+  asetBayarModal.classList.add("open");
+}
+document.getElementById("asetBayarForm").addEventListener("submit", e => {
+  e.preventDefault();
+  if (!bayarKontrakCtx) return;
+  const a = state.asetSewa.find(x => x.id === bayarKontrakCtx.asetId);
+  const kt = a && (a.kontrak || []).find(x => x.id === bayarKontrakCtx.kontrakId);
+  if (!a || !kt) return;
+  const jumlah = parseNumberInput(document.getElementById("swb_jumlah").value);
+  if (jumlah <= 0) { alert("Jumlah pembayaran harus lebih dari 0."); return; }
+  const sisa = (kt.nilai || 0) - sewaDibayar(kt.id);
+  if (jumlah > sisa && !confirm(`Jumlah ini MELEBIHI sisa tagihan kontrak (${rupiah(Math.max(0, sisa))}).\nTetap catat?`)) return;
+  const ketTambahan = document.getElementById("swb_keterangan").value.trim();
+  const txn = {
+    id: uid(),
+    sumberSewaId: kt.id,
+    tipe: "Masuk",
+    status: document.getElementById("swb_status").value === "pending" ? "pending" : "lunas",
+    tanggal: document.getElementById("swb_tanggal").value,
+    jumlah,
+    keterangan: `Sewa ${a.nama} — ${kt.penyewa}` + (ketTambahan ? ` (${ketTambahan})` : ""),
+    kategori: "Pendapatan Sewa Aset",
+    extra: a.nama,
+    catatan: "Otomatis dari modul Sewa Aset"
+  };
+  state.kasUsaha.transactions.push(txn);
+  saveState();
+  mirrorKasUsahaUpsert(txn, null);
+  closeModals();
+  renderAll();
+  openAsetKontrakModal(a.id);
+});
+
 // ===== Rendering: Dashboard =====
 function renderDashboard() {
   const ku = kasSummary("kasUsaha");
@@ -2063,6 +2425,7 @@ function renderDashboard() {
   const pwKadaluarsa = state.penawaran.filter(p => pwIsKadaluarsa(p, today)).length;
   const alatPerluServis = (state.alat || []).filter(a => ["terlambat", "segera"].includes(alatServisStatus(a, today))).length;
   const proyekMacet = state.proyek.map(p => proyekTahapanMacet(p, today)).filter(Boolean).length;
+  const sewaBerakhir = sewaBerakhirSegera(today).length;
 
   const alerts = [
     pendingTxns.length ? { icon: "⏳", label: "Kas Perusahaan menunggu persetujuan", value: `${pendingTxns.length} transaksi · ${rupiah(ku.menungguPersetujuan)}`, page: "kasUsaha" } : null,
@@ -2072,7 +2435,8 @@ function renderDashboard() {
     klienMandek ? { icon: "⚠️", label: "Klien mandek (>21 hari tanpa perubahan tahap)", value: `${klienMandek} klien`, page: "klien" } : null,
     pwKadaluarsa ? { icon: "📄", label: "Penawaran kadaluarsa", value: `${pwKadaluarsa} penawaran`, page: "penawaran" } : null,
     alatPerluServis ? { icon: "🔧", label: "Alat jatuh tempo servis (lewat atau ≤ 14 hari lagi)", value: `${alatPerluServis} alat`, page: "stok" } : null,
-    proyekMacet ? { icon: "🚧", label: "Proyek macet di satu tahap administrasi (>14 hari)", value: `${proyekMacet} proyek`, page: "proyek" } : null
+    proyekMacet ? { icon: "🚧", label: "Proyek macet di satu tahap administrasi (>14 hari)", value: `${proyekMacet} proyek`, page: "proyek" } : null,
+    sewaBerakhir ? { icon: "🏠", label: "Kontrak sewa aset berakhir ≤ 14 hari lagi", value: `${sewaBerakhir} kontrak`, page: "sewaAset" } : null
   ].filter(Boolean);
 
   document.getElementById("dash_alertPanel").style.display = alerts.length ? "block" : "none";
@@ -9365,6 +9729,7 @@ function renderAll() {
   document.getElementById("pm_listView").style.display = currentPemasokId ? "none" : "block";
   document.getElementById("pm_detailView").style.display = currentPemasokId ? "block" : "none";
   if (currentPemasokId) renderPemasokDetail(); else renderPemasokList();
+  renderSewaAset();
   { const activePmSubtab = document.querySelector('.subtab-item[data-subtab-page="pm"].active');
     if (activePmSubtab && activePmSubtab.dataset.subtab === "performa") renderVendorPerforma(); }
   renderAhsp();
@@ -9403,7 +9768,7 @@ function renderAll() {
 // hanya halaman yang terdaftar di sini yang boleh diakses.
 const ROLE_PAGE_ACCESS = {
   owner: null,
-  admin: ["dashboard", "klien", "kasUsaha", "laporan", "kpi", "proyek", "karyawan", "lokasi", "stok", "pemasok", "ahsp", "rab", "penawaran", "pengaturan"],
+  admin: ["dashboard", "klien", "kasUsaha", "laporan", "kpi", "proyek", "sewaAset", "karyawan", "lokasi", "stok", "pemasok", "ahsp", "rab", "penawaran", "pengaturan"],
   marketing: ["klien", "ahsp", "rab", "penawaran", "pengaturan"]
 };
 function canAccessPage(name) {
@@ -10707,6 +11072,7 @@ async function mirrorAllToRelational() {
   // "existing" yang undefined berarti "jangan catat ke Log Aktivitas",
   // karena ini re-mirror massal (impor/migrasi), bukan aksi satu pengguna.
   (state.klien || []).forEach(k => mirrorKlienUpsert(k));
+  (state.asetSewa || []).forEach(a => mirrorAsetSewaUpsert(a));
   (state.ahsp || []).forEach(a => mirrorAhspUpsert(a));
   (state.proyekRab || []).forEach(r => mirrorRabUpsert(r));
   (state.penawaran || []).forEach(p => mirrorPenawaranUpsert(p));
