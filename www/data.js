@@ -583,6 +583,249 @@ const AHSP_TEMPLATES = [
     komponen: [
       { jenis: "Bahan", uraian: "Sewa Lighting Set (Par LED + Moving Head)", satuan: "paket", koefisien: 1, harga: 3000000 },
       { jenis: "Upah", uraian: "Operator Lighting", satuan: "OH", koefisien: 1 }
+    ] },
+
+  // ===== Paket AHSP 2026 — Tralis & Pagar Besi (harga pasar Jateng 2026,
+  // sesuaikan dengan harga besi & upah las lokal terkini) =====
+  { kode: "TPL-TRL-01", kategori: "Konstruksi Baja", uraian: "Tralis Jendela Besi Hollow Minimalis (Produksi + Pasang)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar tralis 2026 (kanopirumahku.com, bengkellasmandiri.com, hargadepo.com) — motif minimalis, finishing cat besi",
+    komponen: [
+      { jenis: "Bahan", uraian: "Besi Hollow Galvanis 20x40 t1.2", satuan: "m1", koefisien: 5, harga: 27000 },
+      { jenis: "Bahan", uraian: "Plat Strip & Angkur/Dynabolt", satuan: "set", koefisien: 1, harga: 35000 },
+      { jenis: "Bahan", uraian: "Cat Dasar Zinc Chromate + Cat Besi Finish", satuan: "m2", koefisien: 1, harga: 40000 },
+      { jenis: "Bahan", uraian: "Kawat Las & Mata Gerinda", satuan: "set", koefisien: 1, harga: 20000 },
+      { jenis: "Upah", uraian: "Tukang Las", satuan: "OH", koefisien: 0.5 }
+    ] },
+  { kode: "TPL-TRL-02", kategori: "Konstruksi Baja", uraian: "Pintu Tralis Besi (Daun Pintu + Kusen + Kunci)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar pintu tralis 2026 (bengkellasmandiri.com, tokopedia riset harga) — termasuk engsel & kunci",
+    komponen: [
+      { jenis: "Bahan", uraian: "Besi Hollow/Nako + Rangka", satuan: "m1", koefisien: 6.5, harga: 27000 },
+      { jenis: "Bahan", uraian: "Engsel Tanam + Kunci/Slot Pintu Besi", satuan: "set", koefisien: 1, harga: 150000 },
+      { jenis: "Bahan", uraian: "Cat Dasar + Cat Besi Finish", satuan: "m2", koefisien: 1, harga: 45000 },
+      { jenis: "Bahan", uraian: "Kawat Las & Consumables", satuan: "set", koefisien: 1, harga: 25000 },
+      { jenis: "Upah", uraian: "Tukang Las", satuan: "OH", koefisien: 0.75 }
+    ] },
+  { kode: "TPL-TRL-03", kategori: "Konstruksi Baja", uraian: "Pagar Besi Hollow Minimalis (Produksi + Pasang)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar pagar besi 2026 (kanopirumahku.com, jasapagarbesi.com) — kombinasi hollow 40x40 & 20x40, finishing cat",
+    komponen: [
+      { jenis: "Bahan", uraian: "Besi Hollow Galvanis 40x40 t1.2", satuan: "m1", koefisien: 3, harga: 42000 },
+      { jenis: "Bahan", uraian: "Besi Hollow Galvanis 20x40 t1.2", satuan: "m1", koefisien: 3.5, harga: 27000 },
+      { jenis: "Bahan", uraian: "Angkur/Baseplate + Dynabolt", satuan: "set", koefisien: 1, harga: 40000 },
+      { jenis: "Bahan", uraian: "Cat Dasar + Cat Besi Finish", satuan: "m2", koefisien: 1, harga: 45000 },
+      { jenis: "Bahan", uraian: "Kawat Las & Consumables", satuan: "set", koefisien: 1, harga: 25000 },
+      { jenis: "Upah", uraian: "Tukang Las", satuan: "OH", koefisien: 0.6 }
+    ] },
+  { kode: "TPL-TRL-04", kategori: "Konstruksi Baja", uraian: "Pintu Pagar Besi Dorong/Sliding (Produksi + Pasang + Rel)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar pintu pagar sliding 2026 (jasapagarbesi.com, bengkel las lokal) — termasuk rel bawah, roda, & stopper",
+    komponen: [
+      { jenis: "Bahan", uraian: "Besi Hollow + Rangka Pintu Pagar", satuan: "m1", koefisien: 7, harga: 42000 },
+      { jenis: "Bahan", uraian: "Rel + Roda + Stopper Pintu Sliding", satuan: "set", koefisien: 1, harga: 250000 },
+      { jenis: "Bahan", uraian: "Cat Dasar + Cat Besi Finish", satuan: "m2", koefisien: 1, harga: 45000 },
+      { jenis: "Bahan", uraian: "Kawat Las & Consumables", satuan: "set", koefisien: 1, harga: 30000 },
+      { jenis: "Upah", uraian: "Tukang Las", satuan: "OH", koefisien: 0.9 }
+    ] },
+  { kode: "TPL-TRL-05", kategori: "Konstruksi Baja", uraian: "Railing Tangga/Balkon Besi Hollow per Meter Lari", satuan: "m1", overhead: 10,
+    referensi: "Estimasi riset harga pasar railing 2026 (kanopirumahku.com, bengkel las lokal) — tinggi standar 90cm, finishing cat",
+    komponen: [
+      { jenis: "Bahan", uraian: "Besi Hollow Galvanis 40x40 + 20x20", satuan: "m1", koefisien: 4.5, harga: 30000 },
+      { jenis: "Bahan", uraian: "Angkur + Dynabolt + Endcap", satuan: "set", koefisien: 1, harga: 30000 },
+      { jenis: "Bahan", uraian: "Cat Dasar + Cat Besi Finish", satuan: "m1", koefisien: 1, harga: 30000 },
+      { jenis: "Upah", uraian: "Tukang Las", satuan: "OH", koefisien: 0.4 }
+    ] },
+  { kode: "TPL-BJ-06", kategori: "Konstruksi Baja", uraian: "Rangka Atap Baja Ringan C75 + Reng (Pasang, tanpa penutup atap)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar baja ringan 2026 (hargabajaringan.id, depobangunan riset) — kuda-kuda C75 t0.75 + reng, bentang standar rumah",
+    komponen: [
+      { jenis: "Bahan", uraian: "Kanal C75 t0.75 Baja Ringan", satuan: "m1", koefisien: 2.2, harga: 32000 },
+      { jenis: "Bahan", uraian: "Reng Baja Ringan t0.45", satuan: "m1", koefisien: 3, harga: 12000 },
+      { jenis: "Bahan", uraian: "Sekrup Baja Ringan + Dynabolt", satuan: "set", koefisien: 1, harga: 12000 },
+      { jenis: "Upah", uraian: "Tukang Baja Ringan", satuan: "OH", koefisien: 0.25 }
+    ] },
+  { kode: "TPL-BJ-07", kategori: "Konstruksi Baja", uraian: "Konstruksi Baja WF (Fabrikasi + Erection + Cat Dasar) per Kg", satuan: "kg", overhead: 10,
+    referensi: "Estimasi riset harga pasar baja WF terpasang 2026 (hargabesibaja.com, gudangbesibaja.com) — gudang/kanopi besar, belum termasuk pondasi",
+    komponen: [
+      { jenis: "Bahan", uraian: "Besi Baja WF/H-Beam", satuan: "kg", koefisien: 1.05, harga: 15500 },
+      { jenis: "Bahan", uraian: "Baut HTB + Plat Sambung + Angkur", satuan: "kg", koefisien: 1, harga: 2500 },
+      { jenis: "Bahan", uraian: "Cat Dasar Zincromate", satuan: "kg", koefisien: 1, harga: 1500 },
+      { jenis: "Upah", uraian: "Tukang Konstruksi Baja", satuan: "OH", koefisien: 0.03 }
+    ] },
+
+  // ===== Paket AHSP 2026 — Kanopi (varian atap; TPL-EKS-03 = varian spandek) =====
+  { kode: "TPL-KNP-01", kategori: "Renovasi Eksterior", uraian: "Kanopi Baja Ringan + Atap Alderon Dobel Dinding (Produksi + Pasang)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar kanopi 2026 (kanopirumahku.com, kanopijogja.id) — alderon uPVC dobel dinding, rangka taso",
+    komponen: [
+      { jenis: "Bahan", uraian: "Rangka Baja Ringan Taso + Sekrup", satuan: "m2", koefisien: 1, harga: 130000 },
+      { jenis: "Bahan", uraian: "Atap Alderon uPVC Dobel Dinding", satuan: "m2", koefisien: 1.1, harga: 135000 },
+      { jenis: "Bahan", uraian: "Talang + Flashing + Aksesoris", satuan: "m2", koefisien: 1, harga: 25000 },
+      { jenis: "Upah", uraian: "Tukang Kanopi", satuan: "OH", koefisien: 0.3 }
+    ] },
+  { kode: "TPL-KNP-02", kategori: "Renovasi Eksterior", uraian: "Kanopi Baja Ringan + Solartuff/Polycarbonate Solid (Produksi + Pasang)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar kanopi 2026 (kanopirumahku.com, solartuff.co.id) — atap transparan solartuff solid 1.2mm",
+    komponen: [
+      { jenis: "Bahan", uraian: "Rangka Baja Ringan Taso + Sekrup", satuan: "m2", koefisien: 1, harga: 130000 },
+      { jenis: "Bahan", uraian: "Solartuff Solid Polycarbonate 1.2mm", satuan: "m2", koefisien: 1.1, harga: 165000 },
+      { jenis: "Bahan", uraian: "Karet Sealer + Flashing + Aksesoris", satuan: "m2", koefisien: 1, harga: 25000 },
+      { jenis: "Upah", uraian: "Tukang Kanopi", satuan: "OH", koefisien: 0.3 }
+    ] },
+  { kode: "TPL-KNP-03", kategori: "Renovasi Eksterior", uraian: "Kanopi Besi Hollow + Atap Spandek (Produksi + Pasang)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar kanopi besi 2026 (kanopirumahku.com, bengkel las lokal) — rangka hollow galvanis las, lebih kokoh dari taso",
+    komponen: [
+      { jenis: "Bahan", uraian: "Besi Hollow Galvanis 40x40 + 40x60", satuan: "m1", koefisien: 3.5, harga: 40000 },
+      { jenis: "Bahan", uraian: "Atap Spandek 0.3mm Warna", satuan: "m2", koefisien: 1.1, harga: 75000 },
+      { jenis: "Bahan", uraian: "Cat Besi + Kawat Las + Dynabolt", satuan: "m2", koefisien: 1, harga: 45000 },
+      { jenis: "Upah", uraian: "Tukang Las", satuan: "OH", koefisien: 0.45 }
+    ] },
+  { kode: "TPL-KNP-04", kategori: "Renovasi Eksterior", uraian: "Kanopi Kaca Tempered 10mm + Rangka Besi (Produksi + Pasang)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar kanopi kaca 2026 (kacatempered.co.id, kanopikaca.id) — kaca tempered 10mm + spider fitting/rangka hollow duco",
+    komponen: [
+      { jenis: "Bahan", uraian: "Kaca Tempered 10mm", satuan: "m2", koefisien: 1.05, harga: 750000 },
+      { jenis: "Bahan", uraian: "Rangka Besi Hollow Finishing Duco", satuan: "m2", koefisien: 1, harga: 350000 },
+      { jenis: "Bahan", uraian: "Bracket/Spider + Sealant Struktural", satuan: "m2", koefisien: 1, harga: 120000 },
+      { jenis: "Upah", uraian: "Tukang Kaca & Las", satuan: "OH", koefisien: 0.6 }
+    ] },
+  { kode: "TPL-KNP-05", kategori: "Renovasi Eksterior", uraian: "Kanopi Membrane (Rangka Pipa + Kain Membrane Import)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar kanopi membrane 2026 (canopymembrane.co.id, tendamembrane.id) — kain Agtex/sejenis, bentuk custom",
+    komponen: [
+      { jenis: "Bahan", uraian: "Kain Membrane Import", satuan: "m2", koefisien: 1.15, harga: 300000 },
+      { jenis: "Bahan", uraian: "Rangka Pipa Besi + Cat", satuan: "m2", koefisien: 1, harga: 260000 },
+      { jenis: "Bahan", uraian: "Aksesoris Tarik + Baut + Sealant", satuan: "m2", koefisien: 1, harga: 50000 },
+      { jenis: "Upah", uraian: "Tukang Membrane", satuan: "OH", koefisien: 0.5 }
+    ] },
+
+  // ===== Paket AHSP 2026 — Pekerjaan Atap =====
+  { kode: "TPL-ATP-01", kategori: "Renovasi Eksterior", uraian: "Pasang Penutup Atap Spandek 0.3mm (di atas rangka existing)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar atap 2026 (hargaspandek.id, depobangunan riset) — termasuk overlap & sekrup, belum termasuk rangka",
+    komponen: [
+      { jenis: "Bahan", uraian: "Spandek 0.3mm Warna", satuan: "m2", koefisien: 1.1, harga: 75000 },
+      { jenis: "Bahan", uraian: "Sekrup Atap + Karet", satuan: "set", koefisien: 1, harga: 8000 },
+      { jenis: "Upah", uraian: "Tukang Atap", satuan: "OH", koefisien: 0.12 }
+    ] },
+  { kode: "TPL-ATP-02", kategori: "Renovasi Eksterior", uraian: "Pasang Genteng Metal Berpasir (di atas rangka existing)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar genteng metal 2026 (sakuraroof.com riset, depobangunan) — genteng metal pasir 0.30, termasuk overlap",
+    komponen: [
+      { jenis: "Bahan", uraian: "Genteng Metal Berpasir 0.30", satuan: "m2", koefisien: 1.1, harga: 95000 },
+      { jenis: "Bahan", uraian: "Sekrup + Aksesoris", satuan: "set", koefisien: 1, harga: 8000 },
+      { jenis: "Upah", uraian: "Tukang Atap", satuan: "OH", koefisien: 0.15 }
+    ] },
+  { kode: "TPL-ATP-03", kategori: "Renovasi Eksterior", uraian: "Pasang Atap Alderon/uPVC Dobel Dinding (di atas rangka existing)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar alderon 2026 (alderon.co.id riset harga, kanopijogja.id)",
+    komponen: [
+      { jenis: "Bahan", uraian: "Alderon uPVC Dobel Dinding", satuan: "m2", koefisien: 1.1, harga: 135000 },
+      { jenis: "Bahan", uraian: "Sekrup + Aksesoris", satuan: "set", koefisien: 1, harga: 8000 },
+      { jenis: "Upah", uraian: "Tukang Atap", satuan: "OH", koefisien: 0.12 }
+    ] },
+  { kode: "TPL-ATP-04", kategori: "Renovasi Eksterior", uraian: "Bongkar Penutup Atap Lama (genteng/asbes/seng)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi upah pasar 2026 — bongkar hati-hati, material lama diturunkan & dikumpulkan (belum termasuk buang puing)",
+    komponen: [
+      { jenis: "Upah", uraian: "Pekerja Bongkar", satuan: "OH", koefisien: 0.15 }
+    ] },
+  { kode: "TPL-ATP-05", kategori: "Renovasi Eksterior", uraian: "Pasang Talang Air Galvalum/PVC per Meter Lari", satuan: "m1", overhead: 10,
+    referensi: "Estimasi riset harga pasar talang 2026 (depobangunan riset, tukangtalang.com)",
+    komponen: [
+      { jenis: "Bahan", uraian: "Talang Galvalum/PVC + Braket", satuan: "m1", koefisien: 1.05, harga: 65000 },
+      { jenis: "Bahan", uraian: "Sealant + Sekrup", satuan: "m1", koefisien: 1, harga: 10000 },
+      { jenis: "Upah", uraian: "Tukang Atap", satuan: "OH", koefisien: 0.1 }
+    ] },
+  { kode: "TPL-ATP-06", kategori: "Renovasi Eksterior", uraian: "Pasang Nok/Bubungan Metal per Meter Lari", satuan: "m1", overhead: 10,
+    referensi: "Estimasi riset harga pasar 2026 (hargaspandek.id, depobangunan riset)",
+    komponen: [
+      { jenis: "Bahan", uraian: "Nok/Bubungan Metal", satuan: "m1", koefisien: 1.05, harga: 45000 },
+      { jenis: "Bahan", uraian: "Sekrup + Sealant", satuan: "m1", koefisien: 1, harga: 8000 },
+      { jenis: "Upah", uraian: "Tukang Atap", satuan: "OH", koefisien: 0.08 }
+    ] },
+
+  // ===== Paket AHSP 2026 — Sipil/Konstruksi praktis (pelengkap dataset
+  // resmi PUPR: koefisien disederhanakan ke harga pasar terpasang) =====
+  { kode: "TPL-SIP-05", kategori: "Sipil/Konstruksi", uraian: "Galian Tanah Pondasi (manual, kedalaman s/d 1m)", satuan: "m3", overhead: 10,
+    referensi: "Estimasi upah pasar 2026 & AHSP PUPR (disederhanakan) — tanah biasa, hasil galian ditumpuk di sisi galian",
+    komponen: [
+      { jenis: "Upah", uraian: "Pekerja Galian", satuan: "OH", koefisien: 0.75 }
+    ] },
+  { kode: "TPL-SIP-06", kategori: "Sipil/Konstruksi", uraian: "Pasangan Pondasi Batu Kali 1PC:5PS (termasuk material)", satuan: "m3", overhead: 10,
+    referensi: "Estimasi riset harga pasar 2026 & AHSP PUPR (disederhanakan) — batu belah, semen, pasir pasang",
+    komponen: [
+      { jenis: "Bahan", uraian: "Batu Belah/Kali", satuan: "m3", koefisien: 1.2, harga: 285000 },
+      { jenis: "Bahan", uraian: "Semen Portland 50kg", satuan: "zak", koefisien: 2.7, harga: 62000 },
+      { jenis: "Bahan", uraian: "Pasir Pasang", satuan: "m3", koefisien: 0.55, harga: 260000 },
+      { jenis: "Upah", uraian: "Tukang Batu + Pekerja", satuan: "OH", koefisien: 2 }
+    ] },
+  { kode: "TPL-SIP-07", kategori: "Sipil/Konstruksi", uraian: "Beton Bertulang K-225 (beton + besi ±110kg/m3 + bekisting)", satuan: "m3", overhead: 10,
+    referensi: "Estimasi riset harga pasar 2026 & AHSP PUPR (disederhanakan) — sloof/kolom/balok praktis rumah tinggal",
+    komponen: [
+      { jenis: "Bahan", uraian: "Beton Readymix/Site-mix K-225", satuan: "m3", koefisien: 1.02, harga: 950000 },
+      { jenis: "Bahan", uraian: "Besi Beton Polos/Ulir", satuan: "kg", koefisien: 110, harga: 12500 },
+      { jenis: "Bahan", uraian: "Kawat Bendrat + Beton Decking", satuan: "kg", koefisien: 2, harga: 20000 },
+      { jenis: "Bahan", uraian: "Bekisting Kayu/Multiplek (2x pakai)", satuan: "m2", koefisien: 6, harga: 65000 },
+      { jenis: "Upah", uraian: "Tukang Besi + Tukang Batu + Pekerja", satuan: "OH", koefisien: 4.5 }
+    ] },
+  { kode: "TPL-SIP-08", kategori: "Sipil/Konstruksi", uraian: "Pasang Dinding Bata Ringan + Plester + Aci (per sisi)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar 2026 (hargabataringan.id, depobangunan riset) — bata ringan 7.5cm + mortar instan",
+    komponen: [
+      { jenis: "Bahan", uraian: "Bata Ringan AAC 7.5cm", satuan: "m2", koefisien: 1.02, harga: 55000 },
+      { jenis: "Bahan", uraian: "Mortar Perekat Bata Ringan", satuan: "zak", koefisien: 0.35, harga: 55000 },
+      { jenis: "Bahan", uraian: "Mortar Plester + Acian Instan", satuan: "zak", koefisien: 0.6, harga: 60000 },
+      { jenis: "Upah", uraian: "Tukang Batu + Pekerja", satuan: "OH", koefisien: 0.45 }
+    ] },
+  { kode: "TPL-SIP-09", kategori: "Sipil/Konstruksi", uraian: "Pasang Keramik Lantai 40x40 (termasuk perekat & nat)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar 2026 (depobangunan riset, mitra10 riset) — keramik KW1 lokal",
+    komponen: [
+      { jenis: "Bahan", uraian: "Keramik Lantai 40x40 KW1", satuan: "m2", koefisien: 1.05, harga: 65000 },
+      { jenis: "Bahan", uraian: "Semen/Perekat Keramik", satuan: "zak", koefisien: 0.3, harga: 60000 },
+      { jenis: "Bahan", uraian: "Nat Keramik + Pasir", satuan: "m2", koefisien: 1, harga: 15000 },
+      { jenis: "Upah", uraian: "Tukang Keramik + Pekerja", satuan: "OH", koefisien: 0.4 }
+    ] },
+  { kode: "TPL-SIP-10", kategori: "Sipil/Konstruksi", uraian: "Rabat Beton Lantai Kerja t=7cm (site-mix)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar 2026 & AHSP PUPR (disederhanakan) — campuran 1:3:5 untuk lantai kerja/carport sederhana",
+    komponen: [
+      { jenis: "Bahan", uraian: "Semen Portland 50kg", satuan: "zak", koefisien: 0.5, harga: 62000 },
+      { jenis: "Bahan", uraian: "Pasir Beton", satuan: "m3", koefisien: 0.035, harga: 285000 },
+      { jenis: "Bahan", uraian: "Split/Kerikil", satuan: "m3", koefisien: 0.055, harga: 320000 },
+      { jenis: "Upah", uraian: "Tukang Batu + Pekerja", satuan: "OH", koefisien: 0.25 }
+    ] },
+
+  // ===== Paket AHSP 2026 — Event Organizer tambahan =====
+  { kode: "TPL-EO-09", kategori: "Event Organizer", uraian: "Sewa Panggung Rigging + Lantai Level per m2 per Hari", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar sewa panggung 2026 (naremax.com, sewapanggung.id) — tinggi 60-100cm, termasuk karpet & skirting",
+    komponen: [
+      { jenis: "Bahan", uraian: "Sewa Panggung + Level + Karpet", satuan: "m2", koefisien: 1, harga: 150000 },
+      { jenis: "Upah", uraian: "Kru Pasang Bongkar Panggung", satuan: "OH", koefisien: 0.08 }
+    ] },
+  { kode: "TPL-EO-10", kategori: "Event Organizer", uraian: "Sewa Genset 40 kVA Silent + Operator + BBM per Hari", satuan: "hari", overhead: 10,
+    referensi: "Estimasi riset harga pasar sewa genset 2026 (sewagensetjateng.com, indorental.co.id) — 8-10 jam pakai, termasuk kabel distribusi",
+    komponen: [
+      { jenis: "Bahan", uraian: "Sewa Genset 40 kVA Silent", satuan: "hari", koefisien: 1, harga: 1800000 },
+      { jenis: "Bahan", uraian: "BBM Solar (8-10 jam)", satuan: "liter", koefisien: 60, harga: 7000 },
+      { jenis: "Upah", uraian: "Operator Genset", satuan: "OH", koefisien: 1 }
+    ] },
+  { kode: "TPL-EO-11", kategori: "Event Organizer", uraian: "Sewa Kursi Futura + Cover per Unit per Hari", satuan: "unit", overhead: 10,
+    referensi: "Estimasi riset harga pasar 2026 (amidekorasi.com, sewakursisemarang.com) — termasuk angkut & tata di lokasi",
+    komponen: [
+      { jenis: "Bahan", uraian: "Sewa Kursi Futura + Cover", satuan: "unit", koefisien: 1, harga: 9000 },
+      { jenis: "Upah", uraian: "Kru Penataan", satuan: "OH", koefisien: 0.005 }
+    ] },
+  { kode: "TPL-EO-12", kategori: "Event Organizer", uraian: "Fee MC Profesional per Event (acara formal/semi-formal)", satuan: "event", overhead: 10,
+    referensi: "Estimasi riset harga pasar 2026 (bridestory riset, jasa MC lokal Jateng) — MC berpengalaman, durasi s/d 4 jam",
+    komponen: [
+      { jenis: "Bahan", uraian: "Fee MC Profesional", satuan: "event", koefisien: 1, harga: 1750000 }
+    ] },
+  { kode: "TPL-EO-13", kategori: "Event Organizer", uraian: "Sewa & Pasang Tenda Roder (Bentang 10m) per m2 per Hari", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar tenda roder 2026 (nusatent.com, tendaroder.co.id) — termasuk pasang bongkar, minimal order berlaku",
+    komponen: [
+      { jenis: "Bahan", uraian: "Sewa Tenda Roder + Aksesoris", satuan: "m2", koefisien: 1, harga: 55000 },
+      { jenis: "Upah", uraian: "Kru Pasang Bongkar Tenda", satuan: "OH", koefisien: 0.03 }
+    ] },
+
+  // ===== Paket AHSP 2026 — Advertising jasa pasang tambahan =====
+  { kode: "TPL-ADV-34", kategori: "Advertising", uraian: "Jasa Pasang Spanduk/Banner di Titik Lokasi (tali/mata ayam)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi upah pasar 2026 — pasang di pagar/rangka existing, termasuk tali & aksesoris, belum termasuk sewa titik",
+    komponen: [
+      { jenis: "Bahan", uraian: "Tali/Kabel Ties/Mata Ayam", satuan: "m2", koefisien: 1, harga: 5000 },
+      { jenis: "Upah", uraian: "Petugas Pasang", satuan: "OH", koefisien: 0.05 }
+    ] },
+  { kode: "TPL-ADV-35", kategori: "Advertising", uraian: "Branding Stiker Mobil/Kendaraan (bahan import + jasa pasang)", satuan: "m2", overhead: 10,
+    referensi: "Estimasi riset harga pasar branding mobil 2026 (stickermobil.id, kingsign.id) — vinyl import + laminasi, pemasangan rapi tanpa gelembung",
+    komponen: [
+      { jenis: "Bahan", uraian: "Vinyl Import + Cetak + Laminasi", satuan: "m2", koefisien: 1.1, harga: 220000 },
+      { jenis: "Upah", uraian: "Aplikator Sticker", satuan: "OH", koefisien: 0.25 }
     ] }
 ];
 
