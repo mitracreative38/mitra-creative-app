@@ -1025,9 +1025,9 @@ const SOP_PERUSAHAAN = [
         "Pastikan pekerja lapangan berangkat dengan APD, alat, dan surat tugas/SPK yang jelas."
       ] },
       { judul: "Pembinaan & Sanksi", butir: [
-        "Teguran lisan → SP1 → SP2 → SP3/putus kerja; setiap tahap dicatat tertulis dengan tanggal & alasan.",
+        "Teguran lisan → SP1 → SP2 → SP3/putus kerja; setiap tahap dicatat di aplikasi (menu Karyawan → tombol 📋 Pembinaan/SP) dengan tanggal & alasan, dan surat SP dicetak dari situ untuk ditandatangani.",
         "Pelanggaran berat (mencuri, memalsukan data, menerima uang klien secara pribadi, membocorkan rahasia) langsung diproses tanpa tahapan.",
-        "Prestasi juga dicatat — jadi dasar bonus/kenaikan, bukan hanya hukuman."
+        "Prestasi juga dicatat di menu Pembinaan/SP yang sama — jadi dasar bonus/kenaikan, bukan hanya hukuman."
       ] },
       { judul: "Kesejahteraan", butir: [
         "Gaji/upah dibayar tepat waktu sesuai jadwal; keterlambatan wajib dikomunikasikan sebelum hari-H.",

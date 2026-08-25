@@ -3012,6 +3012,28 @@
 
 <!-- Modal: pembayaran subkontraktor -->
 <!-- Modal: perbaiki slip gaji -->
+<div class="modal-backdrop" id="pembinaanModal">
+  <div class="modal" style="max-width:720px;">
+    <div class="modal-head"><h3>📋 Catatan Pembinaan / SP — <span id="pb_nama"></span></h3><button class="icon-btn" data-close-modal>✕</button></div>
+    <input type="hidden" id="pb_karyawanId">
+    <div class="form-grid" style="margin-bottom:10px;">
+      <div class="field"><label>Tanggal</label><input type="date" id="pb_tanggal"></div>
+      <div class="field"><label>Jenis</label><select id="pb_jenis"></select></div>
+      <div class="field full"><label>Uraian / Alasan</label><input type="text" id="pb_catatan" placeholder="cth. Terlambat 3x dalam seminggu tanpa keterangan / Menyelesaikan proyek lebih cepat dari jadwal"></div>
+      <div class="field" style="justify-content:flex-end;">
+        <button type="button" class="btn-primary" id="pb_addBtn">+ Catat</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="tbl" id="pb_table">
+        <thead><tr><th>Tanggal</th><th>Jenis</th><th>Uraian</th><th>Dicatat oleh</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="muted" style="font-size:12px; margin-top:8px;">Riwayat ini menjadi dasar keputusan bonus, kenaikan, maupun sanksi yang adil (SOP HRD). Tombol 🖨️ mencetak surat resmi berkop (SP/teguran/penghargaan) untuk ditandatangani karyawan — simpan sebagai PDF dari dialog cetak.</p>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="utangModal">
   <div class="modal">
     <div class="modal-head"><h3 id="utangModalTitle">Catat Utang Usaha</h3><button class="icon-btn" data-close-modal>✕</button></div>
