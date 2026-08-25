@@ -8003,16 +8003,10 @@ function defaultSyarat() {
 function defaultPenutup() {
   return "Demikian penawaran harga ini kami sampaikan. Besar harapan kami dapat bekerja sama dengan Bapak/Ibu. Atas perhatian dan kerja samanya kami ucapkan terima kasih.";
 }
-const LOGO_SVG = `<svg viewBox="0 0 64 64" width="52" height="52" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <linearGradient id="lgGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#f5a623"/>
-      <stop offset="1" stop-color="#d0221e"/>
-    </linearGradient>
-  </defs>
-  <path d="M4 8 L20 8 L20 40 Q20 48 26 48 Q32 48 32 40 L32 8 L48 8 L48 40 Q48 56 32 56 Q16 56 16 40 Z" fill="url(#lgGrad)"/>
-  <path d="M20 8 L20 32 Q20 40 26 40 Q28 40 28 34 L28 8 Z" fill="#f7c948" opacity="0.9"/>
-</svg>`;
+// LOGO_SVG dulu berisi pendekatan vektor (tiruan) logo. Sekarang diarahkan
+// ke logo ASLI (MITRA_LOGO_DATA_URI) supaya kop surat SEMUA dokumen cetak
+// memakai logo Mitra Creative yang sama dengan template Penawaran.
+const LOGO_SVG = `<img src="${MITRA_LOGO_DATA_URI}" alt="logo" width="52" height="52" style="display:block; width:52px; height:52px; object-fit:contain;">`;
 
 // ===== Rendering: AHSP =====
 function renderAhsp() {

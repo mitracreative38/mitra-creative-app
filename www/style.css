@@ -359,7 +359,7 @@ body.printing-quote #printArea {
   color: #1a1a1a; background: #fff; font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 .letterhead { display: flex; align-items: center; gap: 14px; }
-.letterhead-logo svg { display: block; }
+.letterhead-logo svg, .letterhead-logo img { display: block; }
 .lh-name { font-size: 23px; font-weight: 800; color: #d0221e; letter-spacing: .3px; text-transform: uppercase; }
 .lh-tagline { font-size: 11.5px; font-weight: 700; color: #222; margin-top: 3px; }
 .lh-address { font-size: 11px; color: #333; margin-top: 2px; }
