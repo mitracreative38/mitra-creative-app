@@ -486,6 +486,12 @@ body.printing-quote #printArea {
 .syarat-text div { margin: 2px 0; }
 .doc-signature { font-size: 12.5px; margin-top: 26px; }
 .sign-space { height: 60px; }
+/* Ukuran dasar gambar tanda tangan Owner di SEMUA dokumen cetak (SOP,
+   SPK/BAST, Invoice/Kwitansi, BAP, slip gaji, laporan, tutup buku).
+   Tanpa aturan ini gambar ttd tampil sebesar file aslinya (kebesaran).
+   Konteks penawaran (.pwmc-signature/.mr-signature) tetap memakai
+   ukurannya sendiri karena selektornya lebih spesifik. */
+.ttd-img { display: block; height: 56px; width: auto; margin: 4px auto -4px; }
 
 @media print {
   @page { margin: 14mm 12mm; }

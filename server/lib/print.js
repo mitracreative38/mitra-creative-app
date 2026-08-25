@@ -95,16 +95,18 @@ function buildPenawaranPrintHtml(pw, profilMitra) {
   const { subtotal, diskonValue, ppnValue, pphValue, total } = penawaranTotals(pw);
   const items = pw.items || [];
   const profil = { company: profilMitra.company || "CV. Mitra Creative", alamat: profilMitra.alamat || COMPANY_ADDRESS, telepon: profilMitra.telepon || COMPANY_PHONE, ownerNama: profilMitra.ownerNama, ownerJabatan: profilMitra.ownerJabatan };
+  // Harga Satuan SENGAJA tidak dicetak (cukup Volume + Jumlah) -- sama
+  // seperti buildPenawaranPrintHtml di www/app.js: dokumen ini keluar ke
+  // pihak luar, harga satuan internal jangan ikut bocor.
   const itemsRows = items.map((it, i) => `
     <tr>
       <td class="c">${i + 1}</td>
       <td>${escapeHtml(it.uraian)}</td>
       <td class="c">${escapeHtml(it.satuan)}</td>
       <td class="r">${it.volume}</td>
-      <td class="r">${rupiah(it.hargaSatuan)}</td>
       <td class="r">${rupiah((it.volume || 0) * (it.hargaSatuan || 0))}</td>
     </tr>
-  `).join("") || `<tr><td colspan="6" class="c">Belum ada item</td></tr>`;
+  `).join("") || `<tr><td colspan="5" class="c">Belum ada item</td></tr>`;
 
   const todayIso = new Date().toISOString().slice(0, 10);
   let statusText, statusCls;
@@ -164,7 +166,7 @@ function buildPenawaranPrintHtml(pw, profilMitra) {
 
       <div class="pwmc-section-label">Rincian Lingkup Pekerjaan</div>
       <table class="pwmc-table">
-        <thead><tr><th>No</th><th>Uraian Pekerjaan</th><th class="c">Satuan</th><th class="r">Volume</th><th class="r">Harga Satuan</th><th class="r">Jumlah</th></tr></thead>
+        <thead><tr><th>No</th><th>Uraian Pekerjaan</th><th class="c">Satuan</th><th class="r">Volume</th><th class="r">Jumlah</th></tr></thead>
         <tbody>${itemsRows}</tbody>
       </table>
 
@@ -202,7 +204,7 @@ function buildMataResolusiPenawaranHtml(pw) {
   const itemsRows = items.map((it, i) => `
     <tr>
       <td class="c">${i + 1}</td>
-      <td>${escapeHtml(it.uraian)}<div class="mr-item-sub">${it.volume} ${escapeHtml(it.satuan)} &times; ${rupiah(it.hargaSatuan)}</div></td>
+      <td>${escapeHtml(it.uraian)}<div class="mr-item-sub">${it.volume} ${escapeHtml(it.satuan)}</div></td>
       <td class="r">${rupiah((it.volume || 0) * (it.hargaSatuan || 0))}</td>
     </tr>
   `).join("") || `<tr><td colspan="3" class="c">Belum ada item</td></tr>`;
