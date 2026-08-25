@@ -3559,6 +3559,224 @@ document.querySelector("#at_table tbody").addEventListener("click", e => {
 document.getElementById("at_search").addEventListener("input", renderAsetTetap);
 document.getElementById("at_filterStatus").addEventListener("change", renderAsetTetap);
 
+// ===== Pemeriksaan Integrasi Data =====
+// Memindai SELURUH data yang sudah ada (termasuk input lama sebelum
+// integrasi otomatis dibangun) dan mencari tautan antar-modul yang masih
+// putus, supaya laporan keuangan/margin/KPI tidak diam-diam kurang hitung.
+// Setiap temuan menunjuk halaman tempat memperbaikinya; kasus yang aman
+// (invoice lama berstatus Dibayar tanpa catatan Kas dan tanpa kemungkinan
+// duplikat manual) bisa diperbaiki satu klik.
+const KATEGORI_BIAYA_PROYEK = ["Biaya Bahan", "Biaya Upah/Tenaga", "Biaya Subkontraktor"];
+function computePemeriksaanIntegrasi() {
+  const temuan = [];
+  const today = hariIniIso();
+
+  // 1a/1b. Invoice "Dibayar" tanpa Kas Masuk tertaut (data lama).
+  const invoiceTanpaKas = [];
+  const invoiceMungkinManual = [];
+  (state.proyek || []).forEach(p => (p.invoices || []).forEach(inv => {
+    if (inv.status !== "dibayar") return;
+    if (state.kasUsaha.transactions.some(t => t.sumberInvoiceId === inv.id)) return;
+    // Kemungkinan sudah dicatat manual: ada Kas Masuk proyek yang sama
+    // dengan jumlah persis sama -- jangan dibuatkan lagi (bisa dobel).
+    const adaManual = state.kasUsaha.transactions.some(t =>
+      t.tipe === "Masuk" && t.proyekId === p.id && (t.jumlah || 0) === (inv.jumlah || 0) && !t.sumberInvoiceId);
+    if (adaManual && inv.kasManualOk) return; // sudah diperiksa & ditandai cocok oleh pengguna
+    (adaManual ? invoiceMungkinManual : invoiceTanpaKas).push({ proyekId: p.id, proyekNama: p.nama, inv });
+  }));
+  if (invoiceTanpaKas.length) {
+    temuan.push({
+      icon: "🧾", page: "proyek", fix: "invoiceKas",
+      judul: `${invoiceTanpaKas.length} invoice "Dibayar" belum tercatat di Kas`,
+      detail: invoiceTanpaKas.map(x => `${x.inv.nomor} (${x.proyekNama}, ${rupiah(x.inv.jumlah || 0)})`).join("; "),
+      data: invoiceTanpaKas
+    });
+  }
+  if (invoiceMungkinManual.length) {
+    temuan.push({
+      icon: "ℹ️", page: "kasUsaha", fix: "invoiceManualOk",
+      judul: `${invoiceMungkinManual.length} invoice "Dibayar" kemungkinan sudah dicatat manual di Kas`,
+      detail: "Ada Kas Masuk dengan jumlah sama di proyek yang sama — tidak dibuatkan otomatis supaya tidak dobel. Periksa di Kas; kalau memang catatan yang sama, tandai cocok: " +
+        invoiceMungkinManual.map(x => x.inv.nomor).join(", "),
+      data: invoiceMungkinManual
+    });
+  }
+
+  // 2. Transaksi biaya proyek tanpa tautan proyek -> margin proyek kurang hitung.
+  const biayaTanpaProyek = state.kasUsaha.transactions.filter(t =>
+    t.tipe === "Keluar" && KATEGORI_BIAYA_PROYEK.includes(t.kategori) && !t.proyekId);
+  if (biayaTanpaProyek.length) {
+    temuan.push({
+      icon: "💸", page: "kasUsaha",
+      judul: `${biayaTanpaProyek.length} transaksi biaya proyek belum tertaut ke proyek`,
+      detail: `Total ${rupiah(biayaTanpaProyek.reduce((s, t) => s + (t.jumlah || 0), 0))} (kategori Bahan/Upah/Subkontraktor) tidak terhitung di Margin Proyek mana pun — edit transaksinya dan pilih proyeknya.`
+    });
+  }
+
+  // 3. Kas Masuk pendapatan jasa tanpa proyek -> termin tidak terhitung di proyek.
+  const masukTanpaProyek = state.kasUsaha.transactions.filter(t =>
+    t.tipe === "Masuk" && t.kategori === "Pendapatan Jasa" && !t.proyekId);
+  if (masukTanpaProyek.length) {
+    temuan.push({
+      icon: "💰", page: "kasUsaha",
+      judul: `${masukTanpaProyek.length} penerimaan jasa belum tertaut ke proyek`,
+      detail: `Total ${rupiah(masukTanpaProyek.reduce((s, t) => s + (t.jumlah || 0), 0))} tidak terhitung sebagai termin proyek mana pun.`
+    });
+  }
+
+  // 4. Penawaran disetujui tanpa proyek.
+  const pwTanpaProyek = (state.penawaran || []).filter(pw =>
+    pw.status === "disetujui" && !(state.proyek || []).some(p => p.sumberPenawaranId === pw.id));
+  if (pwTanpaProyek.length) {
+    temuan.push({
+      icon: "📄", page: "penawaran",
+      judul: `${pwTanpaProyek.length} penawaran disetujui belum dibuatkan proyek`,
+      detail: pwTanpaProyek.map(pw => `${pw.nomor} (${pw.klien || "-"})`).join(", ") +
+        ' — buka penawarannya lalu klik "Buat Proyek" supaya biaya & terminnya terpantau.'
+    });
+  }
+
+  // 5. Nilai kontrak proyek berbeda dari total penawaran sumbernya.
+  const selisihKontrak = (state.proyek || []).filter(p => {
+    if (!p.sumberPenawaranId || p.arsip) return false;
+    const pw = (state.penawaran || []).find(x => x.id === p.sumberPenawaranId);
+    if (!pw) return false;
+    const adaAdendum = (p.perubahanPekerjaan || []).some(x => x.status === "disetujui");
+    return !adaAdendum && Math.abs(penawaranTotals(pw).total - (p.nilaiKontrak || 0)) > 1;
+  });
+  if (selisihKontrak.length) {
+    temuan.push({
+      icon: "⚖️", page: "proyek",
+      judul: `${selisihKontrak.length} proyek nilai kontraknya berbeda dari penawaran sumber`,
+      detail: selisihKontrak.map(p => `${p.nama} (kontrak ${rupiah(p.nilaiKontrak || 0)})`).join("; ") +
+        " — samakan atau catat selisihnya sebagai Perubahan Pekerjaan (adendum)."
+    });
+  }
+
+  // 6. Absensi hadir 14 hari terakhir tanpa alokasi proyek -> upah tidak
+  // terbagi ke margin proyek saat gajian.
+  const batasAbsensi = addDaysIso(today, -14);
+  const absensiTanpaProyek = (state.karyawan || []).reduce((s, k) =>
+    s + (k.absensi || []).filter(a => a.hadir && a.tanggal >= batasAbsensi && a.tanggal <= today && !a.proyekId).length, 0);
+  if (absensiTanpaProyek) {
+    temuan.push({
+      icon: "🧑‍🔧", page: "karyawan",
+      judul: `${absensiTanpaProyek} absensi hadir (14 hari terakhir) tanpa alokasi proyek`,
+      detail: "Saat gajian, upah hari-hari itu tidak terbagi ke Margin Proyek mana pun — pilih proyeknya di Absensi Harian."
+    });
+  }
+
+  // 7. QC serah terima sudah di-ACC tapi BAST belum ada.
+  const qcTanpaBast = (state.proyek || []).filter(p => !p.arsip &&
+    (p.qc || []).some(q => q.jenis === "lapangan" && q.acc && q.acc.status === "disetujui") &&
+    !(p.dokumen || []).some(d => (d.jenis || "").toUpperCase().includes("BAST")));
+  if (qcTanpaBast.length) {
+    temuan.push({
+      icon: "🧪", page: "proyek",
+      judul: `${qcTanpaBast.length} proyek sudah di-ACC klien tapi BAST belum dibuat`,
+      detail: qcTanpaBast.map(p => p.nama).join(", ") + ' — tinggal klik "🖨️ Cetak BAST" di detail proyeknya.'
+    });
+  }
+
+  // 8. Aset tetap baru (<= 60 hari) tanpa transaksi Kas Keluar yang cocok.
+  const batasAset = addDaysIso(today, -60);
+  const asetTanpaKas = (state.asetTetap || []).filter(a =>
+    a.status === "aktif" && (a.tanggalBeli || "") >= batasAset &&
+    !state.kasUsaha.transactions.some(t => t.tipe === "Keluar" && (t.jumlah || 0) === (a.hargaBeli || 0)));
+  if (asetTanpaKas.length) {
+    temuan.push({
+      icon: "🚚", page: "asetTetap",
+      judul: `${asetTanpaKas.length} aset tetap baru belum ada catatan pengeluaran kasnya`,
+      detail: asetTanpaKas.map(a => `${a.nama} (${rupiah(a.hargaBeli || 0)})`).join("; ") +
+        " — kalau dibeli pakai uang perusahaan, catat juga di Kas Perusahaan supaya saldo kas benar."
+    });
+  }
+
+  // 9. Proyek berjalan tanpa anggaran padahal sumber RAB/penawarannya punya item.
+  const tanpaAnggaran = (state.proyek || []).filter(p => !p.arsip && p.status === "berjalan" &&
+    ((p.biayaBahan || 0) + (p.biayaUpah || 0) + (p.biayaLain || 0)) === 0 &&
+    (dokSumberProyek(p) || { items: [] }).items && (dokSumberProyek(p) || { items: [] }).items.length);
+  if (tanpaAnggaran.length) {
+    temuan.push({
+      icon: "📊", page: "proyek",
+      judul: `${tanpaAnggaran.length} proyek berjalan belum punya anggaran biaya`,
+      detail: tanpaAnggaran.map(p => p.nama).join(", ") +
+        " — tanpa anggaran, kolom Anggaran vs Realisasi di Margin Proyek tidak bisa memperingatkan pemborosan."
+    });
+  }
+
+  return temuan;
+}
+function renderPemeriksaanIntegrasi() {
+  const wadah = document.getElementById("dash_integrasiHasil");
+  const temuan = computePemeriksaanIntegrasi();
+  if (!temuan.length) {
+    wadah.innerHTML = '<p class="muted">✅ Tidak ada tautan yang putus — semua data lama & baru sudah terintegrasi.</p>';
+    return;
+  }
+  wadah.innerHTML = `
+    <div class="summary-rows">
+      ${temuan.map((t, i) => `
+        <div class="summary-row" style="align-items:flex-start; gap:10px;">
+          <span style="flex:1;">${t.icon} <strong>${escapeHtml(t.judul)}</strong><br><small class="muted">${escapeHtml(t.detail)}</small></span>
+          <span style="white-space:nowrap;">
+            ${t.fix === "invoiceKas" ? `<button class="btn-ghost" data-fix-invoice-kas="${i}">⚡ Catat ke Kas</button>` : ""}
+            ${t.fix === "invoiceManualOk" ? `<button class="btn-ghost" data-fix-invoice-manual-ok="${i}">✔️ Tandai Sudah Cocok</button>` : ""}
+            <button class="btn-ghost" data-goto-page="${t.page}">Buka</button>
+          </span>
+        </div>
+      `).join("")}
+    </div>`;
+}
+document.getElementById("dash_periksaBtn").addEventListener("click", renderPemeriksaanIntegrasi);
+document.getElementById("dash_integrasiHasil").addEventListener("click", e => {
+  const fixBtn = e.target.closest("[data-fix-invoice-kas]");
+  const okBtn = e.target.closest("[data-fix-invoice-manual-ok]");
+  const gotoBtn = e.target.closest("[data-goto-page]");
+  if (okBtn) {
+    const temuan = computePemeriksaanIntegrasi().find(t => t.fix === "invoiceManualOk");
+    if (temuan && temuan.data.length &&
+        confirm(`Tandai ${temuan.data.length} invoice ini sudah cocok dengan catatan Kas manual yang ada?\n${temuan.data.map(x => `- ${x.inv.nomor}`).join("\n")}`)) {
+      const proyekTersentuh = new Set();
+      temuan.data.forEach(x => {
+        x.inv.kasManualOk = true;
+        proyekTersentuh.add(x.proyekId);
+      });
+      proyekTersentuh.forEach(pid => {
+        const p = state.proyek.find(y => y.id === pid);
+        if (p) mirrorProyekUpsert(p);
+      });
+      saveState();
+      renderPemeriksaanIntegrasi();
+    }
+    return;
+  }
+  if (fixBtn) {
+    const temuan = computePemeriksaanIntegrasi().find(t => t.fix === "invoiceKas");
+    if (!temuan || !temuan.data.length) { renderPemeriksaanIntegrasi(); return; }
+    const daftar = temuan.data.map(x => `- ${x.inv.nomor}: ${rupiah(x.inv.jumlah || 0)} (${x.proyekNama})`).join("\n");
+    if (!confirm(`Catat ${temuan.data.length} invoice Dibayar ini sebagai Kas Masuk?\n${daftar}\n\nMasing-masing tertaut ke invoice & proyeknya (tidak akan dobel).`)) return;
+    temuan.data.forEach(x => {
+      const tanggal = x.inv.tanggalBayar || x.inv.tanggal || hariIniIso();
+      if (state.periodeTerkunci && tanggal.slice(0, 7) <= state.periodeTerkunci) return;
+      const txn = {
+        id: uid(), sumberInvoiceId: x.inv.id, proyekId: x.proyekId,
+        tipe: "Masuk", status: "lunas", tanggal, jumlah: x.inv.jumlah || 0,
+        kategori: "Pendapatan Jasa",
+        keterangan: `Pembayaran Invoice ${x.inv.nomor} — ${x.proyekNama}`,
+        catatan: "Otomatis dari Pemeriksaan Integrasi Data"
+      };
+      state.kasUsaha.transactions.push(txn);
+      mirrorKasUsahaUpsert(txn, null);
+    });
+    saveState();
+    renderAll();
+    renderPemeriksaanIntegrasi();
+  } else if (gotoBtn) {
+    showPage(gotoBtn.dataset.gotoPage);
+  }
+});
+
 // ===== Rendering: Dashboard =====
 function renderDashboard() {
   const ku = kasSummary("kasUsaha");
