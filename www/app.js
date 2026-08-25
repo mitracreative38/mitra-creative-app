@@ -2457,8 +2457,7 @@ function buildTutupBukuPrintHtml(bulan) {
 }
 document.getElementById("tb_printBtn").addEventListener("click", () => {
   document.getElementById("printArea").innerHTML = buildTutupBukuPrintHtml(tbBulanTerpilih());
-  document.body.classList.add("printing-quote");
-  window.print();
+  cetakPrintArea();
 });
 // ----- Kalender Perusahaan -----
 let kalBulan = hariIniIso().slice(0, 7);
@@ -3297,8 +3296,7 @@ document.querySelector("#qc_table tbody").addEventListener("click", e => {
   if (btn.dataset.editQc) openQcModal(p.id, q, null);
   else if (btn.dataset.printQc) {
     document.getElementById("printArea").innerHTML = buildQcPrintHtml(p, q);
-    document.body.classList.add("printing-quote");
-    window.print();
+    cetakPrintArea();
   } else if (btn.dataset.accQc) openQcAccModal(p, q);
   else if (btn.dataset.ulangQc) {
     const gagal = (q.items || []).filter(it => it.hasil === "perbaikan")
@@ -4167,8 +4165,7 @@ document.querySelector("#pd_invoiceTable tbody").addEventListener("click", e => 
     if (!inv) return;
     if (inv.status !== "dibayar") { alert('Kwitansi hanya bisa dicetak setelah status invoice "Dibayar" (tanda terima uang).'); return; }
     document.getElementById("printArea").innerHTML = buildKwitansiPrintHtml(p, inv);
-    document.body.classList.add("printing-quote");
-    window.print();
+    cetakPrintArea();
   } else if (delBtn) {
     if (proyekArsipGuard(p)) return;
     if (confirm("Hapus invoice ini? Nomor urut invoice yang sudah terpakai tidak dikembalikan.")) {
@@ -4244,8 +4241,7 @@ function buildKwitansiPrintHtml(p, inv) {
 }
 function printInvoice(p, inv) {
   document.getElementById("printArea").innerHTML = buildInvoicePrintHtml(p, inv);
-  document.body.classList.add("printing-quote");
-  window.print();
+  cetakPrintArea();
 }
 
 // ----- Biaya Operasional & Lain-lain per proyek -----
@@ -4406,8 +4402,7 @@ document.getElementById("bapForm").addEventListener("submit", e => {
   closeModals();
   renderBapProyek(p);
   document.getElementById("printArea").innerHTML = buildBapPrintHtml(p, bap);
-  document.body.classList.add("printing-quote");
-  window.print();
+  cetakPrintArea();
 });
 document.querySelector("#pd_bapTable tbody").addEventListener("click", e => {
   const p = state.proyek.find(x => x.id === currentProyekId);
@@ -4418,8 +4413,7 @@ document.querySelector("#pd_bapTable tbody").addEventListener("click", e => {
     const b = (p.bap || []).find(x => x.id === printBtn.dataset.printBap);
     if (b) {
       document.getElementById("printArea").innerHTML = buildBapPrintHtml(p, b);
-      document.body.classList.add("printing-quote");
-      window.print();
+      cetakPrintArea();
     }
   } else if (delBtn) {
     if (proyekArsipGuard(p)) return;
@@ -4928,8 +4922,7 @@ function buildKlienListPrintHtml() {
 }
 document.getElementById("kl_printBtn").addEventListener("click", () => {
   document.getElementById("printArea").innerHTML = buildKlienListPrintHtml();
-  document.body.classList.add("printing-quote");
-  window.print();
+  cetakPrintArea();
 });
 function renderKlienDetail() {
   const k = state.klien.find(x => x.id === currentKlienId);
@@ -5442,8 +5435,7 @@ function buildLaporanKeuanganPrintHtml() {
 }
 document.getElementById("lk_printBtn").addEventListener("click", () => {
   document.getElementById("printArea").innerHTML = buildLaporanKeuanganPrintHtml();
-  document.body.classList.add("printing-quote");
-  window.print();
+  cetakPrintArea();
 });
 document.getElementById("lk_exportExcelBtn").addEventListener("click", () => {
   if (typeof XLSX === "undefined") {
@@ -6127,8 +6119,7 @@ function buildStokListPrintHtml() {
 }
 document.getElementById("stok_printBtn").addEventListener("click", () => {
   document.getElementById("printArea").innerHTML = buildStokListPrintHtml();
-  document.body.classList.add("printing-quote");
-  window.print();
+  cetakPrintArea();
 });
 document.getElementById("stok_exportCsv").addEventListener("click", () => {
   const rows = filteredStokItems();
@@ -6440,8 +6431,7 @@ document.getElementById("karyawanQrPrintBtn").addEventListener("click", () => {
       <p style="font-size:20px;font-weight:700;">${escapeHtml(nama)}</p>
     </div>
   `;
-  document.body.classList.add("printing-quote");
-  window.print();
+  cetakPrintArea();
 });
 
 // ----- Modal: karyawan (employee master) -----
@@ -7036,8 +7026,7 @@ document.getElementById("rk_cetakBtn").addEventListener("click", () => {
       <tbody>${body || '<tr><td class="c">Belum ada karyawan aktif</td></tr>'}</tbody>
     </table>
   `;
-  document.body.classList.add("printing-quote");
-  window.print();
+  cetakPrintArea();
 });
 
 function renderPenggajianRiwayat() {
@@ -7366,8 +7355,7 @@ function ownerTtdOrSpace(nama) {
 }
 function printSlipGaji(k, sl) {
   document.getElementById("printArea").innerHTML = buildSlipGajiPrintHtml(k, sl);
-  document.body.classList.add("printing-quote");
-  window.print();
+  cetakPrintArea();
 }
 
 function buildProyekPrintHtml(p) {
@@ -7474,8 +7462,7 @@ function buildProyekPrintHtml(p) {
 }
 function printProyekLaporan(p) {
   document.getElementById("printArea").innerHTML = buildProyekPrintHtml(p);
-  document.body.classList.add("printing-quote");
-  window.print();
+  cetakPrintArea();
 }
 document.getElementById("pd_printBtn").addEventListener("click", () => {
   const p = state.proyek.find(x => x.id === currentProyekId);
@@ -8038,8 +8025,7 @@ function buildPemasokListPrintHtml() {
 }
 document.getElementById("pm_printBtn").addEventListener("click", () => {
   document.getElementById("printArea").innerHTML = buildPemasokListPrintHtml();
-  document.body.classList.add("printing-quote");
-  window.print();
+  cetakPrintArea();
 });
 
 // ===== AHSP / RAB / Penawaran calculations =====
@@ -8108,6 +8094,20 @@ function defaultPenutup() {
 // ke logo ASLI (MITRA_LOGO_DATA_URI) supaya kop surat SEMUA dokumen cetak
 // memakai logo Mitra Creative yang sama dengan template Penawaran.
 const LOGO_SVG = `<img src="${MITRA_LOGO_DATA_URI}" alt="logo" width="52" height="52" style="display:block; width:52px; height:52px; object-fit:contain;">`;
+// Logo asli berupa PNG (bukan lagi vektor inline) -- gambar data-URI yang
+// belum pernah ter-decode bisa tampil KOSONG di snapshot cetak pertama
+// karena window.print() dipanggil langsung setelah printArea diisi.
+// Dua lapis penanganan: decode logo sekali di awal, dan cetakPrintArea()
+// menunggu semua <img> di printArea selesai decode sebelum mencetak.
+const logoPreload = new Image();
+logoPreload.src = MITRA_LOGO_DATA_URI;
+if (logoPreload.decode) logoPreload.decode().catch(() => {});
+async function cetakPrintArea() {
+  const imgs = Array.from(document.getElementById("printArea").querySelectorAll("img"));
+  await Promise.all(imgs.map(img => (img.decode ? img.decode() : Promise.resolve()).catch(() => {})));
+  document.body.classList.add("printing-quote");
+  window.print();
+}
 
 // ===== Rendering: AHSP =====
 function renderAhsp() {
@@ -8198,8 +8198,7 @@ function buildAhspListPrintHtml() {
 }
 document.getElementById("ah_printBtn").addEventListener("click", () => {
   document.getElementById("printArea").innerHTML = buildAhspListPrintHtml();
-  document.body.classList.add("printing-quote");
-  window.print();
+  cetakPrintArea();
 });
 document.getElementById("ah_syncUpahBtn").addEventListener("click", syncAllUpahHarga);
 // Pasangan syncAllUpahHarga untuk komponen Bahan/Alat yang tertaut Stok
@@ -10037,8 +10036,7 @@ document.getElementById("rab_printBtn").addEventListener("click", () => {
   const rab = state.proyekRab.find(r => r.id === currentRabId);
   if (!rab) return;
   document.getElementById("printArea").innerHTML = buildRabPrintHtml(rab);
-  document.body.classList.add("printing-quote");
-  window.print();
+  cetakPrintArea();
 });
 document.getElementById("rab_pdfBtn").addEventListener("click", () => {
   const rab = state.proyekRab.find(r => r.id === currentRabId);
@@ -10755,8 +10753,7 @@ document.getElementById("pw_printBtn").addEventListener("click", () => {
   const pw = state.penawaran.find(p => p.id === currentPwId);
   if (!pw) return;
   document.getElementById("printArea").innerHTML = buildPenawaranPrintHtml(pw);
-  document.body.classList.add("printing-quote");
-  window.print();
+  cetakPrintArea();
 });
 // Dipakai bersama oleh semua tombol "Unduh PDF" (Penawaran/RAB/Slip Gaji,
 // dst.) -- btn: elemen tombolnya sendiri (buat status "Membuat PDF..."),
@@ -11991,13 +11988,11 @@ function buildKasPrintHtml(book) {
 }
 document.getElementById("ku_printBtn").addEventListener("click", () => {
   document.getElementById("printArea").innerHTML = buildKasPrintHtml("kasUsaha");
-  document.body.classList.add("printing-quote");
-  window.print();
+  cetakPrintArea();
 });
 document.getElementById("kp_printBtn").addEventListener("click", () => {
   document.getElementById("printArea").innerHTML = buildKasPrintHtml("kasPribadi");
-  document.body.classList.add("printing-quote");
-  window.print();
+  cetakPrintArea();
 });
 
 // ===== Settings =====
