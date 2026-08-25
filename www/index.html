@@ -286,12 +286,18 @@
             <select id="kl_filterTahap">
               <option value="">Semua Tahap</option>
             </select>
+            <select id="kl_filterWilayah">
+              <option value="">Semua Wilayah</option>
+            </select>
+            <select id="kl_filterSegmen">
+              <option value="">Semua Segmen</option>
+            </select>
             <button class="btn-ghost" id="kl_printBtn">🖨️ Cetak Daftar Klien</button>
           </div>
           <div class="table-wrap">
             <table class="tbl" id="kl_table">
               <thead><tr>
-                <th>Nama Klien</th><th>Tahap</th><th>Kontak</th><th>Follow-up Berikutnya</th>
+                <th>Nama Klien</th><th>Wilayah / Segmen</th><th>Tahap</th><th>Kontak</th><th>Follow-up Berikutnya</th>
                 <th class="num">Total Proyek</th><th></th>
               </tr></thead>
               <tbody></tbody>
@@ -385,14 +391,16 @@
           <div class="muted" style="margin-bottom:10px;">Riwayat Kontak</div>
           <div class="form-grid" style="margin-bottom:12px;">
             <div class="field"><label>Tanggal</label><input type="date" id="rk_tanggal"></div>
+            <div class="field"><label>Jenis</label><select id="rk_jenis"></select></div>
             <div class="field full"><label>Catatan</label><input type="text" id="rk_catatan" placeholder="mis. Telepon follow-up, klien minta revisi penawaran"></div>
+            <div class="field"><label>Jadwalkan Follow-up Berikutnya (opsional)</label><input type="date" id="rk_followUp"></div>
             <div class="field" style="justify-content:flex-end;">
               <button type="button" class="btn-primary" id="rk_addBtn">+ Catat Kontak</button>
             </div>
           </div>
           <div class="table-wrap">
             <table class="tbl" id="kld_kontakTable">
-              <thead><tr><th>Tanggal</th><th>Catatan</th><th></th></tr></thead>
+              <thead><tr><th>Tanggal</th><th>Jenis</th><th>Catatan</th><th>Petugas</th><th></th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -640,6 +648,21 @@
           <div class="stat-card">
             <div class="stat-label">Pipeline Aktif (saat ini)</div>
             <div class="stat-value" id="kpi_pipelineAktif">Rp 0</div>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>🎯 Target Omzet Tahunan &amp; Kebutuhan Aktivitas</h3>
+          <p class="muted" style="font-size:12.5px;">Dihitung mundur dari target tahunan (Pengaturan → Target KPI): berapa deal, penawaran, dan prospek baru yang dibutuhkan per bulan. Asumsi rata-rata nilai proyek &amp; win rate diambil dari data nyata 12 bulan terakhir (kalau belum ada data, dipakai asumsi awal).</p>
+          <div class="summary-rows" id="kpi_targetRows"></div>
+        </div>
+        <div class="panel">
+          <h3>Aktivitas Marketing per Petugas (Periode)</h3>
+          <p class="muted" style="font-size:12.5px;">Dari data yang diinput ke aplikasi: prospek baru, kontak tercatat, dan kunjungan/meeting — dasar penilaian kerja marketing yang adil dan tidak bisa diakali.</p>
+          <div class="table-wrap">
+            <table class="tbl" id="kpi_aktivitasMarketingTable">
+              <thead><tr><th>Petugas</th><th class="num">Prospek Baru</th><th class="num">Kontak Tercatat</th><th class="num">Kunjungan/Meeting</th></tr></thead>
+              <tbody></tbody>
+            </table>
           </div>
         </div>
         <div class="panel">
@@ -2550,6 +2573,8 @@
       <div class="panel narrow" id="settingsKpiTargetPanel">
         <h3>Target KPI Bulanan</h3>
         <p class="muted">Dipakai di halaman KPI untuk membandingkan realisasi Omzet dan Laba Bersih bulan berjalan terhadap target. Isi 0 kalau belum mau pakai target.</p>
+        <label class="field-label">Target Omzet Tahunan (Rp) — mis. 10.000.000.000</label>
+        <input type="text" inputmode="numeric" id="settingsTargetOmzetTahunan" class="text-input" style="width:100%; margin-bottom:12px;">
         <label class="field-label">Target Omzet Bulanan (Rp)</label>
         <input type="text" inputmode="numeric" id="settingsTargetOmzet" class="text-input" style="width:100%; margin-bottom:12px;">
         <label class="field-label">Target Laba Bersih Bulanan (Rp)</label>
@@ -3581,6 +3606,19 @@
         <div class="field full">
           <label>Alamat</label>
           <input type="text" id="kl_alamat" placeholder="opsional">
+        </div>
+        <div class="field">
+          <label>Wilayah (babat alas)</label>
+          <input type="text" id="kl_wilayah" list="wilayahList" placeholder="mis. Semarang Timur, Kawasan Industri Terboyo">
+          <datalist id="wilayahList"></datalist>
+        </div>
+        <div class="field">
+          <label>Segmen</label>
+          <select id="kl_segmen"></select>
+        </div>
+        <div class="field">
+          <label>Potensi Nilai (Rp, perkiraan)</label>
+          <input type="text" id="kl_potensiNilai" inputmode="numeric" placeholder="mis. 250.000.000">
         </div>
         <div class="field">
           <label>Tahap Pipeline</label>
