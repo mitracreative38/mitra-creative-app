@@ -548,6 +548,7 @@
         <button class="subtab-item active" data-subtab="penjualan" data-subtab-page="kpi">Penjualan/Marketing</button>
         <button class="subtab-item" data-subtab="proyek" data-subtab-page="kpi">Proyek/Operasional</button>
         <button class="subtab-item" data-subtab="keuangan" data-subtab-page="kpi">Keuangan</button>
+        <button class="subtab-item" data-subtab="penagihan" data-subtab-page="kpi">Penagihan/Piutang</button>
         <button class="subtab-item" data-subtab="tim" data-subtab-page="kpi">Tim/Karyawan</button>
       </div>
 
@@ -608,6 +609,10 @@
           </div>
         </div>
         <div class="panel">
+          <h3>Proyek Paling Untung & Paling Rugi (saat ini)</h3>
+          <div id="kpi_topProyek" class="summary-rows"></div>
+        </div>
+        <div class="panel">
           <h3>Tren Margin Rata-rata per Bulan (6 bulan terakhir)</h3>
           <div id="kpi_trendProyek" class="bar-chart"></div>
         </div>
@@ -633,14 +638,51 @@
           <div class="summary-rows">
             <div class="summary-row"><span>Omzet Bulan Ini</span><strong id="kpi_omzetBulanIni">Rp 0</strong></div>
             <div class="summary-row"><span>Target Omzet Bulanan</span><strong id="kpi_targetOmzet">Rp 0</strong></div>
+            <div class="summary-row"><span>Capaian Target Omzet</span><strong id="kpi_capaianOmzet">-</strong></div>
             <div class="summary-row"><span>Laba Bersih Bulan Ini</span><strong id="kpi_labaBulanIni">Rp 0</strong></div>
             <div class="summary-row"><span>Target Laba Bersih Bulanan</span><strong id="kpi_targetLaba">Rp 0</strong></div>
+            <div class="summary-row"><span>Capaian Target Laba</span><strong id="kpi_capaianLaba">-</strong></div>
           </div>
           <p class="muted" style="font-size:12px;">Atur target di halaman Pengaturan.</p>
         </div>
         <div class="panel">
+          <h3>Komposisi Biaya per Kategori (Periode)</h3>
+          <div id="kpi_komposisiBiaya" class="bar-chart"></div>
+        </div>
+        <div class="panel">
           <h3>Tren Cash Flow per Bulan (6 bulan terakhir)</h3>
           <div id="kpi_trendKeuangan" class="bar-chart"></div>
+        </div>
+      </div>
+
+      <div class="subtab-panel" id="kpi_penagihanPanel">
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-label">Total Piutang Belum Dibayar (saat ini)</div>
+            <div class="stat-value bad" id="kpi_piutangTotal">Rp 0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Invoice Terkirim Belum Dibayar (saat ini)</div>
+            <div class="stat-value" id="kpi_invBelumDibayar">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Rata-rata Lama Pembayaran Invoice</div>
+            <div class="stat-value" id="kpi_avgHariBayar">-</div>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Umur Piutang (Aging)</h3>
+          <div class="summary-rows" id="kpi_umurPiutangRows"></div>
+          <p class="muted" style="font-size:12px;">Dihitung dari transaksi Kas Perusahaan tipe Masuk berstatus Pending (piutang) berdasarkan tanggal transaksinya, ditambah invoice proyek berstatus Terkirim yang belum dibayar.</p>
+        </div>
+        <div class="panel">
+          <h3>Daftar Tagihan Menunggak (paling lama di atas)</h3>
+          <div style="overflow-x:auto;">
+            <table class="tbl">
+              <thead><tr><th>Tanggal</th><th>Keterangan</th><th>Jumlah</th><th>Umur (hari)</th></tr></thead>
+              <tbody id="kpi_piutangTableBody"></tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -662,6 +704,15 @@
             <div class="stat-label">Rasio Biaya Tenaga Kerja (saat ini)</div>
             <div class="stat-value" id="kpi_rasioTenagaKerja">-</div>
           </div>
+        </div>
+        <div class="panel" id="kpi_gajiPanel">
+          <h3>Ringkasan Gaji (Periode)</h3>
+          <div class="summary-rows">
+            <div class="summary-row"><span>Slip Gaji Dibuat</span><strong id="kpi_slipCount">0</strong></div>
+            <div class="summary-row"><span>Total Gaji Bersih Dibayarkan</span><strong id="kpi_totalGaji">Rp 0</strong></div>
+            <div class="summary-row"><span>Total Uang Makan</span><strong id="kpi_totalUangMakan">Rp 0</strong></div>
+          </div>
+          <p class="muted" style="font-size:12px;">Dari slip gaji yang periode selesainya jatuh di dalam Periode di atas. Hanya terlihat oleh Owner.</p>
         </div>
         <div class="panel">
           <h3>Tren Jam Lembur per Bulan (6 bulan terakhir)</h3>
@@ -1302,8 +1353,9 @@
             <div class="summary-row"><span>Sisa Pinjaman Sesudah</span><strong id="pg_sisaSesudah">Rp 0</strong></div>
             <div class="summary-row total"><span>Gaji Bersih (Take Home)</span><strong id="pg_gajiBersih">Rp 0</strong></div>
           </div>
-          <div class="modal-actions" style="justify-content:flex-start; margin-top:16px;">
-            <button class="btn-primary" id="pg_simpanCetakBtn">Simpan &amp; Cetak Slip Gaji</button>
+          <div class="modal-actions" style="justify-content:flex-start; margin-top:16px; align-items:center; gap:12px;">
+            <button class="btn-primary" id="pg_simpanCetakBtn">💾 Simpan Slip Gaji</button>
+            <span class="muted" style="font-size:12px;">Cetak 🖨️ / PDF dari tabel Riwayat Slip di bawah — setelah angkanya dicek benar.</span>
           </div>
         </div>
 
@@ -2586,8 +2638,16 @@
     </div>
     <form id="slipGajiEditForm">
       <input type="hidden" id="sge_id">
-      <p class="muted" style="font-size:12px;margin:-4px 0 12px;">Untuk memperbaiki salah input Uang Makan/Bon/Potongan Pinjaman. Upah/gaji kotor tidak ikut berubah di sini.</p>
+      <p class="muted" style="font-size:12px;margin:-4px 0 12px;">Perbaiki salah input di sini — transaksi Kas Perusahaan & sisa pinjaman otomatis dihitung ulang, TANPA membuat slip/transaksi baru.</p>
       <div class="form-grid">
+        <div class="field" id="sge_hariHadirField">
+          <label>Hari Hadir</label>
+          <input type="number" min="0" step="1" id="sge_hariHadir" placeholder="0">
+        </div>
+        <div class="field" id="sge_jamLemburField">
+          <label>Jam Lembur</label>
+          <input type="number" min="0" step="0.5" id="sge_jamLembur" placeholder="0">
+        </div>
         <div class="field">
           <label>Uang Makan (Rp)</label>
           <input type="text" inputmode="numeric" id="sge_uangMakan" placeholder="0">

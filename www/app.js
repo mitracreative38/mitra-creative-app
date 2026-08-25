@@ -3990,7 +3990,12 @@ function computeKpiProyek(mulai, selesai) {
     const cohort = semua.filter(p => p.tanggalMulai && p.tanggalMulai >= b.start && p.tanggalMulai <= b.end).map(p => projectCalc(p).marginPct);
     return { label: b.label, marginRata: cohort.length ? (cohort.reduce((s, v) => s + v, 0) / cohort.length) * 100 : 0 };
   });
-  return { totalProyek: semua.length, baruPeriode, marginRata, tepatWaktu, deviasiAnggaran, trend };
+  // Proyek arsip tidak ikut daftar untung/rugi "saat ini" -- sudah ditutup,
+  // Owner butuh melihat proyek yang masih relevan untuk ditindaklanjuti.
+  const aktif = semua.filter(p => !p.arsip).map(p => ({ nama: p.nama, ...projectCalc(p) }));
+  const topUntung = aktif.filter(p => p.margin >= 0).sort((a, b) => b.margin - a.margin).slice(0, 3);
+  const topRugi = aktif.filter(p => p.margin < 0).sort((a, b) => a.margin - b.margin).slice(0, 3);
+  return { totalProyek: semua.length, baruPeriode, marginRata, tepatWaktu, deviasiAnggaran, trend, topUntung, topRugi };
 }
 function computeKpiKeuangan(mulai, selesai) {
   const { pendapatan, beban, labaBersih } = computeLabaRugi(mulai, selesai);
@@ -4005,11 +4010,72 @@ function computeKpiKeuangan(mulai, selesai) {
     const keluar = state.kasUsaha.transactions.filter(t => t.tipe === "Keluar" && (t.status || "lunas") !== "menunggu_persetujuan" && t.tanggal >= b.start && t.tanggal <= b.end).reduce((s, t) => s + Math.max(0, t.jumlah || 0), 0);
     return { label: b.label, masuk, keluar };
   });
+  // Komposisi biaya periode: transaksi Keluar dikelompokkan per kategori,
+  // supaya Owner langsung lihat uang paling banyak lari ke mana.
+  const perKategori = {};
+  state.kasUsaha.transactions
+    .filter(t => t.tipe === "Keluar" && (t.status || "lunas") !== "menunggu_persetujuan" && t.tanggal >= mulai && t.tanggal <= selesai)
+    .forEach(t => {
+      const kat = t.kategori || "(Tanpa Kategori)";
+      perKategori[kat] = (perKategori[kat] || 0) + Math.max(0, t.jumlah || 0);
+    });
+  const komposisiBiaya = Object.entries(perKategori)
+    .map(([kategori, jumlah]) => ({ kategori, jumlah }))
+    .sort((a, b) => b.jumlah - a.jumlah);
   return {
     pendapatan, beban, labaBersih, rasioPiutang,
     omzetBulanIni: bulanIni.pendapatan, targetOmzet: state.targetOmzetBulanan || 0,
     labaBulanIni: bulanIni.labaBersih, targetLaba: state.targetLababersihBulanan || 0,
-    trend
+    komposisiBiaya, trend
+  };
+}
+// KPI Penagihan/Piutang: gabungan dua sumber tagihan yang ada di aplikasi --
+// (1) transaksi Kas Perusahaan tipe Masuk berstatus "pending" (piutang), dan
+// (2) invoice proyek berstatus "terkirim" yang belum dibayar. Keduanya
+// snapshot "saat ini" (bukan per periode) karena tagihan menunggak tetap
+// harus tertagih kapan pun periodenya.
+function computeKpiPenagihan() {
+  const today = new Date().toISOString().slice(0, 10);
+  const items = [];
+  state.kasUsaha.transactions
+    .filter(t => t.tipe === "Masuk" && t.status === "pending")
+    .forEach(t => items.push({
+      tanggal: t.tanggal || today,
+      keterangan: t.keterangan || t.kategori || "Piutang Kas",
+      jumlah: t.jumlah || 0,
+      umur: daysBetweenIso(t.tanggal || today, today)
+    }));
+  let invBelumDibayar = 0, invNilaiBelumDibayar = 0;
+  let bayarTotalHari = 0, bayarCount = 0;
+  state.proyek.forEach(p => (p.invoices || []).forEach(inv => {
+    if (inv.status === "terkirim") {
+      invBelumDibayar++;
+      invNilaiBelumDibayar += inv.jumlah || 0;
+      items.push({
+        tanggal: inv.tanggal || today,
+        keterangan: `Invoice ${inv.nomor || ""} — ${p.nama || ""}`.trim(),
+        jumlah: inv.jumlah || 0,
+        umur: daysBetweenIso(inv.tanggal || today, today)
+      });
+    } else if (inv.status === "dibayar" && inv.tanggal && inv.tanggalBayar) {
+      bayarTotalHari += Math.max(0, daysBetweenIso(inv.tanggal, inv.tanggalBayar));
+      bayarCount++;
+    }
+  }));
+  items.sort((a, b) => b.umur - a.umur);
+  const total = items.reduce((s, x) => s + x.jumlah, 0);
+  const bucket = (min, max) => items.filter(x => x.umur >= min && (max == null || x.umur <= max));
+  const sumB = arr => arr.reduce((s, x) => s + x.jumlah, 0);
+  const aging = [
+    { label: "0–30 hari", jumlah: sumB(bucket(0, 30)), count: bucket(0, 30).length },
+    { label: "31–60 hari", jumlah: sumB(bucket(31, 60)), count: bucket(31, 60).length },
+    { label: "Lebih dari 60 hari", jumlah: sumB(bucket(61, null)), count: bucket(61, null).length }
+  ];
+  return {
+    total, count: items.length,
+    invBelumDibayar, invNilaiBelumDibayar,
+    avgHariBayar: bayarCount ? bayarTotalHari / bayarCount : null,
+    aging, items
   };
 }
 function computeKpiTim(mulai, selesai) {
@@ -4032,7 +4098,17 @@ function computeKpiTim(mulai, selesai) {
     aktif.forEach(k => (k.absensi || []).filter(a => a.tanggal >= b.start && a.tanggal <= b.end).forEach(a => { lembur += a.jamLembur || 0; }));
     return { label: b.label, lembur };
   });
-  return { karyawanAktif: aktif.length, tingkatKehadiran, totalLembur, rasioBiayaTenagaKerja, trend };
+  // Ringkasan gaji periode (Owner-only di UI; untuk non-Owner slipGaji
+  // memang sudah kosong dari database, jadi angkanya 0 dan panelnya disembunyikan).
+  let slipCount = 0, totalGaji = 0, totalUangMakan = 0;
+  state.karyawan.forEach(k => (k.slipGaji || []).forEach(sl => {
+    if ((sl.selesai || "") >= mulai && (sl.selesai || "") <= selesai) {
+      slipCount++;
+      totalGaji += slipGajiBersih(sl);
+      totalUangMakan += sl.uangMakan || 0;
+    }
+  }));
+  return { karyawanAktif: aktif.length, tingkatKehadiran, totalLembur, rasioBiayaTenagaKerja, slipCount, totalGaji, totalUangMakan, trend };
 }
 function kpiPeriode() {
   const mulaiInput = document.getElementById("kpi_mulai");
@@ -4070,6 +4146,17 @@ function renderKpiProyek() {
   const deviasiEl = document.getElementById("kpi_deviasiAnggaran");
   deviasiEl.textContent = pct1(k.deviasiAnggaran);
   deviasiEl.className = "stat-value " + (k.deviasiAnggaran == null ? "" : (k.deviasiAnggaran > 0 ? "bad" : "good"));
+  const topRow = (p, icon) => `
+    <div class="summary-row"><span>${icon} ${escapeHtml(p.nama || "(tanpa nama)")}</span>
+    <strong class="${p.margin >= 0 ? "good" : "bad"}">${rupiah(p.margin)} (${(p.marginPct * 100).toFixed(1)}%)</strong></div>`;
+  const topEl = document.getElementById("kpi_topProyek");
+  if (!k.topUntung.length && !k.topRugi.length) {
+    topEl.innerHTML = `<p class="muted">Belum ada proyek aktif (non-arsip) untuk dibandingkan.</p>`;
+  } else {
+    topEl.innerHTML =
+      k.topUntung.map(p => topRow(p, "🏆")).join("") +
+      (k.topRugi.length ? k.topRugi.map(p => topRow(p, "⚠️")).join("") : "");
+  }
   renderBarChart(document.getElementById("kpi_trendProyek"), k.trend.map(t => ({
     label: t.label, value: t.marginRata, color: t.marginRata >= 0 ? "var(--good)" : "var(--critical)", formattedValue: t.marginRata.toFixed(1) + "%"
   })));
@@ -4086,6 +4173,24 @@ function renderKpiKeuangan() {
   document.getElementById("kpi_targetOmzet").textContent = rupiah(k.targetOmzet);
   document.getElementById("kpi_labaBulanIni").textContent = rupiah(k.labaBulanIni);
   document.getElementById("kpi_targetLaba").textContent = rupiah(k.targetLaba);
+  const capaian = (nilai, target, el) => {
+    if (!target) { el.textContent = "- (target belum diatur)"; el.className = ""; return; }
+    const pctVal = (nilai / target) * 100;
+    el.textContent = pct1(pctVal);
+    el.className = pctVal >= 100 ? "good" : (pctVal >= 70 ? "" : "bad");
+  };
+  capaian(k.omzetBulanIni, k.targetOmzet, document.getElementById("kpi_capaianOmzet"));
+  capaian(k.labaBulanIni, k.targetLaba, document.getElementById("kpi_capaianLaba"));
+  const totalBiaya = k.komposisiBiaya.reduce((s, x) => s + x.jumlah, 0);
+  const komposisiEl = document.getElementById("kpi_komposisiBiaya");
+  if (!k.komposisiBiaya.length) {
+    komposisiEl.innerHTML = `<p class="muted">Belum ada pengeluaran di periode ini.</p>`;
+  } else {
+    renderBarChart(komposisiEl, k.komposisiBiaya.map((x, i) => ({
+      label: x.kategori, value: x.jumlah, color: `var(--series-${(i % 4) + 1})`,
+      formattedValue: `${rupiah(x.jumlah)} (${totalBiaya ? ((x.jumlah / totalBiaya) * 100).toFixed(1) : 0}%)`
+    })));
+  }
   renderBarChart(document.getElementById("kpi_trendKeuangan"), k.trend.flatMap(t => [
     { label: `${t.label} - Masuk`, value: t.masuk, color: "var(--series-1)", formattedValue: rupiah(t.masuk) },
     { label: `${t.label} - Keluar`, value: t.keluar, color: "var(--series-2)", formattedValue: rupiah(t.keluar) }
@@ -4098,9 +4203,36 @@ function renderKpiTim() {
   document.getElementById("kpi_tingkatKehadiran").textContent = pct1(k.tingkatKehadiran);
   document.getElementById("kpi_totalLembur").textContent = `${k.totalLembur.toLocaleString("id-ID")} jam`;
   document.getElementById("kpi_rasioTenagaKerja").textContent = pct1(k.rasioBiayaTenagaKerja);
+  // Angka gaji = data sensitif: panel hanya untuk Owner (untuk non-Owner
+  // slipGaji juga memang kosong dari database, jadi ini lapis kedua).
+  const gajiPanel = document.getElementById("kpi_gajiPanel");
+  gajiPanel.style.display = currentTeamRole === "owner" ? "block" : "none";
+  if (currentTeamRole === "owner") {
+    document.getElementById("kpi_slipCount").textContent = k.slipCount;
+    document.getElementById("kpi_totalGaji").textContent = rupiah(k.totalGaji);
+    document.getElementById("kpi_totalUangMakan").textContent = rupiah(k.totalUangMakan);
+  }
   renderBarChart(document.getElementById("kpi_trendTim"), k.trend.map(t => ({
     label: t.label, value: t.lembur, color: "var(--series-2)", formattedValue: `${t.lembur.toLocaleString("id-ID")} jam`
   })));
+}
+function renderKpiPenagihan() {
+  const k = computeKpiPenagihan();
+  document.getElementById("kpi_piutangTotal").textContent = `${rupiah(k.total)} (${k.count} tagihan)`;
+  document.getElementById("kpi_invBelumDibayar").textContent = k.invBelumDibayar ? `${k.invBelumDibayar} (${rupiah(k.invNilaiBelumDibayar)})` : "0";
+  document.getElementById("kpi_avgHariBayar").textContent = k.avgHariBayar == null ? "-" : `${k.avgHariBayar.toFixed(1)} hari`;
+  document.getElementById("kpi_umurPiutangRows").innerHTML = k.aging.map(a => `
+    <div class="summary-row"><span>${a.label} (${a.count} tagihan)</span><strong>${rupiah(a.jumlah)}</strong></div>
+  `).join("");
+  const body = document.getElementById("kpi_piutangTableBody");
+  body.innerHTML = k.items.length ? k.items.map(x => `
+    <tr>
+      <td>${formatTanggal(x.tanggal)}</td>
+      <td>${escapeHtml(x.keterangan)}</td>
+      <td class="num">${rupiah(x.jumlah)}</td>
+      <td class="num">${x.umur > 60 ? `<span class="bad">${x.umur} ⚠️</span>` : x.umur}</td>
+    </tr>
+  `).join("") : `<tr><td colspan="4" class="muted">Tidak ada tagihan menunggak — semua pembayaran beres. 👍</td></tr>`;
 }
 function renderKpiActiveSubtab() {
   const activeSubtab = document.querySelector('.subtab-item[data-subtab-page="kpi"].active');
@@ -4108,6 +4240,7 @@ function renderKpiActiveSubtab() {
   if (name === "penjualan") renderKpiPenjualan();
   else if (name === "proyek") renderKpiProyek();
   else if (name === "keuangan") renderKpiKeuangan();
+  else if (name === "penagihan") renderKpiPenagihan();
   else if (name === "tim") renderKpiTim();
 }
 document.getElementById("kpi_mulai").addEventListener("change", renderKpiActiveSubtab);
@@ -4150,12 +4283,29 @@ document.getElementById("kpi_exportExcelBtn").addEventListener("click", () => {
     { Indikator: "Laba Bersih Bulan Ini (Rp)", Nilai: keuangan.labaBulanIni },
     { Indikator: "Target Laba Bersih Bulanan (Rp)", Nilai: keuangan.targetLaba }
   ]), "Keuangan");
+  const penagihan = computeKpiPenagihan();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([
+    { Indikator: "Total Piutang Belum Dibayar (Rp)", Nilai: penagihan.total },
+    { Indikator: "Jumlah Tagihan Menunggak", Nilai: penagihan.count },
+    { Indikator: "Invoice Terkirim Belum Dibayar", Nilai: penagihan.invBelumDibayar },
+    { Indikator: "Nilai Invoice Belum Dibayar (Rp)", Nilai: penagihan.invNilaiBelumDibayar },
+    { Indikator: "Rata-rata Lama Pembayaran Invoice (hari)", Nilai: penagihan.avgHariBayar },
+    ...penagihan.aging.map(a => ({ Indikator: `Umur Piutang ${a.label} (Rp)`, Nilai: a.jumlah }))
+  ]), "Penagihan");
+  const timSheet = [
     { Indikator: "Karyawan Aktif", Nilai: tim.karyawanAktif },
     { Indikator: "Tingkat Kehadiran (%)", Nilai: tim.tingkatKehadiran },
     { Indikator: "Total Jam Lembur", Nilai: tim.totalLembur },
     { Indikator: "Rasio Biaya Tenaga Kerja (%)", Nilai: tim.rasioBiayaTenagaKerja }
-  ]), "Tim");
+  ];
+  if (currentTeamRole === "owner") {
+    timSheet.push(
+      { Indikator: "Slip Gaji Dibuat (Periode)", Nilai: tim.slipCount },
+      { Indikator: "Total Gaji Bersih Dibayarkan (Rp)", Nilai: tim.totalGaji },
+      { Indikator: "Total Uang Makan (Rp)", Nilai: tim.totalUangMakan }
+    );
+  }
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(timSheet), "Tim");
   XLSX.writeFile(wb, `kpi-${mulai}_${selesai}.xlsx`);
 });
 
@@ -5428,6 +5578,13 @@ function syncSlipGajiKasTxn(k, sl) {
 const slipGajiEditModal = document.getElementById("slipGajiEditModal");
 function openSlipGajiEditModal(sl) {
   document.getElementById("sge_id").value = sl.id;
+  // Hari Hadir & Jam Lembur hanya relevan untuk slip Harian -- gaji
+  // Bulanan tidak dihitung dari hari hadir.
+  const isHarian = sl.tipeGaji !== "Bulanan";
+  document.getElementById("sge_hariHadirField").style.display = isHarian ? "flex" : "none";
+  document.getElementById("sge_jamLemburField").style.display = isHarian ? "flex" : "none";
+  document.getElementById("sge_hariHadir").value = sl.hariHadir || 0;
+  document.getElementById("sge_jamLembur").value = sl.jamLembur || 0;
   document.getElementById("sge_uangMakan").value = formatNumberInput(sl.uangMakan || 0);
   document.getElementById("sge_bon").value = formatNumberInput(sl.bon || 0);
   document.getElementById("sge_potonganPinjaman").value = formatNumberInput(sl.potonganPinjaman || 0);
@@ -5450,6 +5607,15 @@ document.getElementById("slipGajiEditForm").addEventListener("submit", e => {
   sl.uangMakan = newUangMakan;
   sl.bon = newBon;
   sl.potonganPinjaman = newPotonganPinjaman;
+  // Slip Harian: Hari Hadir & Jam Lembur juga bisa dikoreksi -- upah
+  // kotor dihitung ulang dari tarif yang tersimpan di slip itu sendiri.
+  if (sl.tipeGaji !== "Bulanan") {
+    sl.hariHadir = Math.max(0, parseInt(document.getElementById("sge_hariHadir").value, 10) || 0);
+    sl.jamLembur = Math.max(0, parseFloat(document.getElementById("sge_jamLembur").value) || 0);
+    sl.totalUpahHarian = sl.hariHadir * (sl.upahHarian || 0);
+    sl.totalLembur = sl.jamLembur * (sl.tarifLembur || 0);
+    sl.upahKotor = sl.totalUpahHarian + sl.totalLembur;
+  }
   recomputeSlipGajiChain(k);
   syncSlipGajiKasTxn(k, sl);
   saveState();
@@ -5544,7 +5710,12 @@ document.getElementById("pg_simpanCetakBtn").addEventListener("click", () => {
   saveState();
   mirrorKaryawanGajiUpsert(k, true);
   renderAll();
-  printSlipGaji(k, slip);
+  // Simpan & Cetak sengaja DIPISAH: dulu tombol ini langsung mencetak,
+  // sehingga saat ada salah input orang tergoda mengklik ulang setelah
+  // koreksi -- lahir slip dobel (transaksi Kas dobel + rantai pinjaman
+  // kacau). Sekarang: simpan dulu, periksa/perbaiki lewat ✏️ di Riwayat,
+  // baru cetak 🖨️/PDF dari sana setelah angkanya benar.
+  alert(`Slip gaji ${k.nama} tersimpan.\n\nPeriksa dulu angkanya di tabel Riwayat Slip di bawah — kalau ada yang salah, perbaiki lewat tombol ✏️ (aman, tidak membuat slip baru). Setelah benar, cetak lewat 🖨️ atau unduh PDF.`);
 });
 
 function buildSlipGajiPrintHtml(k, sl) {
@@ -8446,6 +8617,11 @@ function anggaranFromItems(items) {
   return { anggaranBahan: Math.round(bahan), anggaranUpah: Math.round(upah), anggaranLain: Math.round(lain), allocated, unallocated };
 }
 function createProyekFromDoc(kind, doc) {
+  // Cegah proyek dobel: satu RAB/Penawaran hanya wajar melahirkan satu
+  // proyek. Klik kedua (sengaja/tidak) harus dikonfirmasi sadar.
+  const sudahAda = state.proyek.find(p => (kind === "rab" ? p.sumberRabId === doc.id : p.sumberPenawaranId === doc.id));
+  if (sudahAda && !confirm(
+    `PERHATIAN: proyek "${sudahAda.nama}" sudah pernah dibuat dari dokumen ini.\nMembuat lagi akan menghasilkan proyek DOBEL dengan nilai kontrak yang sama (kacau di Margin Proyek & Laporan).\n\nTetap buat proyek baru?`)) return;
   const totals = kind === "rab" ? rabTotals(doc) : penawaranTotals(doc);
   const alokasi = anggaranFromItems(doc.items);
   const proj = {
@@ -8485,7 +8661,9 @@ function offerCreateProyekFromDoc(kind, doc) {
     return;
   }
   if (!doc.items.length) { alert("Belum ada item pekerjaan — tambah item dulu sebelum membuat Proyek."); return; }
-  const { proj, alokasi } = createProyekFromDoc(kind, doc);
+  const hasil = createProyekFromDoc(kind, doc);
+  if (!hasil) return; // dibatalkan di konfirmasi proyek dobel
+  const { proj, alokasi } = hasil;
   renderAll();
   showPage("proyek");
   showProyekDetail(proj.id);
@@ -8725,14 +8903,19 @@ document.getElementById("pw_status").addEventListener("change", () => {
           mirrorKlienUpsert(klien, klienSebelum);
         }
         if (needProyek) {
-          const { proj } = createProyekFromDoc("pw", pw);
-          saveState();
-          mirrorPenawaranUpsert(pw, false);
-          renderAll();
-          showPage("proyek");
-          showProyekDetail(proj.id);
-          alert(`Proyek "${proj.nama}" berhasil dibuat dari penawaran ini. Silakan cek & koreksi anggarannya.`);
-          return;
+          // Bisa dibatalkan di konfirmasi proyek dobel -- kalau batal, jatuh
+          // ke saveState di bawah supaya perubahan status tetap tersimpan.
+          const hasil = createProyekFromDoc("pw", pw);
+          if (hasil) {
+            const { proj } = hasil;
+            saveState();
+            mirrorPenawaranUpsert(pw, false);
+            renderAll();
+            showPage("proyek");
+            showProyekDetail(proj.id);
+            alert(`Proyek "${proj.nama}" berhasil dibuat dari penawaran ini. Silakan cek & koreksi anggarannya.`);
+            return;
+          }
         }
       }
     }
