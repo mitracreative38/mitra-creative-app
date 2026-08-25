@@ -103,6 +103,10 @@
         <svg viewBox="0 0 24 24"><path d="M12 3L2 12h3v8h6v-6h2v6h6v-8h3L12 3zm0 2.7l6 5.4V18h-2v-6H8v6H7v-6.9l5-4.4z"/></svg>
         Sewa Aset
       </button>
+      <button class="nav-item" data-page="asetTetap">
+        <svg viewBox="0 0 24 24"><path d="M19 7h-8v7H3V5H1v15h2v-3h18v3h2v-9a4 4 0 00-4-4zM7 13a3 3 0 100-6 3 3 0 000 6z"/></svg>
+        Aset Tetap
+      </button>
       <div class="nav-sep"></div>
       <button class="nav-item" data-page="karyawan">
         <svg viewBox="0 0 24 24"><path d="M12 12a5 5 0 100-10 5 5 0 000 10zm0 2c-3.3 0-6.2 1.34-8.28 3.5A2 2 0 002 18.94V21h20v-2.06a2 2 0 00-1.72-1.44C18.2 15.34 15.3 14 12 14z"/></svg>
@@ -808,6 +812,51 @@
           <table class="tbl" id="sa_table">
             <thead><tr>
               <th>Aset</th><th>Jenis</th><th>Lokasi</th><th class="num">Harga Sewa</th><th>Status Sewa</th><th class="num">Total Pendapatan</th><th></th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ASET TETAP -->
+    <section class="page" id="page-asetTetap">
+      <header class="page-header">
+        <div>
+          <h1>Aset Tetap</h1>
+          <p class="page-sub">Aset perusahaan jangka panjang — kendaraan, mesin, komputer, bangunan. Penyusutan garis lurus dihitung otomatis per bulan; nilai buku masuk ke Neraca.</p>
+        </div>
+        <button class="btn-primary" id="at_addBtn">+ Tambah Aset Tetap</button>
+      </header>
+
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-label">Aset Aktif</div>
+          <div class="stat-value" id="at_jumlahAktif">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Harga Beli</div>
+          <div class="stat-value" id="at_totalBeli">Rp 0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Akumulasi Penyusutan</div>
+          <div class="stat-value bad" id="at_totalPenyusutan">Rp 0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Nilai Buku Saat Ini</div>
+          <div class="stat-value good" id="at_totalNilaiBuku">Rp 0</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="form-grid">
+          <div class="field"><label>Cari</label><input type="text" id="at_search" placeholder="Nama / kategori..."></div>
+          <div class="field"><label>Status</label><select id="at_filterStatus"><option value="">Semua Status</option><option value="aktif">Aktif</option><option value="dijual">Dijual</option><option value="dihapus">Dihapus dari daftar</option></select></div>
+        </div>
+        <div class="table-wrap">
+          <table class="tbl" id="at_table">
+            <thead><tr>
+              <th>Aset</th><th>Kategori</th><th>Tgl Beli</th><th class="num">Harga Beli</th><th class="num">Penyusutan/Bulan</th><th class="num">Akumulasi</th><th class="num">Nilai Buku</th><th>Status</th><th></th>
             </tr></thead>
             <tbody></tbody>
           </table>
@@ -2884,6 +2933,63 @@
         <div class="field full">
           <label>Deskripsi / Spesifikasi</label>
           <input type="text" id="sa_deskripsi" placeholder="cth. ukuran 4x6 m, 2 muka, listrik; atau luas tanah 200 m2">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="asetTetapModal">
+  <div class="modal">
+    <div class="modal-head"><h3 id="asetTetapModalTitle">Tambah Aset Tetap</h3><button class="icon-btn" data-close-modal>✕</button></div>
+    <form id="asetTetapForm">
+      <input type="hidden" id="at_id">
+      <div class="form-grid">
+        <div class="field full">
+          <label>Nama Aset</label>
+          <input type="text" id="at_nama" required placeholder="cth. Mobil Pickup L300 / Mesin Cetak Banner / Laptop Desain">
+        </div>
+        <div class="field">
+          <label>Kategori</label>
+          <select id="at_kategori"></select>
+        </div>
+        <div class="field">
+          <label>Tanggal Beli</label>
+          <input type="date" id="at_tanggalBeli" required>
+        </div>
+        <div class="field">
+          <label>Harga Beli (Rp)</label>
+          <input type="text" inputmode="numeric" id="at_hargaBeli" required placeholder="0">
+        </div>
+        <div class="field">
+          <label>Umur Ekonomis (tahun)</label>
+          <input type="number" id="at_umurTahun" min="1" max="50" step="1" value="4">
+        </div>
+        <div class="field">
+          <label>Nilai Residu (Rp)</label>
+          <input type="text" inputmode="numeric" id="at_nilaiResidu" placeholder="0">
+          <small class="hint">Perkiraan nilai jual di akhir umur ekonomis. Boleh 0.</small>
+        </div>
+        <div class="field">
+          <label>Status</label>
+          <select id="at_status">
+            <option value="aktif">Aktif (dipakai)</option>
+            <option value="dijual">Dijual</option>
+            <option value="dihapus">Dihapus dari daftar (rusak/hilang)</option>
+          </select>
+        </div>
+        <div class="field" id="at_lepasFields" style="display:none;">
+          <label>Tanggal &amp; Nilai Jual/Lepas</label>
+          <input type="date" id="at_tanggalLepas">
+          <input type="text" inputmode="numeric" id="at_nilaiLepas" placeholder="Nilai jual (Rp), 0 kalau rusak/hilang" style="margin-top:6px;">
+        </div>
+        <div class="field full">
+          <label>Catatan</label>
+          <input type="text" id="at_catatan" placeholder="cth. no. polisi / no. seri / lokasi penyimpanan">
         </div>
       </div>
       <div class="modal-actions">
