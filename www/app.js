@@ -1785,10 +1785,19 @@ function formatTanggal(iso) {
   if (!y) return iso;
   return `${d} ${BULAN_ID[m - 1]} ${y}`;
 }
+// Tanggal kalender WAKTU LOKAL. Jangan pakai toISOString() untuk ini:
+// toISOString() mengonversi ke UTC, sehingga Date yang dibuat pada tengah
+// malam waktu lokal (mis. "T00:00:00" atau new Date(th, bl, tgl)) mundur
+// 1 hari di zona waktu Indonesia (UTC+7) -- akar bug uang makan mingguan
+// terhitung 6 hari (300rb) padahal Minggu s.d. Sabtu = 7 hari (350rb).
+function isoTanggalLokal(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function hariIniIso() { return isoTanggalLokal(new Date()); }
 function addDaysIso(iso, days) {
   const d = new Date(iso + "T00:00:00");
   d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  return isoTanggalLokal(d);
 }
 function daysBetweenIso(fromIso, toIso) {
   if (!fromIso || !toIso) return 0;
@@ -1988,7 +1997,7 @@ function computeTrend12Bulan() {
   const months = [];
   for (let i = 11; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    months.push({ key: d.toISOString().slice(0, 7), label: d.toLocaleDateString("id-ID", { month: "short", year: "2-digit" }), masuk: 0, keluar: 0 });
+    months.push({ key: isoTanggalLokal(d).slice(0, 7), label: d.toLocaleDateString("id-ID", { month: "short", year: "2-digit" }), masuk: 0, keluar: 0 });
   }
   const byKey = {};
   months.forEach(m => { byKey[m.key] = m; });
@@ -2041,7 +2050,7 @@ function renderDashboard() {
   document.getElementById("dashMarginMeta").textContent = totalKontrak ? `Rata-rata margin ${(totalMargin / totalKontrak * 100).toFixed(1)}%` : "Belum ada proyek";
   document.getElementById("dashPiutang").textContent = rupiah(ku.pending);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = hariIniIso();
   const finalTahap = ["Selesai", "Hilang"];
   const pendingTxns = state.kasUsaha.transactions.filter(t => (t.status || "lunas") === "menunggu_persetujuan");
   const stokHampir = state.stok.filter(s => stokStatus(s) === "hampir").length;
@@ -2256,7 +2265,7 @@ function renderProyekList() {
     tbody.innerHTML = '<tr class="empty-row"><td colspan="8">Belum ada proyek</td></tr>';
     return;
   }
-  const today = new Date().toISOString().slice(0, 10);
+  const today = hariIniIso();
   rows.forEach(p => {
     const tr = document.createElement("tr");
     const overdue = p.status === "berjalan" && p.tanggalSelesai && p.tanggalSelesai < today;
@@ -2285,7 +2294,7 @@ function renderProyekDetail() {
   if (!p.belanjaMaterial) p.belanjaMaterial = [];
   if (!p.subkontraktor) p.subkontraktor = [];
   const calc = projectCalc(p);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = hariIniIso();
   const overdue = p.status === "berjalan" && p.tanggalSelesai && p.tanggalSelesai < today;
 
   document.getElementById("pd_nama").textContent = p.nama || "(Tanpa nama)";
@@ -2513,7 +2522,7 @@ document.querySelector("#pd_tahapanTable tbody").addEventListener("change", e =>
   if (!t) return;
   if (e.target.classList.contains("thp-selesai")) {
     t.selesai = e.target.checked;
-    if (t.selesai && !t.tanggal) t.tanggal = new Date().toISOString().slice(0, 10);
+    if (t.selesai && !t.tanggal) t.tanggal = hariIniIso();
     if (!t.selesai) t.tanggal = "";
   } else if (e.target.classList.contains("thp-tanggal")) {
     t.tanggal = e.target.value;
@@ -2600,7 +2609,7 @@ document.querySelector("#pd_invoiceTable tbody").addEventListener("change", e =>
   const inv = (p.invoices || []).find(i => i.id === e.target.dataset.id);
   if (!inv) return;
   inv.status = e.target.value;
-  if (inv.status === "dibayar" && !inv.tanggalBayar) inv.tanggalBayar = new Date().toISOString().slice(0, 10);
+  if (inv.status === "dibayar" && !inv.tanggalBayar) inv.tanggalBayar = hariIniIso();
   if (inv.status !== "dibayar") inv.tanggalBayar = "";
   saveState();
   mirrorProyekUpsert(p);
@@ -2687,7 +2696,7 @@ function buildKwitansiPrintHtml(p, inv) {
     </table>
     <div style="display:flex; justify-content:flex-end; margin-top:30px; font-size:12.5px;">
       <div style="text-align:right;">
-        ${inv.tanggalBayar ? formatTanggal(inv.tanggalBayar) : formatTanggal(new Date().toISOString().slice(0, 10))}<br>
+        ${inv.tanggalBayar ? formatTanggal(inv.tanggalBayar) : formatTanggal(hariIniIso())}<br>
         ${escapeHtml(state.company || "CV. Mitra Creative")}
         ${ownerTtdOrSpace(state.ownerNama)}
         <strong>${escapeHtml(state.ownerNama)}</strong><br>${escapeHtml(state.ownerJabatan)}
@@ -2810,7 +2819,7 @@ function renderBapItemRows() {
 document.getElementById("bap_addBtn").addEventListener("click", () => {
   const p = state.proyek.find(x => x.id === currentProyekId);
   if (!p || proyekArsipGuard(p)) return;
-  document.getElementById("bap_tanggal").value = new Date().toISOString().slice(0, 10);
+  document.getElementById("bap_tanggal").value = hariIniIso();
   const realisasiTerbaru = (p.progressRealisasi || []).slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""))[0];
   document.getElementById("bap_persen").value = realisasiTerbaru ? realisasiTerbaru.persen : 0;
   document.getElementById("bap_catatan").value = "";
@@ -3101,7 +3110,7 @@ const laporanHarianModal = document.getElementById("laporanHarianModal");
 function openLaporanHarianModal(existing) {
   document.getElementById("lap_id").value = existing ? existing.id : "";
   document.getElementById("laporanHarianModalTitle").textContent = existing ? "Edit Laporan Harian" : "Tambah Laporan Harian";
-  document.getElementById("lap_tanggal").value = existing ? existing.tanggal : new Date().toISOString().slice(0, 10);
+  document.getElementById("lap_tanggal").value = existing ? existing.tanggal : hariIniIso();
   document.getElementById("lap_cuaca").value = existing ? existing.cuaca : "Cerah";
   document.getElementById("lap_tenagaKerja").value = existing ? existing.tenagaKerja : "";
   document.getElementById("lap_uraian").value = existing ? (existing.uraian || "") : "";
@@ -3179,7 +3188,7 @@ const perubahanPekerjaanModal = document.getElementById("perubahanPekerjaanModal
 function openPerubahanPekerjaanModal(existing) {
   document.getElementById("pp_id").value = existing ? existing.id : "";
   document.getElementById("perubahanPekerjaanModalTitle").textContent = existing ? "Edit Perubahan Pekerjaan" : "Tambah Perubahan Pekerjaan";
-  document.getElementById("pp_tanggal").value = existing ? existing.tanggal : new Date().toISOString().slice(0, 10);
+  document.getElementById("pp_tanggal").value = existing ? existing.tanggal : hariIniIso();
   document.getElementById("pp_uraian").value = existing ? (existing.uraian || "") : "";
   document.getElementById("pp_nilaiPerubahan").value = existing ? formatNumberInput(existing.nilaiPerubahan || 0) : "";
   document.getElementById("pp_dampakHari").value = existing ? (existing.dampakHari || "") : "";
@@ -3290,7 +3299,7 @@ function renderKlienList() {
   const filterSel = document.getElementById("kl_filterTahap");
   if (filterSel.options.length <= 1) filterSel.innerHTML = '<option value="">Semua Tahap</option>' + KLIEN_TAHAP.map(t => `<option value="${t}">${t}</option>`).join("");
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = hariIniIso();
   const finalTahap = ["Selesai", "Hilang"];
   const rowsAll = state.klien.map(k => ({ ...k, ...klienDerived(k) }));
 
@@ -3341,7 +3350,7 @@ function renderKlienList() {
   });
 }
 function buildKlienListPrintHtml() {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = hariIniIso();
   const search = (document.getElementById("kl_search").value || "").toLowerCase();
   const filterTahap = document.getElementById("kl_filterTahap").value;
   let rows = state.klien.map(k => ({ ...k, ...klienDerived(k) }));
@@ -3391,7 +3400,7 @@ function renderKlienDetail() {
   if (!k.kontakList) k.kontakList = [];
   const derived = klienDerived(k);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = hariIniIso();
   document.getElementById("kld_nama").textContent = k.nama;
   document.getElementById("kld_sub").textContent = [k.kontakNama, k.telepon].filter(Boolean).join(" · ") || "-";
   document.getElementById("kld_tahap").textContent = k.tahap || "Leads";
@@ -3492,7 +3501,7 @@ document.getElementById("klienForm").addEventListener("submit", e => {
     sumber: document.getElementById("kl_sumber").value,
     alamat: document.getElementById("kl_alamat").value.trim(),
     tahap: tahapBaru,
-    tahapSejak: tahapBerubah ? new Date().toISOString().slice(0, 10) : (existing.tahapSejak || new Date().toISOString().slice(0, 10)),
+    tahapSejak: tahapBerubah ? hariIniIso() : (existing.tahapSejak || hariIniIso()),
     followUpTanggal: document.getElementById("kl_followUpTanggal").value,
     catatan: document.getElementById("kl_catatan").value.trim(),
     riwayatKontak: existing ? (existing.riwayatKontak || []) : [],
@@ -3602,7 +3611,7 @@ document.getElementById("kld_rabTable").addEventListener("click", e => {
 document.getElementById("kld_toRabBtn").addEventListener("click", () => {
   const k = state.klien.find(x => x.id === currentKlienId);
   if (!k) return;
-  const rab = { id: uid(), nomor: nextRabNomor(), nama: k.nama, klien: k.nama, klienId: k.id, lokasi: k.alamat || "", kategori: KATEGORI_PEKERJAAN[0], tanggal: new Date().toISOString().slice(0, 10), ppn: 0, pph: 0.5, biayaLain: 0, items: [] };
+  const rab = { id: uid(), nomor: nextRabNomor(), nama: k.nama, klien: k.nama, klienId: k.id, lokasi: k.alamat || "", kategori: KATEGORI_PEKERJAAN[0], tanggal: hariIniIso(), ppn: 0, pph: 0.5, biayaLain: 0, items: [] };
   state.proyekRab.push(rab);
   saveState();
   mirrorRabUpsert(rab, true);
@@ -3612,7 +3621,7 @@ document.getElementById("kld_toPwBtn").addEventListener("click", () => {
   const k = state.klien.find(x => x.id === currentKlienId);
   if (!k) return;
   const pw = {
-    id: uid(), nomor: nextPenawaranNomor(), tanggal: new Date().toISOString().slice(0, 10),
+    id: uid(), nomor: nextPenawaranNomor(), tanggal: hariIniIso(),
     kepada: k.nama, klienId: k.id, alamatKlien: k.alamat || "", perihal: "", kategori: KATEGORI_PEKERJAAN[0], status: "draft",
     diskon: 0, ppn: 11, pph: 0.5, biayaLain: 0, items: [], syarat: defaultSyarat(), penutup: defaultPenutup(),
     ttdNama: state.ownerNama, ttdJabatan: state.ownerJabatan
@@ -3664,9 +3673,9 @@ function renderLabaRugi() {
   const selesaiInput = document.getElementById("lr_selesai");
   if (!mulaiInput.value) {
     const now = new Date();
-    mulaiInput.value = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+    mulaiInput.value = isoTanggalLokal(new Date(now.getFullYear(), now.getMonth(), 1));
   }
-  if (!selesaiInput.value) selesaiInput.value = new Date().toISOString().slice(0, 10);
+  if (!selesaiInput.value) selesaiInput.value = hariIniIso();
   const { rows, pendapatan, beban, labaBersih } = computeLabaRugi(mulaiInput.value, selesaiInput.value);
   document.getElementById("lr_pendapatan").textContent = rupiah(pendapatan);
   document.getElementById("lr_beban").textContent = rupiah(beban);
@@ -3679,7 +3688,7 @@ function renderLabaRugi() {
 }
 function renderNeraca() {
   const tanggalInput = document.getElementById("nr_tanggal");
-  if (!tanggalInput.value) tanggalInput.value = new Date().toISOString().slice(0, 10);
+  if (!tanggalInput.value) tanggalInput.value = hariIniIso();
   const n = computeNeraca(tanggalInput.value);
   document.getElementById("nr_asetRows").innerHTML = `
     <div class="summary-row"><span>Saldo Kas Perusahaan</span><strong>${rupiah(n.saldoKas)}</strong></div>
@@ -3704,7 +3713,7 @@ function renderNeraca() {
 // pertama; item di luar jendela proyeksi diabaikan (bukan ditumpuk di
 // minggu terakhir, supaya minggu terakhir tidak menyesatkan).
 function computeCashFlowForecast(weeks) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = hariIniIso();
   const saldoAwal = computeNeraca(today).saldoKas;
   const buckets = [];
   for (let i = 0; i < weeks; i++) {
@@ -3942,8 +3951,8 @@ function monthBuckets(endDateStr, n) {
     const finish = new Date(d.getFullYear(), d.getMonth() + 1, 0);
     buckets.push({
       label: start.toLocaleDateString("id-ID", { month: "short", year: "2-digit" }),
-      start: start.toISOString().slice(0, 10),
-      end: finish.toISOString().slice(0, 10)
+      start: isoTanggalLokal(start),
+      end: isoTanggalLokal(finish)
     });
   }
   return buckets;
@@ -3976,7 +3985,7 @@ function computeKpiPenjualan(mulai, selesai) {
   return { terkirim: pwPeriode.length, disetujui: disetujui.length, ditolak: ditolak.length, winRate, nilaiDisetujui, pipelineCount: pipelineAktif.length, nilaiPipeline, funnel, trend };
 }
 function computeKpiProyek(mulai, selesai) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = hariIniIso();
   const semua = state.proyek;
   const baruPeriode = semua.filter(p => p.tanggalMulai && p.tanggalMulai >= mulai && p.tanggalMulai <= selesai).length;
   const calcs = semua.map(p => projectCalc(p));
@@ -4002,8 +4011,8 @@ function computeKpiKeuangan(mulai, selesai) {
   const ku = kasSummary("kasUsaha");
   const rasioPiutang = pendapatan ? (ku.pending / pendapatan) * 100 : null;
   const now = new Date();
-  const bulanIniMulai = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-  const bulanIniSelesai = now.toISOString().slice(0, 10);
+  const bulanIniMulai = isoTanggalLokal(new Date(now.getFullYear(), now.getMonth(), 1));
+  const bulanIniSelesai = hariIniIso();
   const bulanIni = computeLabaRugi(bulanIniMulai, bulanIniSelesai);
   const trend = monthBuckets(selesai, 6).map(b => {
     const masuk = state.kasUsaha.transactions.filter(t => t.tipe === "Masuk" && (t.status || "lunas") === "lunas" && t.tanggal >= b.start && t.tanggal <= b.end).reduce((s, t) => s + (t.jumlah || 0), 0);
@@ -4035,7 +4044,7 @@ function computeKpiKeuangan(mulai, selesai) {
 // snapshot "saat ini" (bukan per periode) karena tagihan menunggak tetap
 // harus tertagih kapan pun periodenya.
 function computeKpiPenagihan() {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = hariIniIso();
   const items = [];
   state.kasUsaha.transactions
     .filter(t => t.tipe === "Masuk" && t.status === "pending")
@@ -4115,9 +4124,9 @@ function kpiPeriode() {
   const selesaiInput = document.getElementById("kpi_selesai");
   if (!mulaiInput.value) {
     const now = new Date();
-    mulaiInput.value = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+    mulaiInput.value = isoTanggalLokal(new Date(now.getFullYear(), now.getMonth(), 1));
   }
-  if (!selesaiInput.value) selesaiInput.value = new Date().toISOString().slice(0, 10);
+  if (!selesaiInput.value) selesaiInput.value = hariIniIso();
   return { mulai: mulaiInput.value, selesai: selesaiInput.value };
 }
 function pct1(v) { return v == null ? "-" : v.toFixed(1) + "%"; }
@@ -4571,7 +4580,7 @@ function buildStokListPrintHtml() {
       <thead><tr><th>Nama Barang</th><th>Kategori</th><th class="c">Satuan</th><th class="r">Qty</th><th class="r">Min.</th><th class="r">Harga Satuan</th><th class="r">Nilai</th><th class="c">Status</th></tr></thead>
       <tbody>${bodyRows}</tbody>
     </table>
-    <p style="font-size:11px; color:#777; margin-top:10px;">Dicetak ${formatTanggal(new Date().toISOString().slice(0, 10))} — ${rows.length} barang.</p>
+    <p style="font-size:11px; color:#777; margin-top:10px;">Dicetak ${formatTanggal(hariIniIso())} — ${rows.length} barang.</p>
   `;
 }
 document.getElementById("stok_printBtn").addEventListener("click", () => {
@@ -4585,7 +4594,7 @@ document.getElementById("stok_exportCsv").addEventListener("click", () => {
   rows.forEach(s => {
     lines.push([s.nama, s.kategori, s.satuan, s.qty, s.stokMinimum || 0, s.hargaSatuan, s.nilai, stokStatusLabel(s.status)].map(csvEscape).join(","));
   });
-  downloadFile(`stok_${new Date().toISOString().slice(0, 10)}.csv`, lines.join("\n"), "text/csv");
+  downloadFile(`stok_${hariIniIso()}.csv`, lines.join("\n"), "text/csv");
 });
 document.getElementById("stok_table").addEventListener("click", e => {
   const openLink = e.target.closest("[data-open-stok]");
@@ -4650,7 +4659,7 @@ function openStokTxnModal(existing) {
   document.getElementById("st_id").value = existing ? existing.id : "";
   document.getElementById("stokTxnModalTitle").textContent = existing ? "Edit Transaksi Stok" : "Catat Transaksi Stok";
   document.getElementById("st_tipe").value = existing ? existing.tipe : "Masuk";
-  document.getElementById("st_tanggal").value = existing ? existing.tanggal : new Date().toISOString().slice(0, 10);
+  document.getElementById("st_tanggal").value = existing ? existing.tanggal : hariIniIso();
   document.getElementById("st_qty").value = existing ? String(existing.qty) : "";
   const pemasokSel = document.getElementById("st_pemasokId");
   pemasokSel.innerHTML = '<option value="">Tidak dikaitkan</option>' + state.pemasok.map(pm => `<option value="${pm.id}">${escapeHtml(pm.nama)}</option>`).join("");
@@ -4973,7 +4982,7 @@ document.getElementById("karyawanForm").addEventListener("submit", e => {
 // ----- Absensi Harian -----
 function renderAbsensiPanel() {
   const tanggalInput = document.getElementById("ab_tanggal");
-  if (!tanggalInput.value) tanggalInput.value = new Date().toISOString().slice(0, 10);
+  if (!tanggalInput.value) tanggalInput.value = hariIniIso();
   const tanggal = tanggalInput.value;
   const aktif = state.karyawan.filter(k => k.aktif !== false).slice().sort((a, b) => a.nama.localeCompare(b.nama));
   const tbody = document.querySelector("#ab_table tbody");
@@ -5224,8 +5233,8 @@ function renderPenggajianPanel() {
     sunday.setDate(today.getDate() - today.getDay());
     const saturday = new Date(sunday);
     saturday.setDate(sunday.getDate() + 6);
-    document.getElementById("pg_mulai").value = sunday.toISOString().slice(0, 10);
-    document.getElementById("pg_selesai").value = saturday.toISOString().slice(0, 10);
+    document.getElementById("pg_mulai").value = isoTanggalLokal(sunday);
+    document.getElementById("pg_selesai").value = isoTanggalLokal(saturday);
   }
   computePayrollFromAbsensi(true);
   renderPenggajianRiwayat();
@@ -5251,7 +5260,7 @@ function hitungUangMakanMingguan(k, mulai, selesai) {
     const d = new Date(a.tanggal + "T00:00:00");
     const awalMinggu = new Date(d);
     awalMinggu.setDate(d.getDate() - d.getDay());
-    const key = awalMinggu.toISOString().slice(0, 10);
+    const key = isoTanggalLokal(awalMinggu);
     if (!pertamaPerMinggu[key] || a.tanggal < pertamaPerMinggu[key].tanggal) pertamaPerMinggu[key] = a;
   });
   let total = 0;
@@ -5261,7 +5270,8 @@ function hitungUangMakanMingguan(k, mulai, selesai) {
     const d = new Date(rec.tanggal + "T00:00:00");
     const sabtu = new Date(d);
     sabtu.setDate(d.getDate() + (6 - d.getDay()));
-    const batasAkhir = sabtu.toISOString().slice(0, 10) < selesai ? sabtu.toISOString().slice(0, 10) : selesai;
+    const sabtuIso = isoTanggalLokal(sabtu);
+    const batasAkhir = sabtuIso < selesai ? sabtuIso : selesai;
     const hari = daysBetweenIso(rec.tanggal, batasAkhir) + 1;
     const tarif = (k.uangMakanHarian || 0) || (rec.uangMakan || 0);
     const jumlah = hari * tarif;
@@ -5406,7 +5416,7 @@ function rekapBulanData(bulan) {
 }
 function renderRekapAbsensi() {
   const bulanInput = document.getElementById("rk_bulan");
-  if (!bulanInput.value) bulanInput.value = new Date().toISOString().slice(0, 7);
+  if (!bulanInput.value) bulanInput.value = hariIniIso().slice(0, 7);
   const showGaji = currentTeamRole === "owner";
   const { jumlahHari, rows } = rekapBulanData(bulanInput.value);
   const thead = document.querySelector("#rk_table thead");
@@ -5672,7 +5682,7 @@ document.getElementById("pg_simpanCetakBtn").addEventListener("click", () => {
     bon: parseNumberInput(document.getElementById("pg_bon").value),
     potonganPinjaman: parseNumberInput(document.getElementById("pg_potonganPinjaman").value),
     sisaSebelum: sisaPinjaman(k),
-    tanggalDibuat: new Date().toISOString().slice(0, 10)
+    tanggalDibuat: hariIniIso()
   };
   if (isBulanan) {
     slip.gajiBulanan = k.gajiBulanan || 0;
@@ -5914,7 +5924,7 @@ function renderAlatList() {
   document.getElementById("alat_totalJenis").textContent = state.alat.length;
   document.getElementById("alat_totalUnit").textContent = state.alat.reduce((s, a) => s + (a.jumlahUnit || 0), 0);
   document.getElementById("alat_totalDipinjam").textContent = state.alat.reduce((s, a) => s + alatDipinjam(a), 0);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = hariIniIso();
   const terlambat = state.alat.reduce((s, a) => s + (a.peminjaman || []).filter(p => !p.tanggalKembali && p.rencanaKembali && p.rencanaKembali < today).length, 0);
   document.getElementById("alat_totalTerlambat").textContent = terlambat;
 
@@ -5946,7 +5956,7 @@ function renderAlatList() {
 function alatServisStatus(a, today) {
   if (!a.servisBerikutnya) return "";
   if (a.servisBerikutnya < today) return "terlambat";
-  const batas = new Date(new Date(today).getTime() + 14 * 86400000).toISOString().slice(0, 10);
+  const batas = addDaysIso(today, 14);
   return a.servisBerikutnya <= batas ? "segera" : "aman";
 }
 function alatServisBadge(a, today) {
@@ -6035,7 +6045,7 @@ function renderAlatDetail() {
   document.getElementById("alatd_dipinjam").textContent = alatDipinjam(a);
   document.getElementById("alatd_tersedia").textContent = alatTersedia(a);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = hariIniIso();
   const rows = (a.peminjaman || []).slice().sort((x, y) => (y.tanggalPinjam || "").localeCompare(x.tanggalPinjam || ""));
   document.querySelector("#alatd_peminjamanTable tbody").innerHTML = rows.length ? rows.map(p => {
     const karyawan = state.karyawan.find(k => k.id === p.karyawanId);
@@ -6070,7 +6080,7 @@ document.getElementById("alatd_pinjamBtn").addEventListener("click", () => {
   const proyekSel = document.getElementById("pjm_proyekId");
   proyekSel.innerHTML = '<option value="">Tidak dikaitkan</option>' + state.proyek.map(p => `<option value="${p.id}">${escapeHtml(p.nama)}</option>`).join("");
   document.getElementById("pjm_jumlah").value = "1";
-  document.getElementById("pjm_tanggalPinjam").value = new Date().toISOString().slice(0, 10);
+  document.getElementById("pjm_tanggalPinjam").value = hariIniIso();
   document.getElementById("pjm_rencanaKembali").value = "";
   peminjamanModal.classList.add("open");
 });
@@ -6105,7 +6115,7 @@ document.getElementById("alatd_peminjamanTable").addEventListener("click", e => 
   if (!btn) return;
   document.getElementById("kb_alatId").value = currentAlatId;
   document.getElementById("kb_peminjamanId").value = btn.dataset.kembalikan;
-  document.getElementById("kb_tanggalKembali").value = new Date().toISOString().slice(0, 10);
+  document.getElementById("kb_tanggalKembali").value = hariIniIso();
   document.getElementById("kb_kondisiKembali").value = "Baik";
   document.getElementById("kb_catatan").value = "";
   kembaliModal.classList.add("open");
@@ -6147,7 +6157,7 @@ function renderOpnameInputTable() {
   `).join("") : '<tr class="empty-row"><td colspan="5">Belum ada Stok Material atau Alat untuk dicek</td></tr>';
 }
 document.getElementById("opname_muatBtn").addEventListener("click", () => {
-  if (!document.getElementById("opname_tanggal").value) document.getElementById("opname_tanggal").value = new Date().toISOString().slice(0, 10);
+  if (!document.getElementById("opname_tanggal").value) document.getElementById("opname_tanggal").value = hariIniIso();
   renderOpnameInputTable();
   document.getElementById("opname_inputPanelWrap").style.display = "block";
 });
@@ -6447,7 +6457,7 @@ function buildPemasokListPrintHtml() {
       <thead><tr><th>Nama Pemasok</th><th>Kategori</th><th>Telepon</th><th>Alamat</th><th class="r">Total Pembelian</th></tr></thead>
       <tbody>${bodyRows}</tbody>
     </table>
-    <p style="font-size:11px; color:#777; margin-top:10px;">Dicetak ${formatTanggal(new Date().toISOString().slice(0, 10))} — ${rows.length} pemasok.</p>
+    <p style="font-size:11px; color:#777; margin-top:10px;">Dicetak ${formatTanggal(hariIniIso())} — ${rows.length} pemasok.</p>
   `;
 }
 document.getElementById("pm_printBtn").addEventListener("click", () => {
@@ -6613,7 +6623,7 @@ function buildAhspListPrintHtml() {
       <thead><tr><th>Kategori</th><th>Kode</th><th>Uraian Pekerjaan</th><th>Satuan</th><th class="r">Harga Satuan</th><th>Referensi</th></tr></thead>
       <tbody>${bodyRows}</tbody>
     </table>
-    <p style="font-size:11px; color:#777; margin-top:10px;">Dicetak ${formatTanggal(new Date().toISOString().slice(0, 10))} — ${rows.length} item.</p>
+    <p style="font-size:11px; color:#777; margin-top:10px;">Dicetak ${formatTanggal(hariIniIso())} — ${rows.length} item.</p>
   `;
 }
 document.getElementById("ah_printBtn").addEventListener("click", () => {
@@ -6645,7 +6655,7 @@ document.getElementById("ah_syncStokBtn").addEventListener("click", () => {
       const hargaBaruTotal = ahspHarga(a);
       if (hargaBaruTotal !== hargaLama) {
         if (!a.riwayatHarga) a.riwayatHarga = [];
-        a.riwayatHarga.push({ id: uid(), tanggal: new Date().toISOString().slice(0, 10), hargaLama, hargaBaru: hargaBaruTotal });
+        a.riwayatHarga.push({ id: uid(), tanggal: hariIniIso(), hargaLama, hargaBaru: hargaBaruTotal });
       }
       mirrorAhspUpsert(a);
     }
@@ -6667,7 +6677,7 @@ document.getElementById("ah_exportCsvBtn").addEventListener("click", () => {
       a.mode === "manual" ? "Manual" : "Rincian Komponen",
       a.mode === "manual" ? "" : (a.overhead ?? 0), a.referensi || ""
     ].map(csvEscape).join(",")));
-  downloadFile(`daftar_ahsp_${new Date().toISOString().slice(0, 10)}.csv`, "﻿" + lines.join("\n"), "text/csv;charset=utf-8");
+  downloadFile(`daftar_ahsp_${hariIniIso()}.csv`, "﻿" + lines.join("\n"), "text/csv;charset=utf-8");
 });
 
 // ===== Modal: AHSP item =====
@@ -6732,7 +6742,7 @@ function syncAllUpahHarga() {
       const hargaBaruTotal = ahspHarga(a);
       if (hargaBaruTotal !== hargaLama) {
         if (!a.riwayatHarga) a.riwayatHarga = [];
-        a.riwayatHarga.push({ id: uid(), tanggal: new Date().toISOString().slice(0, 10), hargaLama, hargaBaru: hargaBaruTotal });
+        a.riwayatHarga.push({ id: uid(), tanggal: hariIniIso(), hargaLama, hargaBaru: hargaBaruTotal });
       }
       mirrorAhspUpsert(a);
     }
@@ -6940,7 +6950,7 @@ document.getElementById("ahspForm").addEventListener("submit", e => {
   if (existing) {
     const hargaLama = ahspHarga(existing);
     if (hargaBaru !== hargaLama) {
-      item.riwayatHarga.push({ id: uid(), tanggal: new Date().toISOString().slice(0, 10), hargaLama, hargaBaru });
+      item.riwayatHarga.push({ id: uid(), tanggal: hariIniIso(), hargaLama, hargaBaru });
     }
   }
   if (idx >= 0) state.ahsp[idx] = item; else state.ahsp.push(item);
@@ -8325,7 +8335,7 @@ function renderRabEditor() {
   rabKlienSel.value = rab.klienId || "";
   if (document.activeElement.id !== "rab_lokasi") document.getElementById("rab_lokasi").value = rab.lokasi || "";
   kategoriSel.value = rab.kategori || KATEGORI_PEKERJAAN[0];
-  document.getElementById("rab_tanggal").value = rab.tanggal || new Date().toISOString().slice(0, 10);
+  document.getElementById("rab_tanggal").value = rab.tanggal || hariIniIso();
   document.getElementById("rab_ppn").value = rab.ppn ?? 0;
   document.getElementById("rab_pph").value = rab.pph ?? 0;
   const biayaLainInput = document.getElementById("rab_biayaLain");
@@ -8450,7 +8460,7 @@ function buildRabPrintHtml(rab) {
       <tr class="total-row"><td>Total RAB</td><td class="r">${rupiah(total)}</td></tr>
     </table>
 
-    <p style="font-size:11px; color:#777; margin-top:10px;">Dicetak ${formatTanggal(new Date().toISOString().slice(0, 10))}.</p>
+    <p style="font-size:11px; color:#777; margin-top:10px;">Dicetak ${formatTanggal(hariIniIso())}.</p>
   `;
 }
 document.getElementById("rab_printBtn").addEventListener("click", () => {
@@ -8466,7 +8476,7 @@ document.getElementById("rab_pdfBtn").addEventListener("click", () => {
   downloadPdfFromServer(document.getElementById("rab_pdfBtn"), `rab/${rab.id}`, `RAB-${rab.nomor || rab.id}`);
 });
 document.getElementById("rab_addBtn").addEventListener("click", () => {
-  const rab = { id: uid(), nomor: nextRabNomor(), nama: "", klien: "", klienId: "", lokasi: "", kategori: KATEGORI_PEKERJAAN[0], tanggal: new Date().toISOString().slice(0, 10), ppn: 0, pph: 0.5, biayaLain: 0, items: [] };
+  const rab = { id: uid(), nomor: nextRabNomor(), nama: "", klien: "", klienId: "", lokasi: "", kategori: KATEGORI_PEKERJAAN[0], tanggal: hariIniIso(), ppn: 0, pph: 0.5, biayaLain: 0, items: [] };
   state.proyekRab.push(rab);
   saveState();
   mirrorRabUpsert(rab, true);
@@ -8547,7 +8557,7 @@ document.getElementById("rab_itemsTable").addEventListener("click", e => {
 });
 function createPenawaranFromRab(rab) {
   return {
-    id: uid(), nomor: nextPenawaranNomor(), tanggal: new Date().toISOString().slice(0, 10),
+    id: uid(), nomor: nextPenawaranNomor(), tanggal: hariIniIso(),
     kepada: rab.klien || "", alamatKlien: "", perihal: rab.nama || "", kategori: rab.kategori || KATEGORI_PEKERJAAN[0],
     status: "draft", diskon: 0, ppn: rab.ppn || 0, pph: typeof rab.pph === "number" ? rab.pph : 0.5,
     biayaLain: rab.biayaLain || 0,
@@ -8577,7 +8587,7 @@ document.getElementById("rab_duplicateBtn").addEventListener("click", () => {
     ...rab,
     id: uid(),
     nomor: nextRabNomor(),
-    tanggal: new Date().toISOString().slice(0, 10),
+    tanggal: hariIniIso(),
     proyekId: "",
     revisiDariId: rab.id,
     revisiKe: (rab.revisiKe || 0) + 1,
@@ -8632,7 +8642,7 @@ function createProyekFromDoc(kind, doc) {
     lokasi: kind === "rab" ? (doc.lokasi || "") : "",
     nilaiKontrak: totals.total,
     status: "berjalan",
-    tanggalMulai: new Date().toISOString().slice(0, 10),
+    tanggalMulai: hariIniIso(),
     tanggalSelesai: "",
     biayaBahan: alokasi.anggaranBahan,
     biayaUpah: alokasi.anggaranUpah,
@@ -8682,7 +8692,7 @@ function pwIsKadaluarsa(p, today) {
   return ["draft", "terkirim"].includes(p.status) && p.tanggal && addDaysIso(p.tanggal, 14) < today;
 }
 function renderPwList() {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = hariIniIso();
   document.getElementById("pw_totalCount").textContent = state.penawaran.length;
   document.getElementById("pw_totalMenunggu").textContent = state.penawaran.filter(p => ["draft", "terkirim"].includes(p.status)).length;
   document.getElementById("pw_totalDisetujui").textContent = state.penawaran.filter(p => p.status === "disetujui").length;
@@ -8825,7 +8835,7 @@ document.getElementById("pw_addBtn").addEventListener("click", () => {
   const brand = document.getElementById("pw_addBrandSel").value === "mataresolusi" ? "mataresolusi" : "mitra";
   const isMr = brand === "mataresolusi";
   const pw = {
-    id: uid(), nomor: isMr ? nextMataResolusiPenawaranNomor() : nextPenawaranNomor(), tanggal: new Date().toISOString().slice(0, 10),
+    id: uid(), nomor: isMr ? nextMataResolusiPenawaranNomor() : nextPenawaranNomor(), tanggal: hariIniIso(),
     kepada: "", alamatKlien: "", perihal: "", kategori: KATEGORI_PEKERJAAN[0], status: "draft",
     diskon: 0, ppn: 11, pph: 0.5, biayaLain: 0, items: [], syarat: defaultSyarat(), penutup: defaultPenutup(),
     brand,
@@ -8899,7 +8909,7 @@ document.getElementById("pw_status").addEventListener("change", () => {
           const klienSebelum = { ...klien };
           klien.tahap = "Deal/SPK";
           if (!klien.riwayatKontak) klien.riwayatKontak = [];
-          klien.riwayatKontak.push({ id: uid(), tanggal: new Date().toISOString().slice(0, 10), catatan: `Penawaran ${pw.nomor} disetujui — tahap otomatis diubah ke Deal/SPK` });
+          klien.riwayatKontak.push({ id: uid(), tanggal: hariIniIso(), catatan: `Penawaran ${pw.nomor} disetujui — tahap otomatis diubah ke Deal/SPK` });
           mirrorKlienUpsert(klien, klienSebelum);
         }
         if (needProyek) {
@@ -8990,7 +9000,7 @@ function buildPenawaranPrintHtml(pw) {
     </tr>
   `).join("") || `<tr><td colspan="6" class="c">Belum ada item</td></tr>`;
 
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = hariIniIso();
   let statusText, statusCls;
   if (pw.status === "disetujui") { statusText = "DISETUJUI"; statusCls = "ok"; }
   else if (pw.status === "ditolak") { statusText = "DITOLAK"; statusCls = "bad"; }
@@ -9233,7 +9243,7 @@ document.getElementById("pw_duplicateBtn").addEventListener("click", () => {
     ...pw,
     id: uid(),
     nomor: pw.brand === "mataresolusi" ? nextMataResolusiPenawaranNomor() : nextPenawaranNomor(),
-    tanggal: new Date().toISOString().slice(0, 10),
+    tanggal: hariIniIso(),
     status: "draft",
     proyekId: "",
     revisiDariId: pw.id,
@@ -9263,7 +9273,7 @@ document.getElementById("pw_pembandingBtn").addEventListener("click", () => {
     ...pw,
     id: uid(),
     nomor: nextMataResolusiPenawaranNomor(),
-    tanggal: new Date().toISOString().slice(0, 10),
+    tanggal: hariIniIso(),
     status: "draft",
     proyekId: "",
     revisiDariId: "",
@@ -9431,7 +9441,7 @@ function openTxnModal(book, existing) {
   const desiredStatus = existing ? (existing.status || "lunas") : "lunas";
   const statusSel = document.getElementById("txn_status");
   if ([...statusSel.options].some(o => o.value === desiredStatus)) statusSel.value = desiredStatus;
-  document.getElementById("txn_tanggal").value = existing ? existing.tanggal : new Date().toISOString().slice(0, 10);
+  document.getElementById("txn_tanggal").value = existing ? existing.tanggal : hariIniIso();
   document.getElementById("txn_jumlah").value = existing ? formatNumberInput(existing.jumlah) : "";
   document.getElementById("txn_keterangan").value = existing ? existing.keterangan : "";
   document.getElementById("txn_kategori").value = existing ? (existing.kategori || "") : "";
@@ -9942,7 +9952,7 @@ function syncBelanjaMaterial(p, item) {
   state.kasUsaha.transactions = state.kasUsaha.transactions.filter(t => t.sumberBelanjaId !== item.id);
   state.stok.forEach(s => { s.transactions = (s.transactions || []).filter(t => t.sumberBelanjaId !== item.id); });
   if (item.status !== "Dibeli") return;
-  const tanggal = item.tanggal || new Date().toISOString().slice(0, 10);
+  const tanggal = item.tanggal || hariIniIso();
   const jumlahBelanja = (item.qty || 0) * (item.hargaSatuan || 0);
   state.kasUsaha.transactions.push({
     id: uid(),
@@ -9982,7 +9992,7 @@ function openBelanjaModal(existing) {
   document.getElementById("bm_qty").value = existing ? existing.qty : "";
   document.getElementById("bm_satuan").value = existing ? (existing.satuan || "") : "";
   document.getElementById("bm_harga").value = existing ? formatNumberInput(existing.hargaSatuan) : "";
-  document.getElementById("bm_tanggal").value = existing ? (existing.tanggal || "") : new Date().toISOString().slice(0, 10);
+  document.getElementById("bm_tanggal").value = existing ? (existing.tanggal || "") : hariIniIso();
   document.getElementById("bm_status").value = existing ? existing.status : "Rencana";
   const stokSelect = document.getElementById("bm_stokId");
   stokSelect.innerHTML = '<option value="">Tidak dikaitkan</option>' + state.stok.map(s => `<option value="${s.id}">${escapeHtml(s.nama)}</option>`).join("");
@@ -10151,7 +10161,7 @@ document.getElementById("pd_subkonTable").addEventListener("click", e => {
   if (!p) return;
   if (bayarBtn) {
     document.getElementById("skb_subkonId").value = bayarBtn.dataset.bayarSubkon;
-    document.getElementById("skb_tanggal").value = new Date().toISOString().slice(0, 10);
+    document.getElementById("skb_tanggal").value = hariIniIso();
     document.getElementById("skb_jumlah").value = "";
     document.getElementById("skb_catatan").value = "";
     subkonBayarModal.classList.add("open");
@@ -10228,7 +10238,7 @@ function openDokumenModal(existing) {
   document.getElementById("dokumenModalTitle").textContent = existing ? "Edit Dokumen" : "Tambah Dokumen";
   document.getElementById("dok_jenis").value = existing ? existing.jenis : "SPK";
   document.getElementById("dok_nomor").value = existing ? (existing.nomor || "") : "";
-  document.getElementById("dok_tanggalTerbit").value = existing ? (existing.tanggalTerbit || "") : new Date().toISOString().slice(0, 10);
+  document.getElementById("dok_tanggalTerbit").value = existing ? (existing.tanggalTerbit || "") : hariIniIso();
   document.getElementById("dok_garansiSampai").value = existing ? (existing.garansiSampai || "") : "";
   document.getElementById("dok_catatan").value = existing ? (existing.catatan || "") : "";
   dokumenModal.classList.add("open");
@@ -10386,7 +10396,7 @@ function buildKasPrintHtml(book) {
       </tr></thead>
       <tbody>${bodyRows}</tbody>
     </table>
-    <p style="font-size:11px; color:#777; margin-top:10px;">Dicetak ${formatTanggal(new Date().toISOString().slice(0, 10))} — ${rows.length} transaksi.</p>
+    <p style="font-size:11px; color:#777; margin-top:10px;">Dicetak ${formatTanggal(hariIniIso())} — ${rows.length} transaksi.</p>
   `;
 }
 document.getElementById("ku_printBtn").addEventListener("click", () => {
@@ -10469,7 +10479,7 @@ document.getElementById("backupHistoryTable").addEventListener("click", async e 
     const { data, error } = await sb.from("app_backups").select("data,created_at").eq("id", btn.dataset.downloadBackup).maybeSingle();
     if (error) throw error;
     if (!data) throw new Error("Backup tidak ditemukan.");
-    const tanggal = new Date(data.created_at).toISOString().slice(0, 10);
+    const tanggal = isoTanggalLokal(new Date(data.created_at));
     downloadFile(`backup-otomatis-${tanggal}.json`, JSON.stringify(data.data, null, 2), "application/json");
   } catch (err) {
     alert("Gagal mengunduh backup: " + err.message);
@@ -10571,7 +10581,7 @@ document.getElementById("akt_exportBtn").addEventListener("click", async () => {
         row.summary
       ].map(csvEscape).join(","));
     });
-    downloadFile(`aktivitas_tim_${new Date().toISOString().slice(0, 10)}.csv`, lines.join("\n"), "text/csv");
+    downloadFile(`aktivitas_tim_${hariIniIso()}.csv`, lines.join("\n"), "text/csv");
   } catch (err) {
     alert("Gagal export log aktivitas: " + err.message);
   }
@@ -11379,7 +11389,7 @@ function init() {
 
   const todayEl = document.getElementById("todayLabel");
   const now = new Date();
-  todayEl.textContent = formatTanggal(now.toISOString().slice(0, 10));
+  todayEl.textContent = formatTanggal(hariIniIso());
 
   const initialPage = (location.hash || "#dashboard").slice(1);
   showPage(document.getElementById(`page-${initialPage}`) ? initialPage : "dashboard");
