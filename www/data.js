@@ -1161,6 +1161,9 @@ SEED_DATA.klien = [];
 // ===== Pemasok =====
 SEED_DATA.pemasok = [];
 
+// ===== Laporan Kerja Lapangan =====
+SEED_DATA.laporanKerja = [];
+
 // ===== Gudang / Lokasi Stok =====
 SEED_DATA.gudang = [];
 

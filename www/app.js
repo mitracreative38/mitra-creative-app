@@ -71,6 +71,7 @@ function withDefaults(s) {
   if (!s.utangUsaha) s.utangUsaha = [];
   if (!s.kasOpname) s.kasOpname = [];
   if (!s.asetTetap) s.asetTetap = [];
+  if (!s.laporanKerja) s.laporanKerja = [];
   if (!s.gajiOwner) s.gajiOwner = {};
   if (!s.alokasiLaba) s.alokasiLaba = {};
   if (!s.anggaranBiaya) s.anggaranBiaya = {};
@@ -166,6 +167,15 @@ function stripSensitiveForBlob(data) {
     });
     return clean;
   });
+  // Laporan Kerja Lapangan: foto yang sudah terunggah ke Storage (punya
+  // path) tidak perlu ikut membawa thumbnail base64-nya di blob -- path
+  // cukup untuk restore, dan tanpa ini blob membengkak puluhan-ratusan KB
+  // per foto. Foto mode lokal (belum login, tanpa path) tetap dibawa utuh.
+  copy.laporanKerja = (copy.laporanKerja || []).map(l => Object.assign({}, l, {
+    titik: (l.titik || []).map(t => Object.assign({}, t, {
+      foto: (t.foto || []).map(f => f.path ? { path: f.path, waktu: f.waktu || "", koordinat: f.koordinat || "" } : f)
+    }))
+  }));
   return copy;
 }
 // ===== Lampiran foto/nota (bucket Storage "lampiran", fix32) =====
@@ -348,7 +358,7 @@ async function resolveTeamMembership(user) {
 const REALTIME_RELATIONAL_TABLES = [
   "company_profile", "klien", "ahsp", "rab", "penawaran", "proyek", "karyawan",
   "stok_material", "gudang", "pemasok", "alat", "stok_opname", "aset_sewa", "utang_usaha", "kas_opname", "aset_tetap",
-  "kas_usaha_transaksi", "kas_pribadi_transaksi", "karyawan_gaji", "kas_saldo_awal"
+  "laporan_kerja", "kas_usaha_transaksi", "kas_pribadi_transaksi", "karyawan_gaji", "kas_saldo_awal"
 ];
 let realtimeReloadTimer = null;
 function subscribeRealtime(companyId) {
@@ -421,6 +431,7 @@ const ACTIVITY_DIFF_FIELDS = {
   asetSewa: ["nama", "jenis", "lokasi", "hargaSewa", "satuanSewa", "aktif"],
   utangUsaha: ["pemasokNama", "keterangan", "jumlah", "jatuhTempo"],
   asetTetap: ["nama", "kategori", "tanggalBeli", "hargaBeli", "nilaiResidu", "umurTahun", "status"],
+  laporanKerja: ["judul", "jenis", "tanggal", "petugas", "catatan"],
   kasUsaha: ["jumlah", "tipe", "kategori", "keterangan", "tanggal", "status"],
   kasPribadi: ["jumlah", "tipe", "kategori", "keterangan", "tanggal", "status"],
   companyProfile: ["company", "alamat", "telepon", "approvalThreshold"]
@@ -429,13 +440,13 @@ const ACTIVITY_MODULE_LABELS = {
   klien: "Klien", ahsp: "AHSP", rab: "RAB", penawaran: "Penawaran",
   proyek: "Proyek", karyawan: "Karyawan", absensi: "Absensi", karyawanGaji: "Slip Gaji",
   stok: "Stok Material", gudang: "Gudang", pemasok: "Pemasok", asetSewa: "Sewa Aset", utangUsaha: "Utang Usaha", asetTetap: "Aset Tetap",
-  kasUsaha: "Kas Perusahaan", kasPribadi: "Kas Pribadi",
+  laporanKerja: "Laporan Kerja", kasUsaha: "Kas Perusahaan", kasPribadi: "Kas Pribadi",
   companyProfile: "Profil Perusahaan", system: "Sistem"
 };
 function activityEntityLabel(module, obj) {
   if (!obj) return "";
   if (module === "kasUsaha" || module === "kasPribadi") return obj.keterangan || rupiah(obj.jumlah || 0);
-  return obj.nama || obj.nomor || obj.uraian || obj.kode || "";
+  return obj.nama || obj.judul || obj.nomor || obj.uraian || obj.kode || "";
 }
 function activityFieldValue(f, obj) {
   if (!obj) return undefined;
@@ -1377,6 +1388,44 @@ async function mirrorAsetTetapDelete(id, deletedRecord) {
     setSyncStatus("Gagal menghapus Aset Tetap di tabel relasional: " + err.message);
   }
 }
+function laporanKerjaToRow(l) {
+  return {
+    id: l.id,
+    company_id: targetCompanyId,
+    tanggal: l.tanggal || null,
+    jenis: l.jenis || "",
+    judul: l.judul || "",
+    klien_id: l.klienId || null,
+    proyek_id: l.proyekId || null,
+    karyawan_id: l.karyawanId || null,
+    petugas: l.petugas || "",
+    catatan: l.catatan || "",
+    titik: l.titik || [],
+    dibuat_oleh: l.dibuatOleh || "",
+    dibuat_tanggal: l.dibuatTanggal || null,
+    updated_at: new Date().toISOString()
+  };
+}
+async function mirrorLaporanKerjaUpsert(l, existing) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("laporan_kerja").upsert(laporanKerjaToRow(l));
+    if (error) throw error;
+    if (existing !== undefined) logActivityNow("laporanKerja", existing ? "update" : "create", l.id, existing, l);
+  } catch (err) {
+    setSyncStatus("Gagal menyimpan Laporan Kerja ke tabel relasional: " + err.message);
+  }
+}
+async function mirrorLaporanKerjaDelete(id, deletedRecord) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("laporan_kerja").delete().eq("id", id).eq("company_id", targetCompanyId);
+    if (error) throw error;
+    if (deletedRecord) logActivityNow("laporanKerja", "delete", id, deletedRecord, null);
+  } catch (err) {
+    setSyncStatus("Gagal menghapus Laporan Kerja di tabel relasional: " + err.message);
+  }
+}
 async function migratePemasokIfNeeded() {
   if (!sb || !targetCompanyId) return;
   try {
@@ -1735,6 +1784,15 @@ function rowToAsetTetap(r) {
     nilaiLepas: r.nilai_lepas || 0, catatan: r.catatan || ""
   };
 }
+function rowToLaporanKerja(r) {
+  return {
+    id: r.id, tanggal: r.tanggal || "", jenis: r.jenis || "", judul: r.judul || "",
+    klienId: r.klien_id || "", proyekId: r.proyek_id || "", karyawanId: r.karyawan_id || "",
+    petugas: r.petugas || "", catatan: r.catatan || "",
+    titik: Array.isArray(r.titik) ? r.titik : [],
+    dibuatOleh: r.dibuat_oleh || "", dibuatTanggal: r.dibuat_tanggal || ""
+  };
+}
 async function buildStateFromRelational(companyId) {
   // company_profile diambil terpisah dengan try/catch sendiri -- ini
   // tabel yang PALING BARU (Fase 0.4), jadi selama jeda deploy sudah
@@ -1750,9 +1808,9 @@ async function buildStateFromRelational(companyId) {
 
   let klienRows = [], ahspRows = [], rabRows = [], penawaranRows = [], proyekRows = [],
     karyawanRows = [], stokRows = [], gudangRows = [], pemasokRows = [], alatRows = [], opnameRows = [], asetSewaRows = [],
-    utangRows = [], kasOpnameRows = [], asetTetapRows = [];
+    utangRows = [], kasOpnameRows = [], asetTetapRows = [], laporanKerjaRows = [];
   try {
-    const [klienRes, ahspRes, rabRes, penawaranRes, proyekRes, karyawanRes, stokRes, gudangRes, pemasokRes, alatRes, opnameRes, asetSewaRes, utangRes, kasOpnameRes, asetTetapRes] = await Promise.all([
+    const [klienRes, ahspRes, rabRes, penawaranRes, proyekRes, karyawanRes, stokRes, gudangRes, pemasokRes, alatRes, opnameRes, asetSewaRes, utangRes, kasOpnameRes, asetTetapRes, laporanKerjaRes] = await Promise.all([
       sb.from("klien").select("*").eq("company_id", companyId),
       sb.from("ahsp").select("*").eq("company_id", companyId),
       sb.from("rab").select("*").eq("company_id", companyId),
@@ -1767,7 +1825,8 @@ async function buildStateFromRelational(companyId) {
       sb.from("aset_sewa").select("*").eq("company_id", companyId),
       sb.from("utang_usaha").select("*").eq("company_id", companyId),
       sb.from("kas_opname").select("*").eq("company_id", companyId).order("tanggal", { ascending: false }),
-      sb.from("aset_tetap").select("*").eq("company_id", companyId)
+      sb.from("aset_tetap").select("*").eq("company_id", companyId),
+      sb.from("laporan_kerja").select("*").eq("company_id", companyId).order("tanggal", { ascending: false })
     ]);
     klienRows = klienRes.error ? [] : (klienRes.data || []);
     ahspRows = ahspRes.error ? [] : (ahspRes.data || []);
@@ -1786,6 +1845,9 @@ async function buildStateFromRelational(companyId) {
     utangRows = utangRes.error ? [] : (utangRes.data || []);
     kasOpnameRows = kasOpnameRes.error ? [] : (kasOpnameRes.data || []);
     asetTetapRows = asetTetapRes.error ? [] : (asetTetapRes.data || []);
+    // laporan_kerja tabel paling baru (fix46): selama jeda SQL belum
+    // dijalankan Owner, error "relation does not exist" = kosong sementara.
+    laporanKerjaRows = laporanKerjaRes.error ? [] : (laporanKerjaRes.data || []);
   } catch (e) { /* biarkan semua kosong -- jaring pengaman di bawah akan pakai blob */ }
 
   let built = {
@@ -1826,6 +1888,7 @@ async function buildStateFromRelational(companyId) {
     utangUsaha: utangRows.map(rowToUtangUsaha),
     kasOpname: kasOpnameRows.map(rowToKasOpname),
     asetTetap: asetTetapRows.map(rowToAsetTetap),
+    laporanKerja: laporanKerjaRows.map(rowToLaporanKerja),
     kasUsaha: { transactions: [], saldoAwal: 0 },
     kasPribadi: { transactions: [], saldoAwal: 0 }
   };
@@ -11857,6 +11920,7 @@ function renderAll() {
   document.getElementById("kl_listView").style.display = currentKlienId ? "none" : "block";
   document.getElementById("kl_detailView").style.display = currentKlienId ? "block" : "none";
   if (currentKlienId) renderKlienDetail(); else renderKlienList();
+  renderLaporanKerja();
   document.getElementById("pr_listView").style.display = currentProyekId ? "none" : "block";
   document.getElementById("pr_detailView").style.display = currentProyekId ? "block" : "none";
   if (currentProyekId) renderProyekDetail(); else renderProyekList();
@@ -11935,7 +11999,7 @@ function renderAll() {
 // hanya halaman yang terdaftar di sini yang boleh diakses.
 const ROLE_PAGE_ACCESS = {
   owner: null,
-  admin: ["dashboard", "kalender", "sop", "klien", "kasUsaha", "laporan", "kpi", "proyek", "qc", "sewaAset", "asetTetap", "karyawan", "lokasi", "stok", "pemasok", "ahsp", "rab", "penawaran", "pengaturan"],
+  admin: ["dashboard", "kalender", "sop", "klien", "kasUsaha", "laporan", "kpi", "proyek", "laporanKerja", "qc", "sewaAset", "asetTetap", "karyawan", "lokasi", "stok", "pemasok", "ahsp", "rab", "penawaran", "pengaturan"],
   marketing: ["sop", "klien", "ahsp", "rab", "penawaran", "pengaturan"]
 };
 
@@ -13730,6 +13794,497 @@ document.querySelector("#lok_table").addEventListener("click", async e => {
     } catch (err) {
       alert("Gagal mencabut perangkat: " + err.message);
     }
+  }
+});
+
+// ===== Laporan Kerja Lapangan (bukti kerja berfoto untuk klien) =====
+// Menggantikan alur lama "kirim foto + jumlah lewat grup WA": setiap
+// pemasangan/pekerjaan lapangan dicatat per titik lokasi (jumlah, waktu,
+// foto berwatermark waktu+GPS), lalu bisa dicetak jadi Bukti Laporan
+// Pelaksanaan Pekerjaan resmi berkop untuk klien. Pekerja lapangan
+// mengirim langsung dari HP mereka lewat Mode Pekerja (tanpa login),
+// Owner/Admin tinggal merapikan (tautkan Klien/Proyek) dan mencetak.
+const JENIS_LAPORAN_KERJA = ["Pemasangan Poster/Pamflet", "Pemasangan Spanduk/Banner", "Pemasangan Reklame/Signage", "Pemasangan/Instalasi", "Survey Lokasi", "Perbaikan/Servis", "Pengiriman", "Lainnya"];
+let currentLaporanKerjaId = null;
+
+function bacaFileSebagaiDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(new Error("Gagal membaca file foto."));
+    r.readAsDataURL(file);
+  });
+}
+function muatImageDariDataUrl(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("File bukan gambar yang valid."));
+    img.src = dataUrl;
+  });
+}
+// Watermark dibakar langsung ke pikselnya (bukan overlay CSS) supaya foto
+// tetap membawa bukti waktu+lokasi ke mana pun dia disalin -- sama seperti
+// aplikasi timestamp-camera yang selama ini dipakai tim lapangan di WA.
+function gambarFotoBerwatermark(img, maxW, quality, barisAtas, barisBawah) {
+  const scale = Math.min(1, maxW / img.width);
+  const w = Math.max(1, Math.round(img.width * scale));
+  const h = Math.max(1, Math.round(img.height * scale));
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  const ctx = c.getContext("2d");
+  ctx.drawImage(img, 0, 0, w, h);
+  const fs = Math.max(9, Math.round(w * 0.028));
+  const pad = Math.round(fs * 0.5);
+  const barH = fs * 2 + pad * 3;
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  ctx.fillRect(0, h - barH, w, barH);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = `bold ${fs}px Arial, sans-serif`;
+  ctx.fillText(barisAtas, pad, h - barH + pad + fs, w - pad * 2);
+  ctx.font = `${fs}px Arial, sans-serif`;
+  ctx.fillText(barisBawah, pad, h - barH + pad * 2 + fs * 2, w - pad * 2);
+  return c.toDataURL("image/jpeg", quality);
+}
+function koordinatSaatIni() {
+  return new Promise(resolve => {
+    if (!navigator.geolocation) { resolve(""); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve(`${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)}`),
+      () => resolve(""),
+      { enableHighAccuracy: true, timeout: 6000, maximumAge: 120000 }
+    );
+  });
+}
+// Hasil: { full, thumb, waktu, koordinat } -- full utk arsip Storage
+// (kalau login cloud), thumb kecil utk tampilan daftar + cetak.
+async function prosesFotoLaporan(file, lokasi, koordinat) {
+  const dataUrl = await bacaFileSebagaiDataUrl(file);
+  const img = await muatImageDariDataUrl(dataUrl);
+  const waktu = new Date();
+  const waktuText = waktu.toLocaleString("id-ID", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  const barisAtas = `${state.company || "CV Mitra Creative"} • ${waktuText}`;
+  const barisBawah = `${lokasi || "-"}${koordinat ? ` • GPS ${koordinat}` : ""}`;
+  return {
+    full: gambarFotoBerwatermark(img, 1000, 0.75, barisAtas, barisBawah),
+    thumb: gambarFotoBerwatermark(img, 380, 0.65, barisAtas, barisBawah),
+    waktu: waktu.toISOString(),
+    koordinat: koordinat || ""
+  };
+}
+function dataUrlKeBlob(dataUrl) {
+  const [head, body] = dataUrl.split(",");
+  const mime = (head.match(/data:(.*?);/) || [])[1] || "image/jpeg";
+  const bin = atob(body);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+}
+// Simpan foto hasil prosesFotoLaporan jadi entri foto titik: kalau login
+// cloud, versi full diarsipkan ke bucket "lampiran" (path per laporan) dan
+// hanya path + thumb yang disimpan di data; mode lokal simpan thumb saja.
+async function simpanFotoLaporan(laporanId, f) {
+  const entri = { thumb: f.thumb, path: "", waktu: f.waktu, koordinat: f.koordinat };
+  if (sb && targetCompanyId) {
+    try {
+      const path = `${targetCompanyId}/laporan/${laporanId}/${Date.now()}_${Math.random().toString(36).slice(2, 7)}.jpg`;
+      const { error } = await sb.storage.from("lampiran").upload(path, dataUrlKeBlob(f.full), { contentType: "image/jpeg" });
+      if (!error) entri.path = path;
+    } catch (e) { /* gagal unggah -- thumb tetap jadi bukti */ }
+  }
+  return entri;
+}
+
+function laporanKerjaQtyText(l) {
+  const perSatuan = {};
+  (l.titik || []).forEach(t => {
+    const s = t.satuan || "pcs";
+    perSatuan[s] = (perSatuan[s] || 0) + (parseFloat(t.qty) || 0);
+  });
+  return Object.entries(perSatuan).map(([s, q]) => `${q} ${s}`).join(" + ") || "0";
+}
+function laporanKerjaFotoCount(l) {
+  return (l.titik || []).reduce((n, t) => n + ((t.foto || []).length), 0);
+}
+function laporanKerjaKlienNama(l) {
+  const k = state.klien.find(x => x.id === l.klienId);
+  return k ? k.nama : "";
+}
+function laporanKerjaProyekNama(l) {
+  const p = state.proyek.find(x => x.id === l.proyekId);
+  return p ? p.nama : "";
+}
+function laporanKerjaFiltered() {
+  const jenis = document.getElementById("lkr_filterJenis").value;
+  const klienId = document.getElementById("lkr_filterKlien").value;
+  const mulai = document.getElementById("lkr_filterMulai").value;
+  const selesai = document.getElementById("lkr_filterSelesai").value;
+  const q = document.getElementById("lkr_search").value.trim().toLowerCase();
+  return state.laporanKerja
+    .filter(l => (!jenis || l.jenis === jenis)
+      && (!klienId || l.klienId === klienId)
+      && (!mulai || (l.tanggal || "") >= mulai)
+      && (!selesai || (l.tanggal || "") <= selesai)
+      && (!q || `${l.judul} ${l.petugas} ${laporanKerjaKlienNama(l)} ${(l.titik || []).map(t => t.lokasi).join(" ")}`.toLowerCase().includes(q)))
+    .slice()
+    .sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
+}
+function isiFilterKlienLaporan() {
+  const sel = document.getElementById("lkr_filterJenis");
+  if (sel.options.length === 0) {
+    sel.innerHTML = '<option value="">Semua jenis</option>' + JENIS_LAPORAN_KERJA.map(j => `<option value="${escapeHtml(j)}">${escapeHtml(j)}</option>`).join("");
+  }
+  const kl = document.getElementById("lkr_filterKlien");
+  const dipilih = kl.value;
+  kl.innerHTML = '<option value="">Semua klien</option>' + state.klien.map(k => `<option value="${k.id}">${escapeHtml(k.nama)}</option>`).join("");
+  kl.value = dipilih;
+}
+function renderLaporanKerjaList() {
+  isiFilterKlienLaporan();
+  const rows = laporanKerjaFiltered();
+  document.getElementById("lkr_statLaporan").textContent = rows.length;
+  document.getElementById("lkr_statTitik").textContent = rows.reduce((n, l) => n + (l.titik || []).length, 0);
+  document.getElementById("lkr_statFoto").textContent = rows.reduce((n, l) => n + laporanKerjaFotoCount(l), 0);
+  const tbody = document.querySelector("#lkr_table tbody");
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="muted" style="text-align:center;">Belum ada laporan kerja. Klik "+ Laporan Baru", atau minta pekerja mengirim lewat Mode Pekerja di HP mereka.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(l => `
+    <tr data-open-laporan="${l.id}" style="cursor:pointer;">
+      <td>${formatTanggal(l.tanggal)}</td>
+      <td><strong>${escapeHtml(l.judul || "(tanpa judul)")}</strong></td>
+      <td>${escapeHtml(l.jenis || "-")}</td>
+      <td>${escapeHtml(laporanKerjaKlienNama(l) || "-")}</td>
+      <td class="num">${(l.titik || []).length} titik</td>
+      <td class="num">${escapeHtml(laporanKerjaQtyText(l))}</td>
+      <td class="num">${laporanKerjaFotoCount(l)} 📷</td>
+      <td>${escapeHtml(l.petugas || "-")}</td>
+    </tr>
+  `).join("");
+}
+function renderLaporanKerjaDetail() {
+  const l = state.laporanKerja.find(x => x.id === currentLaporanKerjaId);
+  if (!l) { currentLaporanKerjaId = null; renderLaporanKerja(); return; }
+  document.getElementById("lkr_detailJudul").textContent = l.judul || "(tanpa judul)";
+  const klienNama = laporanKerjaKlienNama(l);
+  const proyekNama = laporanKerjaProyekNama(l);
+  document.getElementById("lkr_infoPanel").innerHTML = `
+    <div class="form-grid">
+      <div class="field"><label>Tanggal</label><div>${formatTanggal(l.tanggal)}</div></div>
+      <div class="field"><label>Jenis Pekerjaan</label><div>${escapeHtml(l.jenis || "-")}</div></div>
+      <div class="field"><label>Klien</label><div>${escapeHtml(klienNama || "-")}${!klienNama ? ' <span class="muted" style="font-size:11px;">(tautkan lewat ✏️ Edit supaya masuk bukti klien)</span>' : ""}</div></div>
+      <div class="field"><label>Proyek Terkait</label><div>${escapeHtml(proyekNama || "-")}</div></div>
+      <div class="field"><label>Petugas Lapangan</label><div>${escapeHtml(l.petugas || "-")}</div></div>
+      <div class="field"><label>Total</label><div><strong>${escapeHtml(laporanKerjaQtyText(l))}</strong> di ${(l.titik || []).length} titik, ${laporanKerjaFotoCount(l)} foto</div></div>
+      ${l.catatan ? `<div class="field full"><label>Catatan</label><div>${escapeHtml(l.catatan)}</div></div>` : ""}
+    </div>`;
+  const tbody = document.querySelector("#lkr_titikTable tbody");
+  if (!(l.titik || []).length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="muted" style="text-align:center;">Belum ada titik. Klik "+ Tambah Titik & Foto".</td></tr>';
+  } else {
+    tbody.innerHTML = l.titik.map(t => `
+      <tr>
+        <td><strong>${escapeHtml(t.lokasi || "-")}</strong>${t.catatan ? `<br><span class="muted" style="font-size:12px;">${escapeHtml(t.catatan)}</span>` : ""}</td>
+        <td class="num">${t.qty || 0} ${escapeHtml(t.satuan || "pcs")}</td>
+        <td>${t.waktu ? new Date(t.waktu).toLocaleString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "-"}</td>
+        <td>
+          <div style="display:flex; gap:6px; flex-wrap:wrap;">
+            ${(t.foto || []).map((f, i) => `<img src="${f.thumb || ""}" alt="foto" data-lihat-foto="${t.id}:${i}" style="width:72px;height:54px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid var(--border);">`).join("") || '<span class="muted" style="font-size:12px;">tanpa foto</span>'}
+          </div>
+        </td>
+        <td class="num">${(t.foto || []).length}</td>
+        <td><button class="icon-btn" data-delete-titik="${t.id}" title="Hapus titik">🗑️</button></td>
+      </tr>
+    `).join("");
+  }
+}
+function renderLaporanKerja() {
+  if (!document.getElementById("page-laporanKerja")) return;
+  document.getElementById("lkr_listView").style.display = currentLaporanKerjaId ? "none" : "block";
+  document.getElementById("lkr_detailView").style.display = currentLaporanKerjaId ? "block" : "none";
+  if (currentLaporanKerjaId) renderLaporanKerjaDetail(); else renderLaporanKerjaList();
+}
+
+// --- Modal buat/edit laporan ---
+function openLaporanKerjaModal(l) {
+  document.getElementById("laporanKerjaModalTitle").textContent = l ? "Edit Laporan Kerja" : "Laporan Kerja Baru";
+  document.getElementById("lkr_id").value = l ? l.id : "";
+  document.getElementById("lkr_tanggal").value = (l && l.tanggal) || hariIniIso();
+  const jenisSel = document.getElementById("lkr_jenis");
+  if (jenisSel.options.length === 0) jenisSel.innerHTML = JENIS_LAPORAN_KERJA.map(j => `<option value="${escapeHtml(j)}">${escapeHtml(j)}</option>`).join("");
+  jenisSel.value = (l && l.jenis) || JENIS_LAPORAN_KERJA[0];
+  document.getElementById("lkr_judul").value = (l && l.judul) || "";
+  const klSel = document.getElementById("lkr_klienId");
+  klSel.innerHTML = '<option value="">— tidak terkait klien —</option>' + state.klien.map(k => `<option value="${k.id}">${escapeHtml(k.nama)}</option>`).join("");
+  klSel.value = (l && l.klienId) || "";
+  const prSel = document.getElementById("lkr_proyekId");
+  prSel.innerHTML = '<option value="">— tidak terkait proyek —</option>' + state.proyek.map(p => `<option value="${p.id}">${escapeHtml(p.nama)}</option>`).join("");
+  prSel.value = (l && l.proyekId) || "";
+  document.getElementById("lkr_petugas").value = (l && l.petugas) || petugasSaatIni();
+  document.getElementById("lkr_catatan").value = (l && l.catatan) || "";
+  document.getElementById("laporanKerjaModal").classList.add("open");
+}
+document.getElementById("lkr_addBtn").addEventListener("click", () => openLaporanKerjaModal(null));
+document.getElementById("lkr_editBtn").addEventListener("click", () => {
+  const l = state.laporanKerja.find(x => x.id === currentLaporanKerjaId);
+  if (l) openLaporanKerjaModal(l);
+});
+document.getElementById("laporanKerjaForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const id = document.getElementById("lkr_id").value;
+  const existing = id ? state.laporanKerja.find(x => x.id === id) : null;
+  const sebelum = existing ? JSON.parse(JSON.stringify(existing)) : null;
+  const l = existing || { id: uid(), titik: [], dibuatOleh: petugasSaatIni(), dibuatTanggal: hariIniIso() };
+  l.tanggal = document.getElementById("lkr_tanggal").value || hariIniIso();
+  l.jenis = document.getElementById("lkr_jenis").value;
+  l.judul = document.getElementById("lkr_judul").value.trim();
+  l.klienId = document.getElementById("lkr_klienId").value;
+  l.proyekId = document.getElementById("lkr_proyekId").value;
+  l.petugas = document.getElementById("lkr_petugas").value.trim();
+  l.catatan = document.getElementById("lkr_catatan").value.trim();
+  if (!l.judul) { alert("Judul laporan wajib diisi, cth. \"Pemasangan Pamflet NSS Demak\"."); return; }
+  if (!existing) {
+    state.laporanKerja.push(l);
+    currentLaporanKerjaId = l.id;
+  }
+  saveState();
+  mirrorLaporanKerjaUpsert(l, sebelum);
+  closeModals();
+  renderAll();
+});
+document.getElementById("lkr_backBtn").addEventListener("click", () => { currentLaporanKerjaId = null; renderLaporanKerja(); });
+document.querySelector("#lkr_table tbody").addEventListener("click", e => {
+  const row = e.target.closest("[data-open-laporan]");
+  if (row) { currentLaporanKerjaId = row.dataset.openLaporan; renderLaporanKerja(); }
+});
+document.getElementById("lkr_deleteBtn").addEventListener("click", () => {
+  const l = state.laporanKerja.find(x => x.id === currentLaporanKerjaId);
+  if (!l) return;
+  if (!confirm(`Hapus laporan "${l.judul}" beserta ${laporanKerjaFotoCount(l)} foto buktinya? Tindakan ini tidak bisa dibatalkan.`)) return;
+  state.laporanKerja = state.laporanKerja.filter(x => x.id !== l.id);
+  currentLaporanKerjaId = null;
+  saveState();
+  mirrorLaporanKerjaDelete(l.id, l);
+  renderAll();
+});
+["lkr_filterJenis", "lkr_filterKlien", "lkr_filterMulai", "lkr_filterSelesai"].forEach(id => {
+  document.getElementById(id).addEventListener("change", renderLaporanKerjaList);
+});
+document.getElementById("lkr_search").addEventListener("input", renderLaporanKerjaList);
+
+// --- Modal tambah titik + foto ---
+document.getElementById("lkr_addTitikBtn").addEventListener("click", () => {
+  document.getElementById("tk_lokasi").value = "";
+  document.getElementById("tk_qty").value = "";
+  document.getElementById("tk_satuan").value = "pcs";
+  document.getElementById("tk_catatan").value = "";
+  document.getElementById("tk_foto").value = "";
+  document.getElementById("tk_fotoInfo").textContent = "";
+  document.getElementById("titikLaporanModal").classList.add("open");
+});
+document.getElementById("tk_foto").addEventListener("change", () => {
+  const n = document.getElementById("tk_foto").files.length;
+  document.getElementById("tk_fotoInfo").textContent = n ? `${n} foto dipilih — watermark waktu + lokasi + GPS otomatis dibubuhkan.` : "";
+});
+document.getElementById("titikLaporanForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const l = state.laporanKerja.find(x => x.id === currentLaporanKerjaId);
+  if (!l) return;
+  const lokasi = document.getElementById("tk_lokasi").value.trim();
+  const qty = parseFloat(document.getElementById("tk_qty").value);
+  if (!lokasi) { alert("Lokasi/titik wajib diisi, cth. \"Jalan Raya Demak - Kudus\"."); return; }
+  if (!qty || qty <= 0) { alert("Jumlah harus lebih dari 0."); return; }
+  const files = Array.from(document.getElementById("tk_foto").files || []);
+  if (files.length > 20) { alert("Maksimal 20 foto per titik. Pecah jadi beberapa titik kalau lebih."); return; }
+  const btn = document.getElementById("tk_submitBtn");
+  btn.disabled = true;
+  btn.textContent = files.length ? `Memproses ${files.length} foto...` : "Menyimpan...";
+  try {
+    const sebelum = JSON.parse(JSON.stringify(l));
+    const koordinat = files.length ? await koordinatSaatIni() : "";
+    const foto = [];
+    for (const file of files) {
+      const hasil = await prosesFotoLaporan(file, lokasi, koordinat);
+      foto.push(await simpanFotoLaporan(l.id, hasil));
+    }
+    l.titik.push({
+      id: uid(), lokasi, qty,
+      satuan: document.getElementById("tk_satuan").value.trim() || "pcs",
+      catatan: document.getElementById("tk_catatan").value.trim(),
+      waktu: new Date().toISOString(),
+      foto
+    });
+    saveState();
+    mirrorLaporanKerjaUpsert(l, sebelum);
+    closeModals();
+    renderAll();
+  } catch (err) {
+    alert("Gagal memproses foto: " + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Simpan Titik";
+  }
+});
+document.getElementById("lkr_titikTable").addEventListener("click", e => {
+  const img = e.target.closest("[data-lihat-foto]");
+  if (img) {
+    const [titikId, idx] = img.dataset.lihatFoto.split(":");
+    const l = state.laporanKerja.find(x => x.id === currentLaporanKerjaId);
+    const t = l && l.titik.find(x => x.id === titikId);
+    const f = t && (t.foto || [])[parseInt(idx, 10)];
+    if (!f) return;
+    if (f.path && sb) { openLampiran(f.path); return; }
+    document.getElementById("lkFoto_img").src = f.thumb || "";
+    document.getElementById("lkFoto_ket").textContent = `${t.lokasi || ""}${f.waktu ? " • " + new Date(f.waktu).toLocaleString("id-ID") : ""}${f.koordinat ? " • GPS " + f.koordinat : ""}`;
+    document.getElementById("lkFotoModal").classList.add("open");
+    return;
+  }
+  const del = e.target.closest("[data-delete-titik]");
+  if (del) {
+    const l = state.laporanKerja.find(x => x.id === currentLaporanKerjaId);
+    if (!l) return;
+    const t = l.titik.find(x => x.id === del.dataset.deleteTitik);
+    if (!t) return;
+    if (!confirm(`Hapus titik "${t.lokasi}" (${t.qty} ${t.satuan || "pcs"}, ${(t.foto || []).length} foto)?`)) return;
+    const sebelum = JSON.parse(JSON.stringify(l));
+    l.titik = l.titik.filter(x => x.id !== t.id);
+    saveState();
+    mirrorLaporanKerjaUpsert(l, sebelum);
+    renderAll();
+  }
+});
+
+// --- Cetak Bukti Laporan Pelaksanaan Pekerjaan (per laporan / rekap filter) ---
+function buildLaporanKerjaPrintHtml(laporanList, judulDok) {
+  const totalSemua = {};
+  laporanList.forEach(l => (l.titik || []).forEach(t => {
+    const s = t.satuan || "pcs";
+    totalSemua[s] = (totalSemua[s] || 0) + (parseFloat(t.qty) || 0);
+  }));
+  const totalText = Object.entries(totalSemua).map(([s, q]) => `${q} ${s}`).join(" + ") || "0";
+  const klienUtama = laporanList.length === 1 ? laporanKerjaKlienNama(laporanList[0]) : [...new Set(laporanList.map(laporanKerjaKlienNama).filter(Boolean))].join(", ");
+  const bagianLaporan = laporanList.map(l => `
+    <h4 style="margin:14px 0 6px;">${escapeHtml(l.judul || "(tanpa judul)")} — ${formatTanggal(l.tanggal)}${l.petugas ? ` <span style="font-weight:normal;">(petugas: ${escapeHtml(l.petugas)})</span>` : ""}</h4>
+    <table class="doc-items">
+      <thead><tr><th style="width:28px;">No</th><th>Titik / Lokasi</th><th class="r">Jumlah</th><th>Waktu</th><th class="r">Foto</th></tr></thead>
+      <tbody>
+        ${(l.titik || []).map((t, i) => `
+          <tr>
+            <td class="c">${i + 1}</td>
+            <td>${escapeHtml(t.lokasi || "-")}${t.catatan ? `<br><span style="font-size:10px;">${escapeHtml(t.catatan)}</span>` : ""}</td>
+            <td class="r">${t.qty || 0} ${escapeHtml(t.satuan || "pcs")}</td>
+            <td>${t.waktu ? new Date(t.waktu).toLocaleString("id-ID", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "-"}</td>
+            <td class="r">${(t.foto || []).length}</td>
+          </tr>`).join("") || '<tr><td colspan="5" class="c">Tidak ada titik</td></tr>'}
+      </tbody>
+    </table>
+    ${(l.titik || []).filter(t => (t.foto || []).length).map(t => `
+      <div style="margin:8px 0 4px; page-break-inside:avoid;">
+        <div style="font-size:11px; font-weight:bold; margin-bottom:4px;">📍 ${escapeHtml(t.lokasi || "-")} — ${t.qty || 0} ${escapeHtml(t.satuan || "pcs")}</div>
+        <div style="display:flex; flex-wrap:wrap; gap:6px;">
+          ${(t.foto || []).map(f => `
+            <figure style="margin:0; width:31%;">
+              <img src="${f.thumb || ""}" style="width:100%; border:1px solid #999; border-radius:4px;">
+              <figcaption style="font-size:8.5px; color:#444;">${f.waktu ? new Date(f.waktu).toLocaleString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}${f.koordinat ? ` • ${escapeHtml(f.koordinat)}` : ""}</figcaption>
+            </figure>`).join("")}
+        </div>
+      </div>`).join("")}
+  `).join("");
+  return `
+    <div class="letterhead">
+      <div class="letterhead-logo">${LOGO_SVG}</div>
+      <div class="letterhead-text">
+        <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+      </div>
+    </div>
+    <div class="letterhead-rule"></div>
+    <h3 style="text-align:center; margin:6px 0 2px; letter-spacing:.5px;">BUKTI LAPORAN PELAKSANAAN PEKERJAAN</h3>
+    <p style="text-align:center; margin:0 0 12px; font-size:12px;">${escapeHtml(judulDok)}${klienUtama ? ` — Klien: ${escapeHtml(klienUtama)}` : ""}</p>
+    ${bagianLaporan}
+    <table class="doc-summary-table" style="margin-top:10px;">
+      <tr><td><strong>TOTAL KESELURUHAN</strong></td><td class="r"><strong>${escapeHtml(totalText)}</strong> (${laporanList.reduce((n, l) => n + (l.titik || []).length, 0)} titik, ${laporanList.reduce((n, l) => n + laporanKerjaFotoCount(l), 0)} foto bukti)</td></tr>
+    </table>
+    <p style="margin:14px 0 4px; font-size:12px;">Demikian laporan ini dibuat dengan sebenar-benarnya, dilengkapi foto berketerangan waktu &amp; titik lokasi, sebagai bukti bahwa pekerjaan tersebut telah selesai dilaksanakan.</p>
+    <table style="width:100%; margin-top:28px; font-size:12px; text-align:center;">
+      <tr>
+        <td style="width:50%;">Dilaksanakan oleh,<br><br><br><br><strong>${escapeHtml(laporanList.length === 1 ? (laporanList[0].petugas || state.ownerNama || "") : (state.ownerNama || ""))}</strong><br>${escapeHtml(state.company || "CV Mitra Creative")}</td>
+        <td style="width:50%;">Diterima / diketahui,<br><br><br><br><strong>(______________________)</strong><br>${escapeHtml(klienUtama || "Klien")}</td>
+      </tr>
+    </table>`;
+}
+document.getElementById("lkr_printBtn").addEventListener("click", () => {
+  const l = state.laporanKerja.find(x => x.id === currentLaporanKerjaId);
+  if (!l) return;
+  document.getElementById("printArea").innerHTML = buildLaporanKerjaPrintHtml([l], `${l.jenis || "Pekerjaan Lapangan"} — ${formatTanggal(l.tanggal)}`);
+  cetakPrintArea();
+});
+document.getElementById("lkr_cetakRekapBtn").addEventListener("click", () => {
+  const rows = laporanKerjaFiltered();
+  if (!rows.length) { alert("Tidak ada laporan pada filter saat ini."); return; }
+  const mulai = document.getElementById("lkr_filterMulai").value;
+  const selesai = document.getElementById("lkr_filterSelesai").value;
+  const periode = mulai || selesai ? `Periode ${mulai ? formatTanggal(mulai) : "..."} s/d ${selesai ? formatTanggal(selesai) : "..."}` : "Rekap Seluruh Laporan";
+  document.getElementById("printArea").innerHTML = buildLaporanKerjaPrintHtml(rows, periode);
+  cetakPrintArea();
+});
+
+// --- Mode Pekerja: kirim laporan langsung dari HP pekerja (tanpa login) ---
+async function pekerjaSubmitLaporCore(payload) {
+  const device = getPekerjaDevice();
+  if (!device) throw new Error("Perangkat belum dipasangkan.");
+  const res = await fetch(`${PDF_SERVER_URL}/api/pekerja/lapor`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(Object.assign({ deviceToken: device.deviceToken }, payload))
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Gagal mengirim laporan.");
+  return data;
+}
+document.getElementById("pl_foto").addEventListener("change", () => {
+  const n = document.getElementById("pl_foto").files.length;
+  document.getElementById("pl_fotoInfo").textContent = n ? `${n} foto dipilih.` : "";
+});
+document.getElementById("pl_submitBtn").addEventListener("click", async () => {
+  const statusEl = document.getElementById("pl_status");
+  const lokasi = document.getElementById("pl_lokasi").value.trim();
+  const qty = parseFloat(document.getElementById("pl_qty").value);
+  const files = Array.from(document.getElementById("pl_foto").files || []);
+  if (!lokasi) { statusEl.textContent = "⚠️ Lokasi wajib diisi."; return; }
+  if (!qty || qty <= 0) { statusEl.textContent = "⚠️ Jumlah harus lebih dari 0."; return; }
+  if (!files.length) { statusEl.textContent = "⚠️ Minimal 1 foto bukti."; return; }
+  if (files.length > 12) { statusEl.textContent = "⚠️ Maksimal 12 foto sekali kirim — kirim bertahap."; return; }
+  const btn = document.getElementById("pl_submitBtn");
+  btn.disabled = true;
+  statusEl.textContent = `Memproses ${files.length} foto...`;
+  try {
+    const koordinat = await koordinatSaatIni();
+    const fotos = [];
+    for (const file of files) {
+      const hasil = await prosesFotoLaporan(file, lokasi, koordinat);
+      fotos.push({ full: hasil.full, thumb: hasil.thumb, waktu: hasil.waktu, koordinat: hasil.koordinat });
+    }
+    statusEl.textContent = "Mengirim ke kantor...";
+    await pekerjaSubmitLaporCore({
+      jenis: document.getElementById("pl_jenis").value,
+      lokasi, qty,
+      satuan: document.getElementById("pl_satuan").value.trim() || "pcs",
+      catatan: document.getElementById("pl_catatan").value.trim(),
+      koordinat, fotos
+    });
+    statusEl.textContent = `✅ Laporan "${lokasi} — ${qty} ${document.getElementById("pl_satuan").value || "pcs"}" terkirim.`;
+    document.getElementById("pl_lokasi").value = "";
+    document.getElementById("pl_qty").value = "";
+    document.getElementById("pl_catatan").value = "";
+    document.getElementById("pl_foto").value = "";
+    document.getElementById("pl_fotoInfo").textContent = "";
+  } catch (err) {
+    statusEl.textContent = "⚠️ " + err.message;
+  } finally {
+    btn.disabled = false;
   }
 });
 

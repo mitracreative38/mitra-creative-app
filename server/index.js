@@ -7,7 +7,7 @@ const { getBrowser } = require("./lib/browser");
 const { checkAndRunBackups } = require("./lib/backup");
 const { checkAndSendReminders, REMINDER_CHECK_INTERVAL_MS } = require("./lib/reminders");
 const { createInvoice, verifyCallbackToken, markPaymentPaid, checkPendingPayments, RECONCILE_INTERVAL_MS } = require("./lib/payment");
-const { pairDevice, submitPing, submitAbsenApp, cleanupOldLokasiPekerja, getAlatDipinjamPekerja, kembalikanAlatPekerja } = require("./lib/pekerjaTracking");
+const { pairDevice, submitPing, submitAbsenApp, cleanupOldLokasiPekerja, getAlatDipinjamPekerja, kembalikanAlatPekerja, submitLaporKerja } = require("./lib/pekerjaTracking");
 
 const PORT = process.env.PORT || 3000;
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -44,8 +44,10 @@ const supabaseAdmin = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
 const app = express();
 app.use(cors({ origin: ALLOWED_ORIGINS }));
 // Limit default express.json() (100kb) dinaikkan supaya foto selfie
-// (base64, dikirim /api/pekerja/absen) tidak ditolak sebelum sempat diproses.
-app.use(express.json({ limit: "5mb" }));
+// (base64, /api/pekerja/absen) dan foto laporan kerja lapangan (s/d 12
+// foto base64 sekali kirim, /api/pekerja/lapor) tidak ditolak sebelum
+// sempat diproses.
+app.use(express.json({ limit: "25mb" }));
 
 app.get("/health", (req, res) => {
   res.json({
@@ -368,6 +370,22 @@ app.post("/api/pekerja/alat/kembalikan", async (req, res) => {
   } catch (err) {
     console.error("[pekerja/alat/kembalikan] gagal:", err);
     res.status(500).json({ error: "Gagal menandai alat kembali: " + err.message });
+  }
+});
+
+// Laporan Kerja Lapangan dari HP pekerja: sama seperti pair/ping/absen,
+// TIDAK memakai requireAccessToken -- device_token adalah kredensialnya.
+// Foto diunggah ke bucket "lampiran" lewat service role.
+app.post("/api/pekerja/lapor", async (req, res) => {
+  if (!supabaseAdmin) return res.status(500).json({ error: "Server belum dikonfigurasi." });
+  try {
+    const { deviceToken, jenis, lokasi, qty, satuan, catatan, koordinat, fotos } = req.body || {};
+    const result = await submitLaporKerja(supabaseAdmin, deviceToken, { jenis, lokasi, qty, satuan, catatan, koordinat, fotos });
+    if (result.error) return res.status(400).json({ error: result.error });
+    res.json(result);
+  } catch (err) {
+    console.error("[pekerja/lapor] gagal:", err);
+    res.status(500).json({ error: "Gagal mengirim laporan: " + err.message });
   }
 });
 

@@ -171,6 +171,111 @@ async function submitAbsenApp(supabaseAdmin, deviceToken, { jenis, selfieBase64 
   return { ok: true, tanggal, jenis };
 }
 
+// ===== Laporan Kerja Lapangan dari HP pekerja =====
+// Pengganti alur "kirim foto + jumlah lewat grup WA": pekerja mengirim
+// lokasi + jumlah + foto (sudah berwatermark waktu/GPS dari sisi klien),
+// server mengarsipkan foto resolusi penuh ke bucket "lampiran" (service
+// role -- HP pekerja tidak pernah punya kredensial Storage) lalu menempel
+// titik baru ke laporan_kerja milik (karyawan, tanggal WIB, jenis) yang
+// sama supaya kiriman beruntun satu hari tidak jadi puluhan laporan.
+const LAMPIRAN_BUCKET = "lampiran";
+async function submitLaporKerja(supabaseAdmin, deviceToken, { jenis, lokasi, qty, satuan, catatan, koordinat, fotos } = {}) {
+  const lokasiBersih = String(lokasi || "").trim();
+  if (!lokasiBersih) return { error: "Lokasi wajib diisi." };
+  const jumlah = Number(qty);
+  if (!jumlah || jumlah <= 0) return { error: "Jumlah harus lebih dari 0." };
+  if (!Array.isArray(fotos) || fotos.length === 0) return { error: "Minimal 1 foto bukti." };
+  if (fotos.length > 12) return { error: "Maksimal 12 foto sekali kirim." };
+  for (const f of fotos) {
+    if (!f || typeof f.thumb !== "string" || !f.thumb.startsWith("data:image/")) {
+      return { error: "Format foto tidak valid." };
+    }
+  }
+
+  const { device, error: resolveErr } = await resolveDeviceByToken(supabaseAdmin, deviceToken);
+  if (resolveErr) return { error: resolveErr };
+
+  const { data: karyawan } = await supabaseAdmin
+    .from("karyawan")
+    .select("nama")
+    .eq("id", device.karyawan_id)
+    .maybeSingle();
+  const karyawanNama = (karyawan && karyawan.nama) || "Pekerja";
+
+  const now = new Date();
+  // Tanggal versi WIB -- pekerja sering mengirim malam hari; kalau pakai
+  // tanggal UTC, kiriman jam 00:30 WIB jatuh ke laporan kemarin.
+  const tanggal = new Date(now.getTime() + WIB_OFFSET_MS).toISOString().slice(0, 10);
+  const jenisBersih = String(jenis || "").trim() || "Pemasangan Poster/Pamflet";
+
+  const foto = [];
+  for (const f of fotos) {
+    const entri = { thumb: f.thumb, path: "", waktu: f.waktu || now.toISOString(), koordinat: f.koordinat || koordinat || "" };
+    if (typeof f.full === "string" && f.full.startsWith("data:image/")) {
+      try {
+        const base64Data = f.full.split(",").pop();
+        const buffer = Buffer.from(base64Data, "base64");
+        const path = `${device.company_id}/laporan/${device.karyawan_id}/${Date.now()}-${crypto.randomBytes(4).toString("hex")}.jpg`;
+        const { error: uploadErr } = await supabaseAdmin.storage
+          .from(LAMPIRAN_BUCKET)
+          .upload(path, buffer, { contentType: "image/jpeg" });
+        if (!uploadErr) entri.path = path;
+      } catch (e) { /* arsip full gagal -- thumb tetap jadi bukti */ }
+    }
+    foto.push(entri);
+  }
+
+  const titikBaru = {
+    id: "tk-" + crypto.randomBytes(8).toString("hex"),
+    lokasi: lokasiBersih,
+    qty: jumlah,
+    satuan: String(satuan || "pcs").trim() || "pcs",
+    catatan: String(catatan || "").trim(),
+    waktu: now.toISOString(),
+    foto
+  };
+
+  const { data: existingRows, error: findErr } = await supabaseAdmin
+    .from("laporan_kerja")
+    .select("id, titik")
+    .eq("company_id", device.company_id)
+    .eq("karyawan_id", device.karyawan_id)
+    .eq("tanggal", tanggal)
+    .eq("jenis", jenisBersih)
+    .limit(1);
+  if (findErr) throw findErr;
+
+  if (existingRows && existingRows.length) {
+    const row = existingRows[0];
+    const titik = Array.isArray(row.titik) ? row.titik.slice() : [];
+    titik.push(titikBaru);
+    const { error: updateErr } = await supabaseAdmin
+      .from("laporan_kerja")
+      .update({ titik, updated_at: now.toISOString() })
+      .eq("id", row.id);
+    if (updateErr) throw updateErr;
+    return { ok: true, laporanId: row.id, titikId: titikBaru.id };
+  }
+
+  const laporanId = "lk-" + crypto.randomBytes(8).toString("hex");
+  const { error: insertErr } = await supabaseAdmin.from("laporan_kerja").insert({
+    id: laporanId,
+    company_id: device.company_id,
+    tanggal,
+    jenis: jenisBersih,
+    judul: `${jenisBersih} — ${karyawanNama}`,
+    karyawan_id: device.karyawan_id,
+    petugas: karyawanNama,
+    catatan: "",
+    titik: [titikBaru],
+    dibuat_oleh: karyawanNama,
+    dibuat_tanggal: tanggal,
+    updated_at: now.toISOString()
+  });
+  if (insertErr) throw insertErr;
+  return { ok: true, laporanId, titikId: titikBaru.id };
+}
+
 async function cleanupOldLokasiPekerja(supabaseAdmin) {
   const cutoff = new Date(Date.now() - PING_RETENTION_MS).toISOString();
   const { error } = await supabaseAdmin.from("lokasi_pekerja").delete().lt("captured_at", cutoff);
@@ -265,5 +370,5 @@ async function kembalikanAlatPekerja(supabaseAdmin, deviceToken, { alatId, pemin
 
 module.exports = {
   pairDevice, submitPing, submitAbsenApp, cleanupOldLokasiPekerja, ABSENSI_SELFIE_BUCKET,
-  getAlatDipinjamPekerja, kembalikanAlatPekerja
+  getAlatDipinjamPekerja, kembalikanAlatPekerja, submitLaporKerja
 };
