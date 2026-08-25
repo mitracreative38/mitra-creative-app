@@ -838,6 +838,55 @@
           </table>
         </div>
       </div>
+
+      <div class="panel" id="ku_utangPanel">
+        <div class="toolbar" style="justify-content:space-between;">
+          <h3 style="margin:0;">Utang Usaha (Belanja Tempo)</h3>
+          <button class="btn-primary" id="ut_addBtn">+ Catat Utang</button>
+        </div>
+        <div class="summary-rows" style="margin-bottom:10px;">
+          <div class="summary-row"><span>Total Utang Belum Lunas</span><strong class="bad" id="ut_totalSisa">Rp 0</strong></div>
+          <div class="summary-row"><span>Jatuh Tempo ≤ 7 Hari / Terlambat</span><strong id="ut_segeraCount">0 utang</strong></div>
+        </div>
+        <div class="table-wrap">
+          <table class="tbl" id="ut_table">
+            <thead><tr>
+              <th>Pemasok / Keterangan</th><th>Tanggal</th><th>Jatuh Tempo</th>
+              <th class="num">Jumlah</th><th class="num">Dibayar</th><th class="num">Sisa</th><th>Status</th><th></th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="muted" style="font-size:12px;">Catat belanja tempo (utang ke toko/pemasok) di sini. Saat dibayar, klik 💰 — pembayarannya otomatis jadi transaksi Kas Perusahaan.</p>
+      </div>
+
+      <div class="panel" id="ku_anggaranPanel">
+        <h3>Anggaran Biaya Bulan Ini</h3>
+        <div id="ku_anggaranBars" class="bar-chart"></div>
+        <p class="muted" style="font-size:12px;">Realisasi pengeluaran bulan berjalan dibanding anggaran per kategori. Atur anggarannya di halaman Pengaturan.</p>
+      </div>
+
+      <div class="panel" id="ku_opnamePanel">
+        <h3>Opname Kas (Rekonsiliasi)</h3>
+        <p class="muted" style="font-size:12.5px;">Hitung uang fisik/saldo rekening hari ini, bandingkan dengan catatan sistem — selisih langsung ketahuan hari itu juga.</p>
+        <div class="form-grid">
+          <div class="field"><label>Tanggal</label><input type="date" id="ko_tanggal"></div>
+          <div class="field"><label>Saldo Sistem (otomatis)</label><input type="text" id="ko_sistem" disabled></div>
+          <div class="field"><label>Uang Fisik / Saldo Rekening (Rp)</label><input type="text" inputmode="numeric" id="ko_fisik" placeholder="0"></div>
+          <div class="field"><label>Catatan</label><input type="text" id="ko_catatan" placeholder="opsional"></div>
+        </div>
+        <div class="modal-actions" style="justify-content:flex-start; margin-top:8px;">
+          <button class="btn-primary" id="ko_simpanBtn">Catat Opname</button>
+        </div>
+        <div class="table-wrap" style="margin-top:12px;">
+          <table class="tbl" id="ko_table">
+            <thead><tr>
+              <th>Tanggal</th><th class="num">Saldo Sistem</th><th class="num">Uang Fisik</th><th class="num">Selisih</th><th>Catatan</th><th></th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
     </section>
 
     <!-- KAS PRIBADI -->
@@ -2286,6 +2335,12 @@
         <input type="text" inputmode="numeric" id="settingsTargetLaba" class="text-input" style="width:100%">
       </div>
 
+      <div class="panel narrow" id="settingsAnggaranPanel">
+        <h3>Anggaran Biaya Bulanan</h3>
+        <p class="muted">Batas belanja per kategori per bulan. Progres realisasinya tampil di halaman Kas Perusahaan, dan Dashboard memberi peringatan saat anggaran terlampaui. Isi 0 untuk kategori yang tidak dibatasi.</p>
+        <div id="agb_fields"></div>
+      </div>
+
       <div class="panel narrow" id="settingsJamKerjaPanel">
         <h3>Jam Kerja &amp; Radius Proyek</h3>
         <p class="muted">Dipakai halaman "Lokasi Pekerja" untuk menandai "Perlu Ditinjau" kalau posisi pekerja pada jam kerja jauh dari semua site Proyek aktif (yang koordinatnya sudah dicatat).</p>
@@ -2684,6 +2739,77 @@
 
 <!-- Modal: pembayaran subkontraktor -->
 <!-- Modal: perbaiki slip gaji -->
+<div class="modal-backdrop" id="utangModal">
+  <div class="modal">
+    <div class="modal-head"><h3 id="utangModalTitle">Catat Utang Usaha</h3><button class="icon-btn" data-close-modal>✕</button></div>
+    <form id="utangForm">
+      <input type="hidden" id="ut_id">
+      <div class="form-grid">
+        <div class="field">
+          <label>Pemasok / Toko</label>
+          <select id="ut_pemasokId"><option value="">— (ketik manual di bawah)</option></select>
+        </div>
+        <div class="field">
+          <label>Nama Pemasok (manual)</label>
+          <input type="text" id="ut_pemasokNama" placeholder="cth. TB Sumber Jaya">
+        </div>
+        <div class="field full">
+          <label>Keterangan Belanja</label>
+          <input type="text" id="ut_keterangan" required placeholder="cth. besi hollow + cat, nota #123">
+        </div>
+        <div class="field">
+          <label>Tanggal Belanja</label>
+          <input type="date" id="ut_tanggal" required>
+        </div>
+        <div class="field">
+          <label>Jatuh Tempo</label>
+          <input type="date" id="ut_jatuhTempo" required>
+        </div>
+        <div class="field">
+          <label>Jumlah Utang (Rp)</label>
+          <input type="text" inputmode="numeric" id="ut_jumlah" required placeholder="0">
+        </div>
+        <div class="field">
+          <label>Catatan</label>
+          <input type="text" id="ut_catatan" placeholder="opsional">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="utangBayarModal">
+  <div class="modal">
+    <div class="modal-head"><h3>Bayar Utang</h3><button class="icon-btn" data-close-modal>✕</button></div>
+    <p class="muted" id="ub_info" style="margin:0 0 10px;"></p>
+    <form id="utangBayarForm">
+      <div class="form-grid">
+        <div class="field">
+          <label>Tanggal Bayar</label>
+          <input type="date" id="ub_tanggal" required>
+        </div>
+        <div class="field">
+          <label>Jumlah Dibayar (Rp)</label>
+          <input type="text" inputmode="numeric" id="ub_jumlah" required placeholder="0">
+        </div>
+        <div class="field">
+          <label>Kategori Biaya (untuk Kas &amp; Laporan)</label>
+          <select id="ub_kategori"></select>
+        </div>
+      </div>
+      <p class="muted" style="font-size:12px;">Tercatat otomatis sebagai transaksi Keluar di Kas Perusahaan.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Bayar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="asetSewaModal">
   <div class="modal">
     <div class="modal-head"><h3 id="asetSewaModalTitle">Tambah Aset Sewa</h3><button class="icon-btn" data-close-modal>✕</button></div>

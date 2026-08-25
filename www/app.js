@@ -68,6 +68,9 @@ function withDefaults(s) {
   if (!s.alat) s.alat = [];
   if (!s.stokOpname) s.stokOpname = [];
   if (!s.asetSewa) s.asetSewa = [];
+  if (!s.utangUsaha) s.utangUsaha = [];
+  if (!s.kasOpname) s.kasOpname = [];
+  if (!s.anggaranBiaya) s.anggaranBiaya = {};
   if (typeof s.approvalThreshold !== "number") s.approvalThreshold = 0;
   if (typeof s.targetOmzetBulanan !== "number") s.targetOmzetBulanan = 0;
   if (typeof s.targetLababersihBulanan !== "number") s.targetLababersihBulanan = 0;
@@ -219,6 +222,7 @@ async function hydrateSensitiveFields(data) {
           id: t.id, proyekId: t.proyek_id || "", subkonId: t.subkon_id || "",
           sumberSlipId: t.sumber_slip_id || "", sumberBelanjaId: t.sumber_belanja_id || "",
           sumberSewaId: t.sumber_sewa_id || "",
+          sumberUtangId: t.sumber_utang_id || "",
           tipe: t.tipe, status: t.status, tanggal: t.tanggal, jumlah: t.jumlah,
           keterangan: t.keterangan || "", kategori: t.kategori || "", extra: t.extra || "", catatan: t.catatan || "",
           lampiranPath: t.lampiran_path || ""
@@ -336,7 +340,7 @@ async function resolveTeamMembership(user) {
 // jauh lebih dari cukup dibanding reducer per-tabel yang rumit.
 const REALTIME_RELATIONAL_TABLES = [
   "company_profile", "klien", "ahsp", "rab", "penawaran", "proyek", "karyawan",
-  "stok_material", "gudang", "pemasok", "alat", "stok_opname", "aset_sewa",
+  "stok_material", "gudang", "pemasok", "alat", "stok_opname", "aset_sewa", "utang_usaha", "kas_opname",
   "kas_usaha_transaksi", "kas_pribadi_transaksi", "karyawan_gaji", "kas_saldo_awal"
 ];
 let realtimeReloadTimer = null;
@@ -408,6 +412,7 @@ const ACTIVITY_DIFF_FIELDS = {
   gudang: ["nama", "alamat"],
   pemasok: ["nama", "telepon", "kategori"],
   asetSewa: ["nama", "jenis", "lokasi", "hargaSewa", "satuanSewa", "aktif"],
+  utangUsaha: ["pemasokNama", "keterangan", "jumlah", "jatuhTempo"],
   kasUsaha: ["jumlah", "tipe", "kategori", "keterangan", "tanggal", "status"],
   kasPribadi: ["jumlah", "tipe", "kategori", "keterangan", "tanggal", "status"],
   companyProfile: ["company", "alamat", "telepon", "approvalThreshold"]
@@ -415,7 +420,7 @@ const ACTIVITY_DIFF_FIELDS = {
 const ACTIVITY_MODULE_LABELS = {
   klien: "Klien", ahsp: "AHSP", rab: "RAB", penawaran: "Penawaran",
   proyek: "Proyek", karyawan: "Karyawan", absensi: "Absensi", karyawanGaji: "Slip Gaji",
-  stok: "Stok Material", gudang: "Gudang", pemasok: "Pemasok", asetSewa: "Sewa Aset",
+  stok: "Stok Material", gudang: "Gudang", pemasok: "Pemasok", asetSewa: "Sewa Aset", utangUsaha: "Utang Usaha",
   kasUsaha: "Kas Perusahaan", kasPribadi: "Kas Pribadi",
   companyProfile: "Profil Perusahaan", system: "Sistem"
 };
@@ -1260,6 +1265,65 @@ async function mirrorAsetSewaDelete(id, deletedRecord) {
     setSyncStatus("Gagal menghapus Aset Sewa di tabel relasional: " + err.message);
   }
 }
+// ===== Mirror: Utang Usaha & Opname Kas (Gelombang 1 kontrol uang) =====
+function utangUsahaToRow(u) {
+  return {
+    id: u.id,
+    company_id: targetCompanyId,
+    pemasok_id: u.pemasokId || null,
+    pemasok_nama: u.pemasokNama || "",
+    keterangan: u.keterangan || "",
+    tanggal: u.tanggal || null,
+    jatuh_tempo: u.jatuhTempo || null,
+    jumlah: u.jumlah || 0,
+    catatan: u.catatan || "",
+    updated_at: new Date().toISOString()
+  };
+}
+async function mirrorUtangUsahaUpsert(u, existing) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("utang_usaha").upsert(utangUsahaToRow(u));
+    if (error) throw error;
+    if (existing !== undefined) logActivityNow("utangUsaha", existing ? "update" : "create", u.id, existing, u);
+  } catch (err) {
+    setSyncStatus("Gagal menyimpan Utang Usaha ke tabel relasional: " + err.message);
+  }
+}
+async function mirrorUtangUsahaDelete(id, deletedRecord) {
+  if (!sb || !targetCompanyId) return;
+  try {
+    const { error } = await sb.from("utang_usaha").delete().eq("id", id).eq("company_id", targetCompanyId);
+    if (error) throw error;
+    if (deletedRecord) logActivityNow("utangUsaha", "delete", id, deletedRecord, null);
+  } catch (err) {
+    setSyncStatus("Gagal menghapus Utang Usaha di tabel relasional: " + err.message);
+  }
+}
+// Opname kas Owner-only (RLS auth.uid() = company_id) -- sesi non-Owner
+// tidak perlu memanggilnya, pasti ditolak database.
+async function mirrorKasOpnameUpsert(o) {
+  if (!sb || !targetCompanyId || !currentSyncUser || currentSyncUser.id !== targetCompanyId) return;
+  try {
+    const { error } = await sb.from("kas_opname").upsert({
+      id: o.id, company_id: targetCompanyId, tanggal: o.tanggal,
+      sistem: o.sistem || 0, fisik: o.fisik || 0, selisih: o.selisih || 0,
+      catatan: o.catatan || "", updated_at: new Date().toISOString()
+    });
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal menyimpan Opname Kas ke tabel relasional: " + err.message);
+  }
+}
+async function mirrorKasOpnameDelete(id) {
+  if (!sb || !targetCompanyId || !currentSyncUser || currentSyncUser.id !== targetCompanyId) return;
+  try {
+    const { error } = await sb.from("kas_opname").delete().eq("id", id).eq("company_id", targetCompanyId);
+    if (error) throw error;
+  } catch (err) {
+    setSyncStatus("Gagal menghapus Opname Kas di tabel relasional: " + err.message);
+  }
+}
 async function migratePemasokIfNeeded() {
   if (!sb || !targetCompanyId) return;
   try {
@@ -1302,6 +1366,7 @@ function companyProfileToRow() {
     radius_proyek_meter: state.radiusProyekMeter || 500,
     rekening: state.rekening || "",
     invoice_counter: state.invoiceCounter || 0,
+    anggaran_biaya: state.anggaranBiaya || {},
     updated_at: new Date().toISOString()
   };
 }
@@ -1347,6 +1412,7 @@ function kasUsahaTxnToRow(t) {
     sumber_slip_id: t.sumberSlipId || null,
     sumber_belanja_id: t.sumberBelanjaId || null,
     sumber_sewa_id: t.sumberSewaId || null,
+    sumber_utang_id: t.sumberUtangId || null,
     tipe: t.tipe || "",
     status: t.status || "lunas",
     tanggal: t.tanggal || null,
@@ -1584,6 +1650,19 @@ function rowToAsetSewa(r) {
     aktif: r.aktif !== false, kontrak: r.kontrak || []
   };
 }
+function rowToUtangUsaha(r) {
+  return {
+    id: r.id, pemasokId: r.pemasok_id || "", pemasokNama: r.pemasok_nama || "",
+    keterangan: r.keterangan || "", tanggal: r.tanggal || "", jatuhTempo: r.jatuh_tempo || "",
+    jumlah: r.jumlah || 0, catatan: r.catatan || ""
+  };
+}
+function rowToKasOpname(r) {
+  return {
+    id: r.id, tanggal: r.tanggal || "", sistem: r.sistem || 0,
+    fisik: r.fisik || 0, selisih: r.selisih || 0, catatan: r.catatan || ""
+  };
+}
 async function buildStateFromRelational(companyId) {
   // company_profile diambil terpisah dengan try/catch sendiri -- ini
   // tabel yang PALING BARU (Fase 0.4), jadi selama jeda deploy sudah
@@ -1598,9 +1677,10 @@ async function buildStateFromRelational(companyId) {
   } catch (e) { /* tabel belum ada -- biarkan profileRow null */ }
 
   let klienRows = [], ahspRows = [], rabRows = [], penawaranRows = [], proyekRows = [],
-    karyawanRows = [], stokRows = [], gudangRows = [], pemasokRows = [], alatRows = [], opnameRows = [], asetSewaRows = [];
+    karyawanRows = [], stokRows = [], gudangRows = [], pemasokRows = [], alatRows = [], opnameRows = [], asetSewaRows = [],
+    utangRows = [], kasOpnameRows = [];
   try {
-    const [klienRes, ahspRes, rabRes, penawaranRes, proyekRes, karyawanRes, stokRes, gudangRes, pemasokRes, alatRes, opnameRes, asetSewaRes] = await Promise.all([
+    const [klienRes, ahspRes, rabRes, penawaranRes, proyekRes, karyawanRes, stokRes, gudangRes, pemasokRes, alatRes, opnameRes, asetSewaRes, utangRes, kasOpnameRes] = await Promise.all([
       sb.from("klien").select("*").eq("company_id", companyId),
       sb.from("ahsp").select("*").eq("company_id", companyId),
       sb.from("rab").select("*").eq("company_id", companyId),
@@ -1612,7 +1692,9 @@ async function buildStateFromRelational(companyId) {
       sb.from("pemasok").select("*").eq("company_id", companyId),
       sb.from("alat").select("*").eq("company_id", companyId),
       sb.from("stok_opname").select("*").eq("company_id", companyId).order("tanggal", { ascending: false }),
-      sb.from("aset_sewa").select("*").eq("company_id", companyId)
+      sb.from("aset_sewa").select("*").eq("company_id", companyId),
+      sb.from("utang_usaha").select("*").eq("company_id", companyId),
+      sb.from("kas_opname").select("*").eq("company_id", companyId).order("tanggal", { ascending: false })
     ]);
     klienRows = klienRes.error ? [] : (klienRes.data || []);
     ahspRows = ahspRes.error ? [] : (ahspRes.data || []);
@@ -1628,6 +1710,8 @@ async function buildStateFromRelational(companyId) {
     // aset_sewa tabel paling baru (fix36): selama jeda SQL belum dijalankan,
     // error "relation does not exist" cukup berarti daftar kosong sementara.
     asetSewaRows = asetSewaRes.error ? [] : (asetSewaRes.data || []);
+    utangRows = utangRes.error ? [] : (utangRes.data || []);
+    kasOpnameRows = kasOpnameRes.error ? [] : (kasOpnameRes.data || []);
   } catch (e) { /* biarkan semua kosong -- jaring pengaman di bawah akan pakai blob */ }
 
   let built = {
@@ -1648,6 +1732,7 @@ async function buildStateFromRelational(companyId) {
     radiusProyekMeter: (profileRow && profileRow.radius_proyek_meter) || 500,
     rekening: (profileRow && profileRow.rekening) || "",
     invoiceCounter: (profileRow && profileRow.invoice_counter) || 0,
+    anggaranBiaya: (profileRow && profileRow.anggaran_biaya) || {},
     klien: klienRows.map(rowToKlien),
     ahsp: ahspRows.map(rowToAhsp),
     proyekRab: rabRows.map(rowToRab),
@@ -1660,6 +1745,8 @@ async function buildStateFromRelational(companyId) {
     alat: alatRows.map(rowToAlat),
     stokOpname: opnameRows.map(rowToOpname),
     asetSewa: asetSewaRows.map(rowToAsetSewa),
+    utangUsaha: utangRows.map(rowToUtangUsaha),
+    kasOpname: kasOpnameRows.map(rowToKasOpname),
     kasUsaha: { transactions: [], saldoAwal: 0 },
     kasPribadi: { transactions: [], saldoAwal: 0 }
   };
@@ -2089,6 +2176,264 @@ function renderDashboardTrend() {
   }).join("");
 }
 
+// ===== Gelombang 1 kontrol uang: Utang Usaha, Anggaran Biaya, Opname Kas =====
+const KATEGORI_BIAYA = KATEGORI_USAHA.filter(k => !k.startsWith("Pendapatan"));
+function utangDibayar(utangId) {
+  return state.kasUsaha.transactions
+    .filter(t => t.sumberUtangId === utangId && (t.status || "lunas") !== "menunggu_persetujuan")
+    .reduce((s, t) => s + (t.jumlah || 0), 0);
+}
+function utangSisa(u) {
+  return (u.jumlah || 0) - utangDibayar(u.id);
+}
+// Utang belum lunas yang jatuh temponya <= 7 hari lagi atau sudah lewat.
+function utangJatuhTempoSegera(today) {
+  const batas = addDaysIso(today, 7);
+  return (state.utangUsaha || []).filter(u => utangSisa(u) > 0 && (u.jatuhTempo || "") <= batas);
+}
+function renderUtangUsaha() {
+  const today = hariIniIso();
+  const semua = (state.utangUsaha || []).slice().sort((a, b) => (a.jatuhTempo || "").localeCompare(b.jatuhTempo || ""));
+  const totalSisa = semua.reduce((s, u) => s + Math.max(0, utangSisa(u)), 0);
+  document.getElementById("ut_totalSisa").textContent = rupiah(totalSisa);
+  document.getElementById("ut_segeraCount").textContent = `${utangJatuhTempoSegera(today).length} utang`;
+  const tbody = document.querySelector("#ut_table tbody");
+  tbody.innerHTML = semua.length ? semua.map(u => {
+    const dibayar = utangDibayar(u.id);
+    const sisa = utangSisa(u);
+    let statusHtml;
+    if (sisa <= 0) statusHtml = '<span class="badge badge-lunas">Lunas</span>';
+    else if ((u.jatuhTempo || "") < today) statusHtml = '<span class="badge badge-keluar">TERLAMBAT</span>';
+    else if ((u.jatuhTempo || "") <= addDaysIso(today, 7)) statusHtml = '<span class="badge badge-pending">⏳ Segera</span>';
+    else statusHtml = '<span class="badge">Belum Lunas</span>';
+    return `
+      <tr>
+        <td><strong>${escapeHtml(u.pemasokNama || "-")}</strong><div class="muted" style="font-size:11.5px;">${escapeHtml(u.keterangan || "")}</div></td>
+        <td>${u.tanggal ? formatTanggal(u.tanggal) : "-"}</td>
+        <td>${u.jatuhTempo ? formatTanggal(u.jatuhTempo) : "-"}</td>
+        <td class="num">${rupiah(u.jumlah || 0)}</td>
+        <td class="num">${rupiah(dibayar)}</td>
+        <td class="num">${rupiah(Math.max(0, sisa))}</td>
+        <td>${statusHtml}</td>
+        <td><div class="row-actions">
+          ${sisa > 0 ? `<button class="icon-btn" data-bayar-utang="${u.id}" title="Bayar">💰</button>` : ""}
+          <button class="icon-btn" data-edit-utang="${u.id}" title="Edit">✏️</button>
+          <button class="icon-btn" data-delete-utang="${u.id}" title="Hapus">🗑️</button>
+        </div></td>
+      </tr>`;
+  }).join("") : '<tr class="empty-row"><td colspan="8">Belum ada utang tercatat — semua belanja lunas. 👍</td></tr>';
+}
+const utangModal = document.getElementById("utangModal");
+function openUtangModal(existing) {
+  const sel = document.getElementById("ut_pemasokId");
+  sel.innerHTML = '<option value="">— (ketik manual di bawah)</option>' +
+    (state.pemasok || []).slice().sort((a, b) => (a.nama || "").localeCompare(b.nama || "")).map(pm => `<option value="${pm.id}">${escapeHtml(pm.nama)}</option>`).join("");
+  document.getElementById("utangModalTitle").textContent = existing ? "Edit Utang Usaha" : "Catat Utang Usaha";
+  document.getElementById("ut_id").value = existing ? existing.id : "";
+  sel.value = existing ? (existing.pemasokId || "") : "";
+  document.getElementById("ut_pemasokNama").value = existing ? (existing.pemasokNama || "") : "";
+  document.getElementById("ut_keterangan").value = existing ? (existing.keterangan || "") : "";
+  document.getElementById("ut_tanggal").value = existing ? (existing.tanggal || "") : hariIniIso();
+  document.getElementById("ut_jatuhTempo").value = existing ? (existing.jatuhTempo || "") : addDaysIso(hariIniIso(), 30);
+  document.getElementById("ut_jumlah").value = existing ? formatNumberInput(existing.jumlah || 0) : "";
+  document.getElementById("ut_catatan").value = existing ? (existing.catatan || "") : "";
+  utangModal.classList.add("open");
+}
+attachNumberFormatting(document.getElementById("ut_jumlah"));
+attachNumberFormatting(document.getElementById("ub_jumlah"));
+document.getElementById("ut_addBtn").addEventListener("click", () => openUtangModal(null));
+document.getElementById("ut_pemasokId").addEventListener("change", () => {
+  const pm = state.pemasok.find(x => x.id === document.getElementById("ut_pemasokId").value);
+  if (pm) document.getElementById("ut_pemasokNama").value = pm.nama || "";
+});
+document.getElementById("utangForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const jumlah = parseNumberInput(document.getElementById("ut_jumlah").value);
+  if (jumlah <= 0) { alert("Jumlah utang harus lebih dari 0."); return; }
+  const id = document.getElementById("ut_id").value;
+  const idx = state.utangUsaha.findIndex(u => u.id === id);
+  const existing = idx >= 0 ? state.utangUsaha[idx] : null;
+  const u = {
+    id: id || uid(),
+    pemasokId: document.getElementById("ut_pemasokId").value || "",
+    pemasokNama: document.getElementById("ut_pemasokNama").value.trim(),
+    keterangan: document.getElementById("ut_keterangan").value.trim(),
+    tanggal: document.getElementById("ut_tanggal").value,
+    jatuhTempo: document.getElementById("ut_jatuhTempo").value,
+    jumlah,
+    catatan: document.getElementById("ut_catatan").value.trim()
+  };
+  if (!u.pemasokNama) { alert("Isi nama pemasok/toko (pilih dari daftar atau ketik manual)."); return; }
+  if (idx >= 0) state.utangUsaha[idx] = u; else state.utangUsaha.push(u);
+  saveState();
+  mirrorUtangUsahaUpsert(u, existing);
+  renderAll();
+  closeModals();
+});
+const utangBayarModal = document.getElementById("utangBayarModal");
+let bayarUtangId = null;
+function openUtangBayarModal(utangId) {
+  const u = state.utangUsaha.find(x => x.id === utangId);
+  if (!u) return;
+  bayarUtangId = utangId;
+  const sel = document.getElementById("ub_kategori");
+  if (!sel.options.length) sel.innerHTML = KATEGORI_BIAYA.map(k => `<option>${k}</option>`).join("");
+  sel.value = "Biaya Bahan";
+  const sisa = Math.max(0, utangSisa(u));
+  document.getElementById("ub_info").textContent = `${u.pemasokNama} — ${u.keterangan} · sisa utang ${rupiah(sisa)} (jatuh tempo ${formatTanggal(u.jatuhTempo)})`;
+  document.getElementById("ub_tanggal").value = hariIniIso();
+  document.getElementById("ub_jumlah").value = sisa ? formatNumberInput(sisa) : "";
+  utangBayarModal.classList.add("open");
+}
+document.getElementById("utangBayarForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const u = state.utangUsaha.find(x => x.id === bayarUtangId);
+  if (!u) return;
+  const jumlah = parseNumberInput(document.getElementById("ub_jumlah").value);
+  if (jumlah <= 0) { alert("Jumlah pembayaran harus lebih dari 0."); return; }
+  const sisa = utangSisa(u);
+  if (jumlah > sisa && !confirm(`Jumlah ini MELEBIHI sisa utang (${rupiah(Math.max(0, sisa))}).\nTetap catat?`)) return;
+  const txn = {
+    id: uid(),
+    sumberUtangId: u.id,
+    tipe: "Keluar",
+    status: expenseApprovalStatus(jumlah),
+    tanggal: document.getElementById("ub_tanggal").value,
+    jumlah,
+    keterangan: `Bayar utang ${u.pemasokNama} — ${u.keterangan}`,
+    kategori: document.getElementById("ub_kategori").value,
+    extra: u.pemasokNama,
+    catatan: "Otomatis dari Utang Usaha"
+  };
+  state.kasUsaha.transactions.push(txn);
+  saveState();
+  mirrorKasUsahaUpsert(txn, null);
+  closeModals();
+  renderAll();
+});
+document.getElementById("ut_table").addEventListener("click", e => {
+  const bayarBtn = e.target.closest("[data-bayar-utang]");
+  const editBtn = e.target.closest("[data-edit-utang]");
+  const delBtn = e.target.closest("[data-delete-utang]");
+  if (bayarBtn) openUtangBayarModal(bayarBtn.dataset.bayarUtang);
+  else if (editBtn) openUtangModal(state.utangUsaha.find(u => u.id === editBtn.dataset.editUtang));
+  else if (delBtn) {
+    const u = state.utangUsaha.find(x => x.id === delBtn.dataset.deleteUtang);
+    if (!u) return;
+    if (!confirm(`Hapus utang ${u.pemasokNama} (${rupiah(u.jumlah)})?\nPembayaran yang sudah tercatat di Kas TIDAK ikut terhapus.`)) return;
+    state.utangUsaha = state.utangUsaha.filter(x => x.id !== u.id);
+    saveState();
+    mirrorUtangUsahaDelete(u.id, u);
+    renderAll();
+  }
+});
+// ----- Anggaran Biaya bulanan -----
+function anggaranRealisasiBulanIni() {
+  const bulanIni = hariIniIso().slice(0, 7);
+  const per = {};
+  state.kasUsaha.transactions
+    .filter(t => t.tipe === "Keluar" && (t.status || "lunas") !== "menunggu_persetujuan" && (t.tanggal || "").startsWith(bulanIni))
+    .forEach(t => {
+      const kat = t.kategori || "(Tanpa Kategori)";
+      per[kat] = (per[kat] || 0) + Math.max(0, t.jumlah || 0);
+    });
+  return per;
+}
+function anggaranTerlampaui() {
+  const real = anggaranRealisasiBulanIni();
+  return KATEGORI_BIAYA.filter(kat => {
+    const anggaran = (state.anggaranBiaya || {})[kat] || 0;
+    return anggaran > 0 && (real[kat] || 0) > anggaran;
+  });
+}
+function renderAnggaranBiaya() {
+  const el = document.getElementById("ku_anggaranBars");
+  const real = anggaranRealisasiBulanIni();
+  const items = KATEGORI_BIAYA
+    .filter(kat => ((state.anggaranBiaya || {})[kat] || 0) > 0)
+    .map(kat => {
+      const anggaran = state.anggaranBiaya[kat];
+      const realisasi = real[kat] || 0;
+      const pct = (realisasi / anggaran) * 100;
+      return {
+        label: kat, value: pct,
+        color: pct > 100 ? "var(--critical)" : pct > 80 ? "var(--warning)" : "var(--good)",
+        formattedValue: `${rupiah(realisasi)} / ${rupiah(anggaran)} (${pct.toFixed(0)}%)`
+      };
+    });
+  if (!items.length) {
+    el.innerHTML = '<p class="muted">Belum ada anggaran yang diatur — buka Pengaturan → Anggaran Biaya Bulanan.</p>';
+    return;
+  }
+  renderBarChart(el, items);
+}
+function renderAnggaranSettings() {
+  const wrap = document.getElementById("agb_fields");
+  if (!wrap.dataset.built) {
+    wrap.innerHTML = KATEGORI_BIAYA.map(kat => `
+      <label class="field-label">${escapeHtml(kat)} (Rp/bulan)</label>
+      <input type="text" inputmode="numeric" class="text-input agb-input" data-kategori="${escapeHtml(kat)}" style="width:100%; margin-bottom:10px;">
+    `).join("");
+    wrap.querySelectorAll(".agb-input").forEach(inp => {
+      attachNumberFormatting(inp);
+      inp.addEventListener("change", () => {
+        state.anggaranBiaya[inp.dataset.kategori] = parseNumberInput(inp.value);
+        saveState();
+        mirrorCompanyProfileUpsert();
+        renderAll(); // termasuk alert "anggaran terlampaui" di Dashboard
+      });
+    });
+    wrap.dataset.built = "1";
+  }
+  wrap.querySelectorAll(".agb-input").forEach(inp => {
+    if (document.activeElement !== inp) inp.value = formatNumberInput((state.anggaranBiaya || {})[inp.dataset.kategori] || 0);
+  });
+}
+// ----- Opname Kas (Owner-only: saldo kas dirahasiakan dari Admin) -----
+function renderKasOpname() {
+  const panel = document.getElementById("ku_opnamePanel");
+  panel.style.display = currentTeamRole === "owner" ? "block" : "none";
+  if (currentTeamRole !== "owner") return;
+  if (!document.getElementById("ko_tanggal").value) document.getElementById("ko_tanggal").value = hariIniIso();
+  document.getElementById("ko_sistem").value = rupiah(kasSummary("kasUsaha").saldoAkhir);
+  const rows = (state.kasOpname || []).slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
+  document.querySelector("#ko_table tbody").innerHTML = rows.length ? rows.map(o => `
+    <tr>
+      <td>${formatTanggal(o.tanggal)}</td>
+      <td class="num">${rupiah(o.sistem)}</td>
+      <td class="num">${rupiah(o.fisik)}</td>
+      <td class="num"><strong class="${o.selisih === 0 ? "good" : "bad"}">${o.selisih === 0 ? "✓ Cocok" : rupiah(o.selisih)}</strong></td>
+      <td>${escapeHtml(o.catatan || "-")}</td>
+      <td><button class="icon-btn" data-delete-opname="${o.id}" title="Hapus">🗑️</button></td>
+    </tr>
+  `).join("") : '<tr class="empty-row"><td colspan="6">Belum pernah opname — mulai kebiasaan baik: hitung tiap Sabtu sebelum gajian.</td></tr>';
+}
+attachNumberFormatting(document.getElementById("ko_fisik"));
+document.getElementById("ko_simpanBtn").addEventListener("click", () => {
+  const fisik = parseNumberInput(document.getElementById("ko_fisik").value);
+  const tanggal = document.getElementById("ko_tanggal").value || hariIniIso();
+  const sistem = kasSummary("kasUsaha").saldoAkhir;
+  const o = { id: uid(), tanggal, sistem, fisik, selisih: fisik - sistem, catatan: document.getElementById("ko_catatan").value.trim() };
+  state.kasOpname.push(o);
+  saveState();
+  mirrorKasOpnameUpsert(o);
+  document.getElementById("ko_fisik").value = "";
+  document.getElementById("ko_catatan").value = "";
+  renderAll();
+  alert(o.selisih === 0
+    ? "Opname tercatat: uang fisik COCOK dengan catatan sistem. ✓"
+    : `Opname tercatat: ada SELISIH ${rupiah(o.selisih)} (fisik ${rupiah(fisik)} vs sistem ${rupiah(sistem)}).\nTelusuri hari ini juga selagi ingatan masih segar — cek transaksi yang belum dicatat atau salah nominal.`);
+});
+document.getElementById("ko_table").addEventListener("click", e => {
+  const delBtn = e.target.closest("[data-delete-opname]");
+  if (!delBtn) return;
+  if (!confirm("Hapus catatan opname ini?")) return;
+  state.kasOpname = state.kasOpname.filter(o => o.id !== delBtn.dataset.deleteOpname);
+  saveState();
+  mirrorKasOpnameDelete(delBtn.dataset.deleteOpname);
+  renderAll();
+});
+
 // ===== Sewa Aset (baliho, kos-kosan, tanah, rental kendaraan/alat, dst.) =====
 const JENIS_ASET_SEWA = ["Baliho/Reklame", "Kos-kosan", "Tanah", "Bangunan/Ruko", "Kendaraan", "Alat", "Lainnya"];
 const SATUAN_SEWA = ["per Hari", "per Minggu", "per Bulan", "per Tahun", "per Periode"];
@@ -2426,6 +2771,13 @@ function renderDashboard() {
   const alatPerluServis = (state.alat || []).filter(a => ["terlambat", "segera"].includes(alatServisStatus(a, today))).length;
   const proyekMacet = state.proyek.map(p => proyekTahapanMacet(p, today)).filter(Boolean).length;
   const sewaBerakhir = sewaBerakhirSegera(today).length;
+  const utangSegera = utangJatuhTempoSegera(today).length;
+  const anggaranLewat = anggaranTerlampaui().length;
+  // Selisih opname = data saldo (rahasia Owner) -- jangan tampilkan ke Admin.
+  const opnameTerakhir = currentTeamRole === "owner"
+    ? (state.kasOpname || []).slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""))[0]
+    : null;
+  const opnameSelisih = opnameTerakhir && opnameTerakhir.selisih !== 0;
 
   const alerts = [
     pendingTxns.length ? { icon: "⏳", label: "Kas Perusahaan menunggu persetujuan", value: `${pendingTxns.length} transaksi · ${rupiah(ku.menungguPersetujuan)}`, page: "kasUsaha" } : null,
@@ -2436,7 +2788,10 @@ function renderDashboard() {
     pwKadaluarsa ? { icon: "📄", label: "Penawaran kadaluarsa", value: `${pwKadaluarsa} penawaran`, page: "penawaran" } : null,
     alatPerluServis ? { icon: "🔧", label: "Alat jatuh tempo servis (lewat atau ≤ 14 hari lagi)", value: `${alatPerluServis} alat`, page: "stok" } : null,
     proyekMacet ? { icon: "🚧", label: "Proyek macet di satu tahap administrasi (>14 hari)", value: `${proyekMacet} proyek`, page: "proyek" } : null,
-    sewaBerakhir ? { icon: "🏠", label: "Kontrak sewa aset berakhir ≤ 14 hari lagi", value: `${sewaBerakhir} kontrak`, page: "sewaAset" } : null
+    sewaBerakhir ? { icon: "🏠", label: "Kontrak sewa aset berakhir ≤ 14 hari lagi", value: `${sewaBerakhir} kontrak`, page: "sewaAset" } : null,
+    utangSegera ? { icon: "💳", label: "Utang usaha jatuh tempo (lewat atau ≤ 7 hari lagi)", value: `${utangSegera} utang`, page: "kasUsaha" } : null,
+    anggaranLewat ? { icon: "📛", label: "Anggaran biaya bulan ini TERLAMPAUI", value: `${anggaranLewat} kategori`, page: "kasUsaha" } : null,
+    opnameSelisih ? { icon: "🧮", label: `Opname kas terakhir (${formatTanggal(opnameTerakhir.tanggal)}) ada selisih`, value: rupiah(opnameTerakhir.selisih), page: "kasUsaha" } : null
   ].filter(Boolean);
 
   document.getElementById("dash_alertPanel").style.display = alerts.length ? "block" : "none";
@@ -9730,6 +10085,10 @@ function renderAll() {
   document.getElementById("pm_detailView").style.display = currentPemasokId ? "block" : "none";
   if (currentPemasokId) renderPemasokDetail(); else renderPemasokList();
   renderSewaAset();
+  renderUtangUsaha();
+  renderAnggaranBiaya();
+  renderAnggaranSettings();
+  renderKasOpname();
   { const activePmSubtab = document.querySelector('.subtab-item[data-subtab-page="pm"].active');
     if (activePmSubtab && activePmSubtab.dataset.subtab === "performa") renderVendorPerforma(); }
   renderAhsp();
@@ -11073,6 +11432,8 @@ async function mirrorAllToRelational() {
   // karena ini re-mirror massal (impor/migrasi), bukan aksi satu pengguna.
   (state.klien || []).forEach(k => mirrorKlienUpsert(k));
   (state.asetSewa || []).forEach(a => mirrorAsetSewaUpsert(a));
+  (state.utangUsaha || []).forEach(u => mirrorUtangUsahaUpsert(u));
+  (state.kasOpname || []).forEach(o => mirrorKasOpnameUpsert(o));
   (state.ahsp || []).forEach(a => mirrorAhspUpsert(a));
   (state.proyekRab || []).forEach(r => mirrorRabUpsert(r));
   (state.penawaran || []).forEach(p => mirrorPenawaranUpsert(p));
