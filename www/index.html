@@ -70,6 +70,10 @@
         <svg viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
         Dashboard
       </button>
+      <button class="nav-item" data-page="kalender">
+        <svg viewBox="0 0 24 24"><path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2zm0 16H5V10h14v10zM5 8V6h14v2H5z"/></svg>
+        Kalender
+      </button>
       <button class="nav-item" data-page="klien">
         <svg viewBox="0 0 24 24"><path d="M16 11c1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 3-1.34 3-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
         Klien
@@ -426,6 +430,7 @@
         <button class="subtab-item active" data-subtab="labarugi" data-subtab-page="lk">Laba Rugi</button>
         <button class="subtab-item" data-subtab="neraca" data-subtab-page="lk">Neraca (Ringkasan)</button>
         <button class="subtab-item" data-subtab="proyeksi" data-subtab-page="lk">Proyeksi Arus Kas</button>
+        <button class="subtab-item" data-subtab="tutupbuku" data-subtab-page="lk">Tutup Buku</button>
       </div>
 
       <div class="subtab-panel active" id="lk_labarugiPanel">
@@ -526,6 +531,23 @@
               <tbody></tbody>
             </table>
           </div>
+        </div>
+      </div>
+
+      <div class="subtab-panel" id="lk_tutupbukuPanel">
+        <div class="panel">
+          <h3>Tutup Buku Bulanan</h3>
+          <p class="muted" style="font-size:12.5px;">Satu klik di akhir bulan: cetak paket laporan lengkap sebagai arsip resmi, lalu kunci periodenya supaya transaksi bulan yang sudah ditutup tidak bisa diubah-ubah diam-diam lagi (rapi untuk arsip, evaluasi, dan pajak).</p>
+          <div class="form-grid">
+            <div class="field"><label>Bulan</label><input type="month" id="tb_bulan"></div>
+          </div>
+          <div class="summary-rows" id="tb_rows"></div>
+          <div class="modal-actions" style="justify-content:flex-start; margin-top:10px; gap:10px; flex-wrap:wrap;">
+            <button class="btn-primary" id="tb_printBtn">🖨️ Cetak Paket Laporan Bulanan</button>
+            <button class="btn-ghost" id="tb_kunciBtn">🔒 Tutup &amp; Kunci s/d Bulan Ini</button>
+            <button class="btn-ghost" id="tb_bukaKunciBtn" style="display:none;">🔓 Buka Kunci Periode</button>
+          </div>
+          <p class="muted" id="tb_kunciStatus" style="font-size:12.5px; margin-top:8px;"></p>
         </div>
       </div>
     </section>
@@ -722,6 +744,25 @@
           <h3>Tren Jam Lembur per Bulan (6 bulan terakhir)</h3>
           <div id="kpi_trendTim" class="bar-chart"></div>
         </div>
+      </div>
+    </section>
+
+    <!-- KALENDER PERUSAHAAN -->
+    <section class="page" id="page-kalender">
+      <header class="page-header">
+        <div>
+          <h1>Kalender Perusahaan</h1>
+          <p class="page-sub">Semua tenggat di satu tempat: utang &amp; piutang jatuh tempo, kontrak sewa berakhir, follow-up klien, target selesai proyek, servis alat, penawaran kadaluarsa, dan hari gajian.</p>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button class="btn-ghost" id="kal_prevBtn">◀</button>
+          <strong id="kal_label" style="min-width:150px; text-align:center;"></strong>
+          <button class="btn-ghost" id="kal_nextBtn">▶</button>
+        </div>
+      </header>
+      <div class="panel">
+        <div id="kal_grid" class="kal-grid"></div>
+        <p class="muted" style="font-size:12px; margin-top:10px;">💳 utang jatuh tempo · 🏠 kontrak sewa berakhir · 📞 follow-up klien · 🏗️ target selesai proyek · 🔧 servis alat · 📄 penawaran kadaluarsa · 💰 gajian (Sabtu). Klik item untuk membuka halamannya.</p>
       </div>
     </section>
 
