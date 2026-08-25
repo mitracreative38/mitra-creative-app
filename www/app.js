@@ -942,6 +942,7 @@ function karyawanToRow(k) {
       delete copy.bon;
       return copy;
     }),
+    pembinaan: k.pembinaan || [],
     updated_at: new Date().toISOString()
   };
 }
@@ -1675,6 +1676,7 @@ function rowToKaryawan(r) {
     uangMakanHarian: r.uang_makan_harian || 0, gajiBulanan: r.gaji_bulanan || 0,
     targetBulanan: r.target_bulanan || 0, persenBonus: r.persen_bonus || 0,
     pinjamanAwal: r.pinjaman_awal || 0, absensi: r.absensi || [],
+    pembinaan: r.pembinaan || [],
     slipGaji: [] // diisi belakangan oleh hydrateSensitiveFields()
   };
 }
@@ -7222,6 +7224,7 @@ function renderKaryawanList() {
       <td>${aktifBadge}</td>
       <td>
         <div class="row-actions">
+          <button class="icon-btn" data-pembinaan-karyawan="${k.id}" title="Catatan Pembinaan/SP (${(k.pembinaan || []).length} catatan)">📋</button>
           <button class="icon-btn" data-qr-karyawan="${k.id}" title="Kartu QR Absensi">🪪</button>
           <button class="icon-btn" data-edit-karyawan="${k.id}" title="Edit">✏️</button>
           <button class="icon-btn" data-delete-karyawan="${k.id}" title="Hapus">🗑️</button>
@@ -7236,7 +7239,11 @@ document.getElementById("ky_table").addEventListener("click", e => {
   const editBtn = e.target.closest("[data-edit-karyawan]");
   const delBtn = e.target.closest("[data-delete-karyawan]");
   const qrBtn = e.target.closest("[data-qr-karyawan]");
-  if (qrBtn) {
+  const pbBtn = e.target.closest("[data-pembinaan-karyawan]");
+  if (pbBtn) {
+    const k = state.karyawan.find(x => x.id === pbBtn.dataset.pembinaanKaryawan);
+    if (k) openPembinaanModal(k);
+  } else if (qrBtn) {
     const k = state.karyawan.find(x => x.id === qrBtn.dataset.qrKaryawan);
     if (k) openKaryawanQrModal(k);
   } else if (editBtn) {
@@ -7252,6 +7259,133 @@ document.getElementById("ky_table").addEventListener("click", e => {
     }
   }
 });
+
+// ----- Catatan Pembinaan / SP per Karyawan (SOP HRD) -----
+// Riwayat prestasi/teguran/SP tercatat dengan tanggal, alasan, dan siapa
+// pencatatnya -- dasar keputusan bonus/kenaikan/sanksi yang adil dan
+// tidak bisa diakali. Surat resmi berkop bisa dicetak per catatan.
+const JENIS_PEMBINAAN = ["Prestasi", "Teguran Lisan", "SP1", "SP2", "SP3", "Catatan Lain"];
+const pembinaanModal = document.getElementById("pembinaanModal");
+function pembinaanBadge(jenis) {
+  if (jenis === "Prestasi") return "badge-lunas";
+  if (jenis === "Teguran Lisan" || jenis === "Catatan Lain") return "status-draft";
+  return "badge-pending";
+}
+function openPembinaanModal(k) {
+  const jenisSel = document.getElementById("pb_jenis");
+  if (jenisSel.options.length === 0) jenisSel.innerHTML = JENIS_PEMBINAAN.map(j => `<option value="${j}">${j}</option>`).join("");
+  document.getElementById("pb_karyawanId").value = k.id;
+  document.getElementById("pb_nama").textContent = k.nama;
+  document.getElementById("pb_tanggal").value = hariIniIso();
+  document.getElementById("pb_catatan").value = "";
+  renderPembinaanTable(k);
+  pembinaanModal.classList.add("open");
+}
+function renderPembinaanTable(k) {
+  const rows = (k.pembinaan || []).slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
+  document.querySelector("#pb_table tbody").innerHTML = rows.length ? rows.map(p => `
+    <tr>
+      <td>${formatTanggal(p.tanggal)}</td>
+      <td><span class="badge ${pembinaanBadge(p.jenis)}">${escapeHtml(p.jenis)}</span></td>
+      <td>${escapeHtml(p.catatan)}</td>
+      <td><small>${escapeHtml(p.pemberi || "-")}</small></td>
+      <td><div class="row-actions">
+        <button class="icon-btn" data-print-pembinaan="${p.id}" title="Cetak Surat">🖨️</button>
+        <button class="icon-btn" data-delete-pembinaan="${p.id}" title="Hapus">🗑️</button>
+      </div></td>
+    </tr>
+  `).join("") : '<tr class="empty-row"><td colspan="5">Belum ada catatan pembinaan untuk karyawan ini</td></tr>';
+}
+document.getElementById("pb_addBtn").addEventListener("click", () => {
+  const k = state.karyawan.find(x => x.id === document.getElementById("pb_karyawanId").value);
+  if (!k) return;
+  const tanggal = document.getElementById("pb_tanggal").value;
+  const catatan = document.getElementById("pb_catatan").value.trim();
+  if (!tanggal || !catatan) { alert("Isi tanggal dan uraian/alasan terlebih dahulu."); return; }
+  const sebelum = { ...k, pembinaan: (k.pembinaan || []).slice() };
+  if (!k.pembinaan) k.pembinaan = [];
+  // Pencatat dipatri otomatis dari akun login (tidak bisa diatasnamakan).
+  k.pembinaan.push({
+    id: uid(), tanggal,
+    jenis: document.getElementById("pb_jenis").value,
+    catatan, pemberi: petugasSaatIni()
+  });
+  saveState();
+  mirrorKaryawanUpsert(k, sebelum);
+  document.getElementById("pb_catatan").value = "";
+  renderPembinaanTable(k);
+  renderKaryawanList();
+});
+document.getElementById("pb_table").addEventListener("click", e => {
+  const k = state.karyawan.find(x => x.id === document.getElementById("pb_karyawanId").value);
+  if (!k) return;
+  const printBtn = e.target.closest("[data-print-pembinaan]");
+  const delBtn = e.target.closest("[data-delete-pembinaan]");
+  if (printBtn) {
+    const p = (k.pembinaan || []).find(x => x.id === printBtn.dataset.printPembinaan);
+    if (!p) return;
+    document.getElementById("printArea").innerHTML = buildSuratPembinaanPrintHtml(k, p);
+    cetakPrintArea();
+  } else if (delBtn) {
+    if (!confirm("Hapus catatan pembinaan ini?")) return;
+    const sebelum = { ...k, pembinaan: (k.pembinaan || []).slice() };
+    k.pembinaan = (k.pembinaan || []).filter(x => x.id !== delBtn.dataset.deletePembinaan);
+    saveState();
+    mirrorKaryawanUpsert(k, sebelum);
+    renderPembinaanTable(k);
+    renderKaryawanList();
+  }
+});
+function buildSuratPembinaanPrintHtml(k, p) {
+  const JUDUL = {
+    "Prestasi": "SURAT PENGHARGAAN / CATATAN PRESTASI",
+    "Teguran Lisan": "SURAT TEGURAN",
+    "SP1": "SURAT PERINGATAN PERTAMA (SP-1)",
+    "SP2": "SURAT PERINGATAN KEDUA (SP-2)",
+    "SP3": "SURAT PERINGATAN KETIGA (SP-3)",
+    "Catatan Lain": "CATATAN PEMBINAAN KARYAWAN"
+  };
+  const isSP = p.jenis === "SP1" || p.jenis === "SP2" || p.jenis === "SP3";
+  const penutup = p.jenis === "Prestasi"
+    ? "Perusahaan mengucapkan terima kasih dan penghargaan atas kinerja tersebut. Prestasi ini dicatat dan menjadi pertimbangan dalam pemberian bonus, kenaikan, atau kesempatan lain di kemudian hari."
+    : p.jenis === "SP3"
+      ? "Surat peringatan ini merupakan peringatan TERAKHIR. Apabila Saudara/i melakukan pelanggaran kembali, perusahaan dapat melakukan pemutusan hubungan kerja sesuai peraturan perusahaan dan ketentuan yang berlaku."
+      : isSP
+        ? "Apabila Saudara/i mengulangi pelanggaran atau melakukan pelanggaran lain, perusahaan akan menjatuhkan sanksi yang lebih berat sesuai peraturan perusahaan, hingga pemutusan hubungan kerja."
+        : "Catatan ini dibuat sebagai bagian dari pembinaan karyawan sesuai SOP perusahaan, agar hal serupa menjadi perhatian bersama.";
+  return `
+    <div class="letterhead">
+      <div class="letterhead-logo">${LOGO_SVG}</div>
+      <div class="letterhead-text">
+        <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+      </div>
+    </div>
+    <div class="letterhead-rule"></div>
+    <h3 style="text-align:center; margin:6px 0 16px; letter-spacing:.5px;">${JUDUL[p.jenis] || "CATATAN PEMBINAAN KARYAWAN"}</h3>
+    <table class="doc-summary-table" style="margin-bottom:14px;">
+      <tr><td style="width:35%;">Nama Karyawan</td><td><strong>${escapeHtml(k.nama)}</strong></td></tr>
+      <tr><td>Jabatan</td><td>${escapeHtml(k.jabatan || "-")}</td></tr>
+      <tr><td>Tanggal</td><td>${formatTanggal(p.tanggal)}</td></tr>
+      <tr><td>Dicatat oleh</td><td>${escapeHtml(p.pemberi || "-")}</td></tr>
+    </table>
+    <p class="doc-p" style="font-weight:700; margin-bottom:4px;">${p.jenis === "Prestasi" ? "Uraian Prestasi:" : "Uraian Kejadian / Pelanggaran:"}</p>
+    <p class="doc-p" style="margin-bottom:14px;">${escapeHtml(p.catatan)}</p>
+    <p class="doc-p" style="margin-bottom:20px;">${penutup}</p>
+    <div style="display:flex; justify-content:space-between; margin-top:30px; font-size:12.5px;">
+      <div style="text-align:center;">
+        Karyawan yang bersangkutan,<br><br><br><br>
+        <strong>${escapeHtml(k.nama)}</strong>
+      </div>
+      <div style="text-align:center;">
+        ${escapeHtml(state.company || "CV. Mitra Creative")}
+        ${ownerTtdOrSpace(state.ownerNama)}
+        <strong>${escapeHtml(state.ownerNama)}</strong><br>${escapeHtml(state.ownerJabatan)}
+      </div>
+    </div>
+  `;
+}
 
 // ----- Kartu QR Absensi per Karyawan (Fase 1.7) -----
 // Format isi QR sengaja diberi awalan "MC-ABSEN:" supaya kalau kamera
