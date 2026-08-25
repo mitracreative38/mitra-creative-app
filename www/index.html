@@ -200,6 +200,15 @@
         <div class="muted" style="margin-bottom:10px; font-weight:600;">⚠️ Perlu Perhatian</div>
         <div class="summary-rows" id="dash_alertRows"></div>
       </div>
+
+      <div class="panel" id="dash_integrasiPanel">
+        <div class="toolbar">
+          <div class="muted" style="flex:1; font-weight:600;">🔎 Pemeriksaan Integrasi Data</div>
+          <button class="btn-ghost" id="dash_periksaBtn">Periksa Sekarang</button>
+        </div>
+        <p class="muted" style="font-size:12px; margin:-4px 0 10px;">Memindai seluruh data (termasuk input lama sebelum integrasi otomatis ada) dan menampilkan tautan antar-modul yang masih putus — invoice dibayar tanpa catatan Kas, transaksi biaya tanpa proyek, absensi tanpa alokasi proyek, dan lainnya.</p>
+        <div id="dash_integrasiHasil"></div>
+      </div>
       <div class="panel" id="dash_allClearPanel" style="display:none;">
         <div class="muted">✅ Semua aman, tidak ada yang perlu ditindaklanjuti saat ini.</div>
       </div>
