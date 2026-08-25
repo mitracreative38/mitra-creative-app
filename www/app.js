@@ -11604,16 +11604,18 @@ function buildPenawaranPrintHtml(pw) {
   if (pw.brand === "mataresolusi") return buildMataResolusiPenawaranHtml(pw);
   const { subtotal, diskonValue, ppnValue, pphValue, total } = penawaranTotals(pw);
   const profil = { company: state.company, alamat: state.alamat || COMPANY_ADDRESS, telepon: state.telepon || COMPANY_PHONE, ownerNama: state.ownerNama, ownerJabatan: state.ownerJabatan };
+  // Harga Satuan SENGAJA tidak dicetak (cukup Volume + Jumlah) -- dokumen
+  // ini keluar ke pihak luar; harga satuan internal jangan ikut bocor
+  // supaya tidak bisa dipermainkan/dibanding-bandingkan oleh oknum.
   const itemsRows = pw.items.map((it, i) => `
     <tr>
       <td class="c">${i + 1}</td>
       <td>${escapeHtml(it.uraian)}</td>
       <td class="c">${escapeHtml(it.satuan)}</td>
       <td class="r">${it.volume}</td>
-      <td class="r">${rupiah(it.hargaSatuan)}</td>
       <td class="r">${rupiah((it.volume || 0) * (it.hargaSatuan || 0))}</td>
     </tr>
-  `).join("") || `<tr><td colspan="6" class="c">Belum ada item</td></tr>`;
+  `).join("") || `<tr><td colspan="5" class="c">Belum ada item</td></tr>`;
 
   const todayIso = hariIniIso();
   let statusText, statusCls;
@@ -11673,7 +11675,7 @@ function buildPenawaranPrintHtml(pw) {
 
       <div class="pwmc-section-label">Rincian Lingkup Pekerjaan</div>
       <table class="pwmc-table">
-        <thead><tr><th>No</th><th>Uraian Pekerjaan</th><th class="c">Satuan</th><th class="r">Volume</th><th class="r">Harga Satuan</th><th class="r">Jumlah</th></tr></thead>
+        <thead><tr><th>No</th><th>Uraian Pekerjaan</th><th class="c">Satuan</th><th class="r">Volume</th><th class="r">Jumlah</th></tr></thead>
         <tbody>${itemsRows}</tbody>
       </table>
 
@@ -11713,10 +11715,12 @@ function buildPenawaranPrintHtml(pw) {
 function buildMataResolusiPenawaranHtml(pw) {
   const { subtotal, diskonValue, ppnValue, pphValue, total } = penawaranTotals(pw);
   const profil = MATA_RESOLUSI_INFO;
+  // Harga satuan sengaja tidak ditampilkan (cukup volume + jumlah) --
+  // alasan sama dengan cetak penawaran Mitra: dokumen keluar.
   const itemsRows = pw.items.map((it, i) => `
     <tr>
       <td class="c">${i + 1}</td>
-      <td>${escapeHtml(it.uraian)}<div class="mr-item-sub">${it.volume} ${escapeHtml(it.satuan)} &times; ${rupiah(it.hargaSatuan)}</div></td>
+      <td>${escapeHtml(it.uraian)}<div class="mr-item-sub">${it.volume} ${escapeHtml(it.satuan)}</div></td>
       <td class="r">${rupiah((it.volume || 0) * (it.hargaSatuan || 0))}</td>
     </tr>
   `).join("") || `<tr><td colspan="3" class="c">Belum ada item</td></tr>`;
