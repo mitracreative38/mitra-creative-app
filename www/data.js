@@ -624,3 +624,58 @@ SEED_DATA.approvalThreshold = 0;
 SEED_DATA.jamKerjaMulai = "08:00";
 SEED_DATA.jamKerjaSelesai = "17:00";
 SEED_DATA.radiusProyekMeter = 500;
+
+// ===== Template checklist QC standar (Modul QC Produksi & Lapangan) =====
+// Standar awal yang langsung bisa dipakai -- saat membuat inspeksi, item
+// bisa ditambah/dihapus sesuai pekerjaan. Disusun untuk lini usaha Mitra
+// Creative: advertising (cetak, neon box, huruf timbul, baliho),
+// konstruksi/sipil, dan interior.
+const QC_TEMPLATES = {
+  "Produksi — Cetak & Finishing (banner, baliho, stiker)": [
+    "Desain final sudah di-ACC klien (proof/approval tertulis)",
+    "Ukuran hasil cetak sesuai pesanan (panjang x lebar)",
+    "Warna sesuai desain/proof, tidak pudar atau belang",
+    "Resolusi tajam, tidak pecah saat dilihat dari jarak pandang normal",
+    "Teks dicek ulang: tidak ada salah ketik, nomor telepon/alamat benar",
+    "Bahan sesuai spesifikasi penawaran (jenis & ketebalan)",
+    "Finishing rapi: mata ayam/lipatan/laminasi sesuai pesanan",
+    "Hasil bersih: tidak ada noda, goresan, atau bekas lem"
+  ],
+  "Produksi — Konstruksi & Listrik (neon box, huruf timbul, rangka)": [
+    "Dimensi rangka/box sesuai gambar kerja",
+    "Sambungan las kuat & rapi, tidak ada karat",
+    "Cat/coating rata, warna sesuai desain",
+    "Akrilik/plat tidak retak, gores, atau kusam",
+    "Lampu/LED menyala semua & merata (tes minimal 30 menit)",
+    "Kabel, adaptor, dan sambungan listrik aman & terbungkus rapi",
+    "Baut/dudukan lengkap untuk pemasangan di lokasi",
+    "Hasil akhir bersih & siap kirim (dilindungi packing)"
+  ],
+  "Lapangan — Pemasangan & Instalasi": [
+    "Posisi & ketinggian pemasangan sesuai titik yang disepakati",
+    "Terpasang kokoh: tidak goyang, baut/angkur kencang semua",
+    "Lurus & level (tidak miring dilihat dari depan dan samping)",
+    "Kelistrikan berfungsi di lokasi (nyala, tidak korslet, aman hujan)",
+    "Tidak ada kerusakan saat pengiriman/pemasangan",
+    "Area kerja dibersihkan kembali, tidak ada sisa material",
+    "Foto dokumentasi sebelum & sesudah pemasangan diambil",
+    "Keselamatan kerja dipatuhi selama pemasangan (APD, pengaman)"
+  ],
+  "Lapangan — Serah Terima dengan Klien": [
+    "Hasil akhir dicek bersama perwakilan klien di lokasi",
+    "Semua item pesanan lengkap sesuai penawaran/SPK",
+    "Fungsi dites di depan klien (lampu, mekanik, dll)",
+    "Klien diberi tahu cara perawatan & masa garansi",
+    "Kekurangan/permintaan tambahan dicatat tertulis",
+    "Berita acara/form QC ditandatangani perwakilan klien"
+  ],
+  "Konstruksi/Sipil — Pekerjaan Struktur & Finishing": [
+    "Ukuran & elevasi sesuai gambar kerja (shop drawing)",
+    "Material terpasang sesuai spesifikasi RAB",
+    "Campuran/pengecoran sesuai takaran, tidak keropos",
+    "Pasangan/plesteran rata, siku, dan lot (tegak lurus)",
+    "Finishing (cat/keramik/plafon) rapi tanpa cacat",
+    "Instalasi air/listrik dites berfungsi & tidak bocor",
+    "Area kerja aman & bersih setiap akhir hari kerja"
+  ]
+};

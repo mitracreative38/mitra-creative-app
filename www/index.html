@@ -99,6 +99,10 @@
         <svg viewBox="0 0 24 24"><path d="M4 4h16v4H4V4zm0 6h10v10H4V10zm12 0h4v10h-4V10z"/></svg>
         Margin Proyek
       </button>
+      <button class="nav-item" data-page="qc">
+        <svg viewBox="0 0 24 24"><path d="M12 2l8 3v6c0 5-3.4 9.4-8 11-4.6-1.6-8-6-8-11V5l8-3zm-1.2 13.6l6-6-1.4-1.4-4.6 4.6-2.2-2.2-1.4 1.4 3.6 3.6z"/></svg>
+        QC Produksi &amp; Lapangan
+      </button>
       <button class="nav-item" data-page="sewaAset">
         <svg viewBox="0 0 24 24"><path d="M12 3L2 12h3v8h6v-6h2v6h6v-8h3L12 3zm0 2.7l6 5.4V18h-2v-6H8v6H7v-6.9l5-4.4z"/></svg>
         Sewa Aset
@@ -812,6 +816,52 @@
           <table class="tbl" id="sa_table">
             <thead><tr>
               <th>Aset</th><th>Jenis</th><th>Lokasi</th><th class="num">Harga Sewa</th><th>Status Sewa</th><th class="num">Total Pendapatan</th><th></th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- QC PRODUKSI & LAPANGAN -->
+    <section class="page" id="page-qc">
+      <header class="page-header">
+        <div>
+          <h1>QC Produksi &amp; Lapangan</h1>
+          <p class="page-sub">Alur: Persiapan (buat inspeksi dari template) → Pelaksanaan (petugas centang checklist) → QC lulus / inspeksi ulang → ACC klien → tambahan pekerjaan tercatat sebagai adendum.</p>
+        </div>
+        <button class="btn-primary" id="qc_addBtn">+ Inspeksi Baru</button>
+      </header>
+
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-label">Inspeksi Berjalan</div>
+          <div class="stat-value" id="qc_statProses">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Perlu Perbaikan</div>
+          <div class="stat-value bad" id="qc_statPerbaikan">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Lulus QC</div>
+          <div class="stat-value good" id="qc_statLulus">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Menunggu ACC Klien</div>
+          <div class="stat-value" id="qc_statMenungguAcc">0</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="form-grid">
+          <div class="field"><label>Proyek</label><select id="qc_filterProyek"><option value="">Semua Proyek</option></select></div>
+          <div class="field"><label>Jenis</label><select id="qc_filterJenis"><option value="">Semua Jenis</option><option value="produksi">QC Produksi</option><option value="lapangan">QC Lapangan</option></select></div>
+          <div class="field"><label>Status</label><select id="qc_filterStatus"><option value="">Semua Status</option><option value="proses">Berjalan</option><option value="perbaikan">Perlu Perbaikan</option><option value="lulus">Lulus</option></select></div>
+        </div>
+        <div class="table-wrap">
+          <table class="tbl" id="qc_table">
+            <thead><tr>
+              <th>Tanggal</th><th>Proyek</th><th>Jenis</th><th>Petugas</th><th>Hasil Checklist</th><th>Status</th><th>ACC Klien</th><th></th>
             </tr></thead>
             <tbody></tbody>
           </table>
@@ -2938,6 +2988,92 @@
       <div class="modal-actions">
         <button type="button" class="btn-ghost" data-close-modal>Batal</button>
         <button type="submit" class="btn-primary">Simpan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="qcModal">
+  <div class="modal" style="max-width:860px;">
+    <div class="modal-head"><h3 id="qcModalTitle">Inspeksi QC Baru</h3><button class="icon-btn" data-close-modal>✕</button></div>
+    <form id="qcForm">
+      <input type="hidden" id="qcf_id">
+      <div class="form-grid">
+        <div class="field">
+          <label>Proyek</label>
+          <select id="qcf_proyek" required></select>
+        </div>
+        <div class="field">
+          <label>Jenis QC</label>
+          <select id="qcf_jenis">
+            <option value="produksi">QC Produksi (di workshop, sebelum kirim)</option>
+            <option value="lapangan">QC Lapangan (setelah pasang, sebelum serah terima)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Template Checklist</label>
+          <select id="qcf_template"></select>
+          <small class="hint">Item terisi otomatis dari standar — bisa ditambah/dihapus di bawah.</small>
+        </div>
+        <div class="field">
+          <label>Tanggal Inspeksi</label>
+          <input type="date" id="qcf_tanggal" required>
+        </div>
+        <div class="field">
+          <label>Petugas QC</label>
+          <input type="text" id="qcf_petugas" list="qcf_petugasList" placeholder="Nama pemeriksa" required>
+          <datalist id="qcf_petugasList"></datalist>
+        </div>
+        <div class="field full">
+          <label>Catatan Umum</label>
+          <input type="text" id="qcf_catatan" placeholder="cth. cek sebelum kirim ke lokasi klien A">
+        </div>
+      </div>
+      <h4 style="margin:14px 0 6px;">Checklist Pemeriksaan</h4>
+      <div class="table-wrap">
+        <table class="tbl" id="qcf_itemsTable">
+          <thead><tr><th>Item yang Dicek</th><th style="width:150px;">Hasil</th><th>Catatan/Temuan</th><th style="width:40px;"></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <button type="button" class="btn-ghost" id="qcf_addItemBtn" style="margin-top:8px;">+ Tambah Item Cek</button>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan Inspeksi</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="qcAccModal">
+  <div class="modal">
+    <div class="modal-head"><h3>ACC Klien (Persetujuan Hasil)</h3><button class="icon-btn" data-close-modal>✕</button></div>
+    <form id="qcAccForm">
+      <input type="hidden" id="qca_qcId">
+      <div class="form-grid">
+        <div class="field">
+          <label>Keputusan Klien</label>
+          <select id="qca_status">
+            <option value="disetujui">Disetujui (ACC)</option>
+            <option value="revisi">Ada Revisi / Tambahan Pekerjaan</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Tanggal</label>
+          <input type="date" id="qca_tanggal" required>
+        </div>
+        <div class="field full">
+          <label>Nama Perwakilan Klien</label>
+          <input type="text" id="qca_nama" required placeholder="Nama yang meng-ACC di lokasi">
+        </div>
+        <div class="field full">
+          <label>Catatan / Isi Revisi / Tambahan yang Diminta</label>
+          <input type="text" id="qca_catatan" placeholder="Wajib diisi kalau ada revisi/tambahan">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan ACC</button>
       </div>
     </form>
   </div>

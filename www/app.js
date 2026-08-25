@@ -867,6 +867,7 @@ function proyekToRow(p) {
     tahapan: p.tahapan || [],
     invoices: p.invoices || [],
     bap: p.bap || [],
+    qc: p.qc || [],
     arsip: p.arsip === true,
     updated_at: new Date().toISOString()
   };
@@ -1645,6 +1646,7 @@ function rowToProyek(r) {
     progressRealisasi: r.progress_realisasi || [], dokumen: r.dokumen || [],
     jadwalPekerjaan: r.jadwal_pekerjaan || [], laporanHarian: r.laporan_harian || [],
     perubahanPekerjaan: r.perubahan_pekerjaan || [],
+    qc: r.qc || [],
     tahapan: r.tahapan || [], invoices: r.invoices || [], bap: r.bap || [],
     arsip: r.arsip === true
   };
@@ -2998,6 +3000,314 @@ document.getElementById("asetBayarForm").addEventListener("submit", e => {
   openAsetKontrakModal(a.id);
 });
 
+// ===== QC Produksi & Lapangan =====
+// Alur yang diterapkan: PERSIAPAN (buat inspeksi dari template checklist
+// standar di data.js, item bisa disesuaikan) -> PELAKSANAAN (petugas QC
+// mengisi hasil tiap item: Lulus / Perlu Perbaikan + catatan temuan) ->
+// status keseluruhan dihitung otomatis; kalau ada temuan, tombol
+// "Inspeksi Ulang" membuat inspeksi baru berisi HANYA item yang gagal ->
+// ACC KLIEN dicatat pada QC lapangan (nama perwakilan, tanggal, catatan);
+// kalau klien minta revisi/tambahan, otomatis ditawarkan pencatatan
+// sebagai Perubahan Pekerjaan (adendum) di proyeknya supaya nilai
+// kontrak & penagihannya tidak lolos. Data disimpan di proyek.qc
+// (kolom jsonb fix40) sehingga RLS mengikuti proyek: Owner + Admin.
+function qcStatus(q) {
+  const items = q.items || [];
+  if (!items.length) return "proses";
+  if (items.some(it => it.hasil === "perbaikan")) return "perbaikan";
+  if (items.every(it => it.hasil === "lulus")) return "lulus";
+  return "proses";
+}
+function semuaQc() {
+  const daftar = [];
+  (state.proyek || []).forEach(p => (p.qc || []).forEach(q => daftar.push({ p, q })));
+  return daftar.sort((a, b) => (b.q.tanggal || "").localeCompare(a.q.tanggal || ""));
+}
+function qcPerluPerhatianCount() {
+  return semuaQc().filter(x => qcStatus(x.q) === "perbaikan").length;
+}
+const QC_JENIS_LABEL = { produksi: "QC Produksi", lapangan: "QC Lapangan" };
+function renderQc() {
+  const tbody = document.querySelector("#qc_table tbody");
+  if (!tbody) return;
+  const filterProyekSel = document.getElementById("qc_filterProyek");
+  const dipilih = filterProyekSel.value;
+  filterProyekSel.innerHTML = '<option value="">Semua Proyek</option>' +
+    (state.proyek || []).filter(p => !p.arsip).map(p => `<option value="${p.id}">${escapeHtml(p.nama)}</option>`).join("");
+  filterProyekSel.value = dipilih;
+  const fJenis = document.getElementById("qc_filterJenis").value;
+  const fStatus = document.getElementById("qc_filterStatus").value;
+  const semua = semuaQc();
+  document.getElementById("qc_statProses").textContent = semua.filter(x => qcStatus(x.q) === "proses").length;
+  document.getElementById("qc_statPerbaikan").textContent = semua.filter(x => qcStatus(x.q) === "perbaikan").length;
+  document.getElementById("qc_statLulus").textContent = semua.filter(x => qcStatus(x.q) === "lulus").length;
+  document.getElementById("qc_statMenungguAcc").textContent = semua.filter(x =>
+    x.q.jenis === "lapangan" && qcStatus(x.q) === "lulus" && (!x.q.acc || x.q.acc.status === "belum")).length;
+  const daftar = semua.filter(x => {
+    if (filterProyekSel.value && x.p.id !== filterProyekSel.value) return false;
+    if (fJenis && x.q.jenis !== fJenis) return false;
+    if (fStatus && qcStatus(x.q) !== fStatus) return false;
+    return true;
+  });
+  const STATUS_BADGE = {
+    proses: '<span class="badge badge-pending">Berjalan</span>',
+    perbaikan: '<span class="badge status-ditolak">Perlu Perbaikan</span>',
+    lulus: '<span class="badge badge-lunas">Lulus</span>'
+  };
+  tbody.innerHTML = daftar.length ? daftar.map(({ p, q }) => {
+    const st = qcStatus(q);
+    const lulus = (q.items || []).filter(it => it.hasil === "lulus").length;
+    const accHtml = q.acc && q.acc.status !== "belum"
+      ? (q.acc.status === "disetujui"
+        ? `<span class="badge badge-lunas">ACC</span><br><small class="muted">${escapeHtml(q.acc.nama || "")}, ${formatTanggal(q.acc.tanggal)}</small>`
+        : `<span class="badge badge-pending">Revisi</span><br><small class="muted">${escapeHtml(q.acc.catatan || "")}</small>`)
+      : (q.jenis === "lapangan" && st === "lulus" ? '<span class="muted">menunggu</span>' : "-");
+    return `
+    <tr>
+      <td>${formatTanggal(q.tanggal)}</td>
+      <td><strong>${escapeHtml(p.nama)}</strong></td>
+      <td>${QC_JENIS_LABEL[q.jenis] || q.jenis}</td>
+      <td>${escapeHtml(q.petugas || "-")}</td>
+      <td>${lulus}/${(q.items || []).length} lulus${st === "perbaikan" ? `<br><small class="muted">${(q.items || []).filter(it => it.hasil === "perbaikan").length} temuan</small>` : ""}</td>
+      <td>${STATUS_BADGE[st]}</td>
+      <td>${accHtml}</td>
+      <td class="row-actions">
+        <button class="icon-btn" data-edit-qc="${q.id}" data-qc-proyek="${p.id}" title="Isi / Edit Checklist">✏️</button>
+        <button class="icon-btn" data-print-qc="${q.id}" data-qc-proyek="${p.id}" title="Cetak Form QC">🖨️</button>
+        ${q.jenis === "lapangan" && st === "lulus" ? `<button class="icon-btn" data-acc-qc="${q.id}" data-qc-proyek="${p.id}" title="ACC Klien">✍️</button>` : ""}
+        ${st === "perbaikan" ? `<button class="icon-btn" data-ulang-qc="${q.id}" data-qc-proyek="${p.id}" title="Inspeksi Ulang (item gagal saja)">🔁</button>` : ""}
+        <button class="icon-btn" data-delete-qc="${q.id}" data-qc-proyek="${p.id}" title="Hapus">🗑️</button>
+      </td>
+    </tr>`;
+  }).join("") : '<tr class="empty-row"><td colspan="8">Belum ada inspeksi QC. Klik "+ Inspeksi Baru" — pilih proyek & template checklist standar.</td></tr>';
+}
+// --- Modal inspeksi ---
+const qcModal = document.getElementById("qcModal");
+let qcItemsDraft = [];
+function qcTemplatesUntukJenis(jenis) {
+  const prefix = jenis === "produksi" ? "Produksi" : "Lapangan";
+  return Object.keys(QC_TEMPLATES).filter(k => k.startsWith(prefix) || k.startsWith("Konstruksi"));
+}
+function renderQcfItems() {
+  const tbody = document.querySelector("#qcf_itemsTable tbody");
+  tbody.innerHTML = qcItemsDraft.length ? qcItemsDraft.map((it, i) => `
+    <tr>
+      <td><input type="text" data-qcf-nama="${i}" value="${escapeHtml(it.nama)}" style="width:100%;"></td>
+      <td>
+        <select data-qcf-hasil="${i}">
+          <option value="" ${!it.hasil ? "selected" : ""}>— belum dicek</option>
+          <option value="lulus" ${it.hasil === "lulus" ? "selected" : ""}>✅ Lulus</option>
+          <option value="perbaikan" ${it.hasil === "perbaikan" ? "selected" : ""}>❌ Perlu Perbaikan</option>
+        </select>
+      </td>
+      <td><input type="text" data-qcf-catatan="${i}" value="${escapeHtml(it.catatan || "")}" placeholder="Temuan / tindakan" style="width:100%;"></td>
+      <td><button type="button" class="icon-btn" data-qcf-hapus="${i}">🗑️</button></td>
+    </tr>
+  `).join("") : '<tr class="empty-row"><td colspan="4">Pilih template di atas atau tambah item manual.</td></tr>';
+}
+function isiTemplateOptions() {
+  const jenis = document.getElementById("qcf_jenis").value;
+  document.getElementById("qcf_template").innerHTML =
+    '<option value="">(susun sendiri / biarkan item yang ada)</option>' +
+    qcTemplatesUntukJenis(jenis).map(k => `<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`).join("");
+}
+function openQcModal(proyekId, existing, presetItems) {
+  document.getElementById("qcModalTitle").textContent = existing ? "Isi / Edit Inspeksi QC" : "Inspeksi QC Baru";
+  const proyekSel = document.getElementById("qcf_proyek");
+  proyekSel.innerHTML = (state.proyek || []).filter(p => !p.arsip || (existing && p.id === proyekId))
+    .map(p => `<option value="${p.id}">${escapeHtml(p.nama)}</option>`).join("");
+  if (!proyekSel.options.length) { alert("Belum ada proyek. Buat proyek dulu di menu Margin Proyek."); return; }
+  proyekSel.value = proyekId || proyekSel.options[0].value;
+  proyekSel.disabled = !!existing;
+  document.getElementById("qcf_id").value = existing ? existing.id : "";
+  document.getElementById("qcf_jenis").value = existing ? existing.jenis : "produksi";
+  document.getElementById("qcf_jenis").disabled = !!existing;
+  isiTemplateOptions();
+  document.getElementById("qcf_tanggal").value = existing ? existing.tanggal : hariIniIso();
+  document.getElementById("qcf_petugas").value = existing ? (existing.petugas || "") : "";
+  document.getElementById("qcf_petugasList").innerHTML = (state.karyawan || []).filter(k => k.aktif !== false)
+    .map(k => `<option value="${escapeHtml(k.nama)}">`).join("");
+  document.getElementById("qcf_catatan").value = existing ? (existing.catatan || "") : "";
+  qcItemsDraft = existing ? JSON.parse(JSON.stringify(existing.items || [])) : (presetItems || []);
+  renderQcfItems();
+  qcModal.classList.add("open");
+}
+document.getElementById("qc_addBtn").addEventListener("click", () => openQcModal(document.getElementById("qc_filterProyek").value || null, null, null));
+document.getElementById("qcf_jenis").addEventListener("change", isiTemplateOptions);
+document.getElementById("qcf_template").addEventListener("change", () => {
+  const k = document.getElementById("qcf_template").value;
+  if (!k) return;
+  if (qcItemsDraft.length && !confirm("Ganti daftar item dengan template ini? Isian yang ada akan diganti.")) return;
+  qcItemsDraft = QC_TEMPLATES[k].map(nama => ({ id: uid(), nama, hasil: "", catatan: "" }));
+  renderQcfItems();
+});
+document.getElementById("qcf_addItemBtn").addEventListener("click", () => {
+  qcItemsDraft.push({ id: uid(), nama: "", hasil: "", catatan: "" });
+  renderQcfItems();
+});
+document.querySelector("#qcf_itemsTable tbody").addEventListener("input", e => {
+  const nama = e.target.closest("[data-qcf-nama]");
+  const catatan = e.target.closest("[data-qcf-catatan]");
+  if (nama) qcItemsDraft[Number(nama.dataset.qcfNama)].nama = nama.value;
+  if (catatan) qcItemsDraft[Number(catatan.dataset.qcfCatatan)].catatan = catatan.value;
+});
+document.querySelector("#qcf_itemsTable tbody").addEventListener("change", e => {
+  const hasil = e.target.closest("[data-qcf-hasil]");
+  if (hasil) qcItemsDraft[Number(hasil.dataset.qcfHasil)].hasil = hasil.value;
+});
+document.querySelector("#qcf_itemsTable tbody").addEventListener("click", e => {
+  const hapus = e.target.closest("[data-qcf-hapus]");
+  if (hapus) { qcItemsDraft.splice(Number(hapus.dataset.qcfHapus), 1); renderQcfItems(); }
+});
+document.getElementById("qcForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const p = state.proyek.find(x => x.id === document.getElementById("qcf_proyek").value);
+  if (!p) { closeModals(); return; }
+  const items = qcItemsDraft.filter(it => (it.nama || "").trim());
+  if (!items.length) { alert("Checklist masih kosong — pilih template atau tambah minimal 1 item."); return; }
+  if (!p.qc) p.qc = [];
+  const id = document.getElementById("qcf_id").value;
+  const existing = p.qc.find(x => x.id === id);
+  const q = {
+    id: id || uid(),
+    jenis: document.getElementById("qcf_jenis").value,
+    tanggal: document.getElementById("qcf_tanggal").value,
+    petugas: document.getElementById("qcf_petugas").value.trim(),
+    catatan: document.getElementById("qcf_catatan").value.trim(),
+    items,
+    acc: existing ? existing.acc : { status: "belum" }
+  };
+  const idx = p.qc.findIndex(x => x.id === id);
+  if (idx >= 0) p.qc[idx] = q; else p.qc.push(q);
+  saveState();
+  mirrorProyekUpsert(p);
+  closeModals();
+  renderAll();
+});
+// --- Aksi baris tabel ---
+document.querySelector("#qc_table tbody").addEventListener("click", e => {
+  const btn = e.target.closest("[data-qc-proyek]");
+  if (!btn) return;
+  const p = state.proyek.find(x => x.id === btn.dataset.qcProyek);
+  if (!p) return;
+  const qId = btn.dataset.editQc || btn.dataset.printQc || btn.dataset.accQc || btn.dataset.ulangQc || btn.dataset.deleteQc;
+  const q = (p.qc || []).find(x => x.id === qId);
+  if (!q) return;
+  if (btn.dataset.editQc) openQcModal(p.id, q, null);
+  else if (btn.dataset.printQc) {
+    document.getElementById("printArea").innerHTML = buildQcPrintHtml(p, q);
+    document.body.classList.add("printing-quote");
+    window.print();
+  } else if (btn.dataset.accQc) openQcAccModal(p, q);
+  else if (btn.dataset.ulangQc) {
+    const gagal = (q.items || []).filter(it => it.hasil === "perbaikan")
+      .map(it => ({ id: uid(), nama: it.nama, hasil: "", catatan: it.catatan ? `Temuan sebelumnya: ${it.catatan}` : "" }));
+    openQcModal(p.id, null, gagal);
+    document.getElementById("qcf_jenis").value = q.jenis;
+    isiTemplateOptions();
+    document.getElementById("qcf_catatan").value = `Inspeksi ulang dari QC ${formatTanggal(q.tanggal)}`;
+  } else if (btn.dataset.deleteQc) {
+    if (!confirm(`Hapus inspeksi QC ${formatTanggal(q.tanggal)} untuk proyek "${p.nama}"?`)) return;
+    p.qc = p.qc.filter(x => x.id !== q.id);
+    saveState();
+    mirrorProyekUpsert(p);
+    renderAll();
+  }
+});
+document.getElementById("qc_filterProyek").addEventListener("change", renderQc);
+document.getElementById("qc_filterJenis").addEventListener("change", renderQc);
+document.getElementById("qc_filterStatus").addEventListener("change", renderQc);
+// --- ACC klien ---
+const qcAccModal = document.getElementById("qcAccModal");
+let qcAccCtx = null;
+function openQcAccModal(p, q) {
+  qcAccCtx = { proyekId: p.id, qcId: q.id };
+  document.getElementById("qca_qcId").value = q.id;
+  document.getElementById("qca_status").value = q.acc && q.acc.status !== "belum" ? q.acc.status : "disetujui";
+  document.getElementById("qca_tanggal").value = (q.acc && q.acc.tanggal) || hariIniIso();
+  document.getElementById("qca_nama").value = (q.acc && q.acc.nama) || "";
+  document.getElementById("qca_catatan").value = (q.acc && q.acc.catatan) || "";
+  qcAccModal.classList.add("open");
+}
+document.getElementById("qcAccForm").addEventListener("submit", e => {
+  e.preventDefault();
+  if (!qcAccCtx) { closeModals(); return; }
+  const p = state.proyek.find(x => x.id === qcAccCtx.proyekId);
+  const q = p && (p.qc || []).find(x => x.id === qcAccCtx.qcId);
+  if (!q) { closeModals(); return; }
+  const status = document.getElementById("qca_status").value;
+  const catatan = document.getElementById("qca_catatan").value.trim();
+  if (status === "revisi" && !catatan) { alert("Isi catatan revisi/tambahan yang diminta klien."); return; }
+  q.acc = {
+    status,
+    nama: document.getElementById("qca_nama").value.trim(),
+    tanggal: document.getElementById("qca_tanggal").value,
+    catatan
+  };
+  // Tambahan pekerjaan dari klien -> tawarkan langsung tercatat sebagai
+  // adendum (Perubahan Pekerjaan) di proyek, status "diajukan" (nilai
+  // kontrak baru berubah setelah nilainya diisi & disetujui di detail
+  // proyek) -- supaya permintaan lisan di lapangan tidak hilang.
+  if (status === "revisi" && confirm("Catat juga sebagai Perubahan Pekerjaan (adendum) di proyek ini?\nNilainya bisa diisi belakangan di detail proyek → Perubahan Pekerjaan.")) {
+    if (!p.perubahanPekerjaan) p.perubahanPekerjaan = [];
+    p.perubahanPekerjaan.push({
+      id: uid(),
+      nomorAdendum: p.perubahanPekerjaan.length + 1,
+      tanggal: q.acc.tanggal,
+      uraian: `Tambahan dari QC/ACC klien: ${catatan}`,
+      nilaiPerubahan: 0,
+      dampakHari: 0,
+      status: "diajukan"
+    });
+  }
+  saveState();
+  mirrorProyekUpsert(p);
+  closeModals();
+  renderAll();
+});
+// --- Cetak form QC (kop surat + kolom tanda tangan petugas & klien) ---
+function buildQcPrintHtml(p, q) {
+  const st = qcStatus(q);
+  const HASIL_LABEL = { lulus: "LULUS", perbaikan: "PERBAIKAN", "": "-" };
+  const rows = (q.items || []).map((it, i) => `
+    <tr><td class="c">${i + 1}</td><td>${escapeHtml(it.nama)}</td><td class="c">${HASIL_LABEL[it.hasil] || "-"}</td><td>${escapeHtml(it.catatan || "")}</td></tr>
+  `).join("");
+  return `
+    <div class="letterhead">
+      <div class="letterhead-logo">${LOGO_SVG}</div>
+      <div class="letterhead-text">
+        <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+      </div>
+    </div>
+    <div class="letterhead-rule"></div>
+    <h3 style="text-align:center; margin:6px 0 16px; letter-spacing:.5px;">FORM QUALITY CONTROL — ${(QC_JENIS_LABEL[q.jenis] || "").toUpperCase()}</h3>
+    <table class="doc-summary-table">
+      <tr><td>Proyek</td><td>${escapeHtml(p.nama)}${p.klien ? ` — ${escapeHtml(p.klien)}` : ""}</td></tr>
+      <tr><td>Tanggal Inspeksi</td><td>${formatTanggal(q.tanggal)}</td></tr>
+      <tr><td>Petugas QC</td><td>${escapeHtml(q.petugas || "-")}</td></tr>
+      <tr><td>Hasil Keseluruhan</td><td><strong>${st === "lulus" ? "LULUS" : st === "perbaikan" ? "PERLU PERBAIKAN" : "DALAM PROSES"}</strong></td></tr>
+      ${q.catatan ? `<tr><td>Catatan</td><td>${escapeHtml(q.catatan)}</td></tr>` : ""}
+    </table>
+    <table class="doc-items">
+      <thead><tr><th class="c" style="width:34px;">No</th><th>Item yang Diperiksa</th><th class="c" style="width:110px;">Hasil</th><th>Catatan/Temuan</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    ${q.acc && q.acc.status !== "belum" ? `<p class="doc-p">ACC Klien: <strong>${q.acc.status === "disetujui" ? "DISETUJUI" : "ADA REVISI"}</strong> oleh ${escapeHtml(q.acc.nama || "-")} pada ${formatTanggal(q.acc.tanggal)}${q.acc.catatan ? ` — ${escapeHtml(q.acc.catatan)}` : ""}.</p>` : ""}
+    <div style="display:flex; justify-content:space-between; margin-top:36px; font-size:12.5px;">
+      <div style="text-align:center; width:45%;">
+        Petugas QC,<br><br><br><br>
+        <strong>${escapeHtml(q.petugas || "(..............................)")}</strong>
+      </div>
+      <div style="text-align:center; width:45%;">
+        Menyetujui / Perwakilan Klien,<br><br><br><br>
+        <strong>${escapeHtml((q.acc && q.acc.nama) || "(..............................)")}</strong>
+      </div>
+    </div>
+  `;
+}
+
 // ===== Aset Tetap + penyusutan garis lurus (Gelombang 3) =====
 // Aset jangka panjang perusahaan (kendaraan, mesin, komputer, bangunan).
 // Penyusutan dihitung garis lurus per BULAN penuh sejak tanggal beli:
@@ -3193,6 +3503,7 @@ function renderDashboard() {
     alatPerluServis ? { icon: "🔧", label: "Alat jatuh tempo servis (lewat atau ≤ 14 hari lagi)", value: `${alatPerluServis} alat`, page: "stok" } : null,
     proyekMacet ? { icon: "🚧", label: "Proyek macet di satu tahap administrasi (>14 hari)", value: `${proyekMacet} proyek`, page: "proyek" } : null,
     sewaBerakhir ? { icon: "🏠", label: "Kontrak sewa aset berakhir ≤ 14 hari lagi", value: `${sewaBerakhir} kontrak`, page: "sewaAset" } : null,
+    qcPerluPerhatianCount() ? { icon: "🧪", label: "Inspeksi QC dengan temuan perlu perbaikan", value: `${qcPerluPerhatianCount()} inspeksi`, page: "qc" } : null,
     utangSegera ? { icon: "💳", label: "Utang usaha jatuh tempo (lewat atau ≤ 7 hari lagi)", value: `${utangSegera} utang`, page: "kasUsaha" } : null,
     anggaranLewat ? { icon: "📛", label: "Anggaran biaya bulan ini TERLAMPAUI", value: `${anggaranLewat} kategori`, page: "kasUsaha" } : null,
     opnameSelisih ? { icon: "🧮", label: `Opname kas terakhir (${formatTanggal(opnameTerakhir.tanggal)}) ada selisih`, value: rupiah(opnameTerakhir.selisih), page: "kasUsaha" } : null
@@ -10496,6 +10807,7 @@ function renderAll() {
   if (currentPemasokId) renderPemasokDetail(); else renderPemasokList();
   renderSewaAset();
   renderAsetTetap();
+  renderQc();
   renderUtangUsaha();
   renderAnggaranBiaya();
   renderAnggaranSettings();
@@ -10539,7 +10851,7 @@ function renderAll() {
 // hanya halaman yang terdaftar di sini yang boleh diakses.
 const ROLE_PAGE_ACCESS = {
   owner: null,
-  admin: ["dashboard", "kalender", "klien", "kasUsaha", "laporan", "kpi", "proyek", "sewaAset", "asetTetap", "karyawan", "lokasi", "stok", "pemasok", "ahsp", "rab", "penawaran", "pengaturan"],
+  admin: ["dashboard", "kalender", "klien", "kasUsaha", "laporan", "kpi", "proyek", "qc", "sewaAset", "asetTetap", "karyawan", "lokasi", "stok", "pemasok", "ahsp", "rab", "penawaran", "pengaturan"],
   marketing: ["klien", "ahsp", "rab", "penawaran", "pengaturan"]
 };
 function canAccessPage(name) {
