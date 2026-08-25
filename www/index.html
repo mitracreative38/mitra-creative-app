@@ -74,6 +74,10 @@
         <svg viewBox="0 0 24 24"><path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2zm0 16H5V10h14v10zM5 8V6h14v2H5z"/></svg>
         Kalender
       </button>
+      <button class="nav-item" data-page="sop">
+        <svg viewBox="0 0 24 24"><path d="M18 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V4a2 2 0 00-2-2zm-1 18H7V4h10v16zM9 6h6v2H9V6zm0 4h6v2H9v-2zm0 4h4v2H9v-2z"/></svg>
+        SOP Perusahaan
+      </button>
       <button class="nav-item" data-page="klien">
         <svg viewBox="0 0 24 24"><path d="M16 11c1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 3-1.34 3-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
         Klien
@@ -861,6 +865,29 @@
         <div id="kal_grid" class="kal-grid"></div>
         <p class="muted" style="font-size:12px; margin-top:10px;">💳 utang jatuh tempo · 🏠 kontrak sewa berakhir · 📞 follow-up klien · 🏗️ target selesai proyek · 🔧 servis alat · 📄 penawaran kadaluarsa · 💰 gajian (Sabtu). Klik item untuk membuka halamannya.</p>
       </div>
+    </section>
+
+    <!-- SOP PERUSAHAAN -->
+    <section class="page" id="page-sop">
+      <header class="page-header">
+        <div>
+          <h1>SOP Perusahaan</h1>
+          <p class="page-sub">Pedoman kerja baku untuk setiap peran — dari Owner sampai pekerja harian. Cetak per peran sebagai pegangan karyawan (bisa disimpan sebagai PDF), atau cetak Buku SOP lengkap untuk ditandatangani saat karyawan mulai bekerja.</p>
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button class="btn-primary" id="sop_printBtn">🖨️ Cetak SOP Peran Ini</button>
+          <button class="btn-ghost" id="sop_printSemuaBtn">📖 Cetak Buku SOP Lengkap</button>
+        </div>
+      </header>
+      <div class="panel">
+        <div class="form-grid">
+          <div class="field full">
+            <label>Pilih Peran</label>
+            <select id="sop_peran"></select>
+          </div>
+        </div>
+      </div>
+      <div id="sop_isi"></div>
     </section>
 
     <!-- SEWA ASET -->
