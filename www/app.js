@@ -228,6 +228,7 @@ async function hydrateSensitiveFields(data) {
           sumberSewaId: t.sumber_sewa_id || "",
           sumberUtangId: t.sumber_utang_id || "",
           sumberInvoiceId: t.sumber_invoice_id || "",
+          sumberAsetTetapId: t.sumber_aset_tetap_id || "",
           tipe: t.tipe, status: t.status, tanggal: t.tanggal, jumlah: t.jumlah,
           keterangan: t.keterangan || "", kategori: t.kategori || "", extra: t.extra || "", catatan: t.catatan || "",
           lampiranPath: t.lampiran_path || ""
@@ -1462,6 +1463,7 @@ function kasUsahaTxnToRow(t) {
     sumber_sewa_id: t.sumberSewaId || null,
     sumber_utang_id: t.sumberUtangId || null,
     sumber_invoice_id: t.sumberInvoiceId || null,
+    sumber_aset_tetap_id: t.sumberAsetTetapId || null,
     tipe: t.tipe || "",
     status: t.status || "lunas",
     tanggal: t.tanggal || null,
@@ -2264,7 +2266,9 @@ function computeTutupBuku(bulan) {
   const saldoAkhir = (state.kasUsaha.saldoAwal || 0)
     + sdAkhir.filter(t => t.tipe === "Masuk" && (t.status || "lunas") === "lunas").reduce((s, t) => s + (t.jumlah || 0), 0)
     - sdAkhir.filter(t => t.tipe === "Keluar" && (t.status || "lunas") !== "menunggu_persetujuan").reduce((s, t) => s + Math.max(0, t.jumlah || 0), 0);
-  const piutang = kasSummary("kasUsaha").pending;
+  // Piutang gabungan (termin pending + invoice terkirim, anti-dobel) --
+  // konsisten dengan Neraca & KPI Penagihan.
+  const piutang = daftarPiutang(null).reduce((s, x) => s + x.jumlah, 0);
   const utang = (state.utangUsaha || []).reduce((s, u) => s + Math.max(0, utangSisa(u)), 0);
   let gaji = 0;
   state.karyawan.forEach(k => (k.slipGaji || []).forEach(sl => {
@@ -2536,13 +2540,14 @@ document.getElementById("kal_grid").addEventListener("click", e => {
 
 // ===== Gelombang 1 kontrol uang: Utang Usaha, Anggaran Biaya, Opname Kas =====
 const KATEGORI_BIAYA = KATEGORI_USAHA.filter(k => !k.startsWith("Pendapatan"));
-function utangDibayar(utangId) {
+function utangDibayar(utangId, sampaiTanggal) {
   return state.kasUsaha.transactions
     .filter(t => t.sumberUtangId === utangId && (t.status || "lunas") !== "menunggu_persetujuan")
+    .filter(t => !sampaiTanggal || (t.tanggal || "") <= sampaiTanggal)
     .reduce((s, t) => s + (t.jumlah || 0), 0);
 }
-function utangSisa(u) {
-  return (u.jumlah || 0) - utangDibayar(u.id);
+function utangSisa(u, sampaiTanggal) {
+  return (u.jumlah || 0) - utangDibayar(u.id, sampaiTanggal);
 }
 // Utang belum lunas yang jatuh temponya <= 7 hari lagi atau sudah lewat.
 function utangJatuhTempoSegera(today) {
@@ -3441,11 +3446,14 @@ function asetTetapCalc(a, tanggalRef) {
   const nilaiBuku = Math.max(a.nilaiResidu || 0, (a.hargaBeli || 0) - akumulasi);
   return { umurBulan, perBulan, bulanTerpakai, akumulasi, nilaiBuku };
 }
-// Total nilai buku aset AKTIF yang sudah dibeli per tanggal tertentu --
-// dipakai Neraca.
+// Total nilai buku aset yang MASIH DIMILIKI per tanggal tertentu -- dipakai
+// Neraca. Aset yang sudah dijual/dihapus tetap dihitung untuk tanggal
+// neraca SEBELUM tanggal pelepasannya (waktu itu asetnya masih ada); yang
+// dilepas tanpa tanggal tercatat dianggap sudah tidak dimiliki.
 function totalNilaiBukuAsetTetap(tanggal) {
   return (state.asetTetap || [])
-    .filter(a => a.status === "aktif" && (a.tanggalBeli || "") <= tanggal)
+    .filter(a => (a.tanggalBeli || "") <= tanggal &&
+      (a.status === "aktif" || (a.tanggalLepas && a.tanggalLepas > tanggal)))
     .reduce((s, a) => s + asetTetapCalc(a, tanggal).nilaiBuku, 0);
 }
 function renderAsetTetap() {
@@ -3536,6 +3544,41 @@ document.getElementById("asetTetapForm").addEventListener("submit", e => {
     nilaiLepas: status !== "aktif" ? parseNumberInput(document.getElementById("at_nilaiLepas").value) : 0,
     catatan: document.getElementById("at_catatan").value.trim()
   };
+  // Integrasi keuangan: aset berstatus "Dijual" dengan nilai jual > 0
+  // otomatis tercatat sebagai Kas Masuk bertaut aset (Pendapatan
+  // Lain-lain) -- tanpa input ulang di Kas Perusahaan. Kalau status/nilai
+  // diubah lagi, Kas Masuk tertautnya ikut diperbarui atau dihapus.
+  const txnAset = state.kasUsaha.transactions.find(t => t.sumberAsetTetapId === a.id);
+  const jadiJual = a.status === "dijual" && (a.nilaiLepas || 0) > 0;
+  if (jadiJual && !a.tanggalLepas) { alert("Isi Tanggal Dilepas supaya penjualan aset bisa dicatat ke Kas."); return; }
+  const ketJual = `Penjualan aset ${a.nama}`;
+  const perluUbahKas = jadiJual
+    ? (!txnAset || txnAset.jumlah !== a.nilaiLepas || txnAset.tanggal !== a.tanggalLepas || txnAset.keterangan !== ketJual)
+    : !!txnAset;
+  if (perluUbahKas && ((jadiJual && guardPeriodeTerkunci(a.tanggalLepas)) ||
+      (txnAset && guardPeriodeTerkunci(txnAset.tanggal)))) return;
+  if (perluUbahKas) {
+    if (jadiJual && txnAset) {
+      const sebelum = { ...txnAset };
+      txnAset.tanggal = a.tanggalLepas;
+      txnAset.jumlah = a.nilaiLepas;
+      txnAset.keterangan = ketJual;
+      mirrorKasUsahaUpsert(txnAset, sebelum);
+    } else if (jadiJual) {
+      const txn = {
+        id: uid(), sumberAsetTetapId: a.id, tipe: "Masuk", status: "lunas",
+        tanggal: a.tanggalLepas, jumlah: a.nilaiLepas, kategori: "Pendapatan Lain-lain",
+        keterangan: ketJual, extra: "", catatan: "Otomatis dari aset tetap Dijual"
+      };
+      state.kasUsaha.transactions.push(txn);
+      mirrorKasUsahaUpsert(txn, null);
+      alert(`Penjualan aset "${a.nama}" ${rupiah(a.nilaiLepas)} otomatis tercatat sebagai Kas Masuk (Pendapatan Lain-lain).`);
+    } else {
+      state.kasUsaha.transactions = state.kasUsaha.transactions.filter(t => t.id !== txnAset.id);
+      mirrorKasUsahaDelete(txnAset.id, txnAset);
+      alert(`Kas Masuk ${rupiah(txnAset.jumlah)} dari penjualan aset "${a.nama}" ikut dihapus (aset tidak lagi berstatus Dijual dengan nilai jual).`);
+    }
+  }
   if (idx >= 0) state.asetTetap[idx] = a; else state.asetTetap.push(a);
   saveState();
   mirrorAsetTetapUpsert(a, existing);
@@ -5660,6 +5703,57 @@ function computeLabaRugi(mulai, selesai) {
   const beban = rows.filter(r => r.kelompok === "Beban").reduce((s, r) => s + r.jumlah, 0);
   return { rows, pendapatan, beban, labaBersih: pendapatan - beban };
 }
+// Beban penyusutan aset tetap yang jatuh dalam suatu periode (non-kas):
+// selisih akumulasi penyusutan di akhir periode vs sehari sebelum awal
+// periode. Laba Rugi utama tetap berbasis kas -- angka ini ditampilkan
+// sebagai baris informasi supaya Owner tahu laba "sesungguhnya" setelah
+// memperhitungkan ausnya kendaraan/mesin/alat.
+function computePenyusutanPeriode(mulai, selesai) {
+  const sebelumMulai = addDaysIso(mulai, -1);
+  return (state.asetTetap || []).reduce((s, a) => {
+    if ((a.tanggalBeli || "") > selesai) return s;
+    const akhir = asetTetapCalc(a, selesai).akumulasi;
+    const awal = (a.tanggalBeli || "") <= sebelumMulai ? asetTetapCalc(a, sebelumMulai).akumulasi : 0;
+    return s + Math.max(0, akhir - awal);
+  }, 0);
+}
+// Daftar piutang gabungan dari DUA sumber pencatatan yang sama-sama dipakai
+// di aplikasi ini: (1) transaksi Kas Masuk berstatus "pending" (piutang
+// termin), dan (2) invoice proyek berstatus "terkirim" (tagihan resmi yang
+// belum dibayar). Anti-dobel: invoice terkirim yang kemungkinan SUDAH
+// dicatat manual sebagai Kas Masuk pending pada proyek+jumlah yang sama
+// tidak dihitung dua kali (heuristik yang sama dengan Pemeriksaan
+// Integrasi Data) -- satu transaksi manual hanya bisa "mewakili" satu
+// invoice. sampaiTanggal opsional (untuk Neraca per tanggal); null =
+// semua tagihan yang masih terbuka saat ini (untuk KPI Penagihan),
+// termasuk termin yang tanggalnya masih di masa depan.
+function daftarPiutang(sampaiTanggal) {
+  const items = [];
+  const pendingTxns = state.kasUsaha.transactions.filter(t =>
+    t.tipe === "Masuk" && (t.status || "lunas") === "pending" &&
+    (!sampaiTanggal || (t.tanggal || "") <= sampaiTanggal));
+  pendingTxns.forEach(t => items.push({
+    sumber: "kas",
+    tanggal: t.tanggal || hariIniIso(),
+    keterangan: t.keterangan || t.kategori || "Piutang Kas",
+    jumlah: t.jumlah || 0
+  }));
+  const txnTerpakai = new Set();
+  (state.proyek || []).forEach(p => (p.invoices || []).forEach(inv => {
+    if (inv.status !== "terkirim") return;
+    if (sampaiTanggal && (inv.tanggal || "") > sampaiTanggal) return;
+    const manual = pendingTxns.find(t => !txnTerpakai.has(t.id) && !t.sumberInvoiceId &&
+      t.proyekId === p.id && (t.jumlah || 0) === (inv.jumlah || 0));
+    if (manual) { txnTerpakai.add(manual.id); return; }
+    items.push({
+      sumber: "invoice",
+      tanggal: inv.tanggal || hariIniIso(),
+      keterangan: `Invoice ${inv.nomor || ""} — ${p.nama || ""}`.trim(),
+      jumlah: inv.jumlah || 0
+    });
+  }));
+  return items;
+}
 function computeNeraca(tanggal) {
   const txnsUpTo = state.kasUsaha.transactions.filter(t => t.tanggal <= tanggal);
   const masukLunas = txnsUpTo.filter(t => t.tipe === "Masuk" && (t.status || "lunas") === "lunas").reduce((s, t) => s + (t.jumlah || 0), 0);
@@ -5668,12 +5762,23 @@ function computeNeraca(tanggal) {
   // salah tafsir jadi PENAMBAH saldoKas.
   const keluar = txnsUpTo.filter(t => t.tipe === "Keluar" && (t.status || "lunas") !== "menunggu_persetujuan").reduce((s, t) => s + Math.max(0, t.jumlah || 0), 0);
   const saldoKas = (state.kasUsaha.saldoAwal || 0) + masukLunas - keluar;
-  const piutangUsaha = txnsUpTo.filter(t => t.tipe === "Masuk" && (t.status || "lunas") === "pending").reduce((s, t) => s + (t.jumlah || 0), 0);
+  // Piutang usaha = piutang Kas pending + invoice terkirim (anti-dobel),
+  // konsisten dengan angka Total Piutang di KPI Penagihan.
+  const piutangUsaha = daftarPiutang(tanggal).reduce((s, x) => s + x.jumlah, 0);
+  // Catatan keterbatasan: Nilai Stok & Piutang Karyawan adalah posisi SAAT
+  // INI (riwayatnya tidak bisa direkonstruksi per tanggal mundur).
   const nilaiStok = state.stok.reduce((s, item) => s + stokValue(item), 0);
   const piutangKaryawan = state.karyawan.reduce((s, k) => s + Math.max(0, sisaPinjaman(k)), 0);
   const asetTetapNilaiBuku = totalNilaiBukuAsetTetap(tanggal);
   const totalAset = saldoKas + piutangUsaha + nilaiStok + piutangKaryawan + asetTetapNilaiBuku;
-  return { saldoKas, piutangUsaha, nilaiStok, piutangKaryawan, asetTetapNilaiBuku, totalAset };
+  // Kewajiban: sisa utang usaha per tanggal neraca (utang yang tercatat
+  // sampai tanggal itu, dikurangi pembayaran sampai tanggal itu). Neraca
+  // yang benar: Aset = Kewajiban + Modal, jadi Modal = Aset - Kewajiban.
+  const utangUsaha = (state.utangUsaha || [])
+    .filter(u => (u.tanggal || u.jatuhTempo || "") <= tanggal)
+    .reduce((s, u) => s + Math.max(0, utangSisa(u, tanggal)), 0);
+  const modalPemilik = totalAset - utangUsaha;
+  return { saldoKas, piutangUsaha, nilaiStok, piutangKaryawan, asetTetapNilaiBuku, totalAset, utangUsaha, modalPemilik };
 }
 function renderLabaRugi() {
   const mulaiInput = document.getElementById("lr_mulai");
@@ -5689,6 +5794,11 @@ function renderLabaRugi() {
   const labaEl = document.getElementById("lr_labaBersih");
   labaEl.textContent = rupiah(labaBersih);
   labaEl.className = "stat-value " + (labaBersih >= 0 ? "good" : "bad");
+  const penyusutan = Math.round(computePenyusutanPeriode(mulaiInput.value, selesaiInput.value));
+  document.getElementById("lr_penyusutan").textContent = rupiah(penyusutan);
+  const setelahEl = document.getElementById("lr_labaSetelahPenyusutan");
+  setelahEl.textContent = rupiah(labaBersih - penyusutan);
+  setelahEl.className = labaBersih - penyusutan >= 0 ? "" : "bad";
   document.querySelector("#lr_table tbody").innerHTML = rows.length ? rows.map(r => `
     <tr><td>${escapeHtml(r.kategori)}</td><td>${r.kelompok}</td><td class="num">${rupiah(r.jumlah)}</td></tr>
   `).join("") : '<tr class="empty-row"><td colspan="3">Belum ada transaksi di periode ini</td></tr>';
@@ -5705,7 +5815,13 @@ function renderNeraca() {
     <div class="summary-row"><span>Aset Tetap (nilai buku setelah penyusutan)</span><strong>${rupiah(Math.round(n.asetTetapNilaiBuku))}</strong></div>
     <div class="summary-row total"><span>Total Aset</span><strong>${rupiah(n.totalAset)}</strong></div>
   `;
-  document.getElementById("nr_modal").textContent = rupiah(n.totalAset);
+  document.getElementById("nr_kewajibanRows").innerHTML = `
+    <div class="summary-row"><span>Utang Usaha (sisa belum lunas)</span><strong>${rupiah(n.utangUsaha)}</strong></div>
+    <div class="summary-row total"><span>Total Kewajiban</span><strong>${rupiah(n.utangUsaha)}</strong></div>
+  `;
+  const modalEl = document.getElementById("nr_modal");
+  modalEl.textContent = rupiah(n.modalPemilik);
+  modalEl.className = n.modalPemilik >= 0 ? "" : "bad";
 }
 
 // ===== Proyeksi Arus Kas =====
@@ -5868,6 +5984,7 @@ function buildLaporanKeuanganPrintHtml() {
   const tanggalNeraca = document.getElementById("nr_tanggal").value;
   const lr = computeLabaRugi(mulai, selesai);
   const nr = computeNeraca(tanggalNeraca);
+  const penyusutan = computePenyusutanPeriode(mulai, selesai);
   return `
     <div class="letterhead">
       <div class="letterhead-logo">${LOGO_SVG}</div>
@@ -5888,17 +6005,21 @@ function buildLaporanKeuanganPrintHtml() {
       <tr><td>Total Pendapatan</td><td class="r">${rupiah(lr.pendapatan)}</td></tr>
       <tr><td>Total Beban</td><td class="r">- ${rupiah(lr.beban)}</td></tr>
       <tr class="total-row"><td>Laba Bersih</td><td class="r">${rupiah(lr.labaBersih)}</td></tr>
+      <tr><td>Beban Penyusutan Aset Tetap (non-kas)</td><td class="r">- ${rupiah(Math.round(penyusutan))}</td></tr>
+      <tr class="total-row"><td>Laba Bersih setelah Penyusutan</td><td class="r">${rupiah(lr.labaBersih - Math.round(penyusutan))}</td></tr>
     </table>
     <p class="doc-p" style="font-weight:700; margin-bottom:6px;">Neraca (Ringkasan) per ${formatTanggal(tanggalNeraca)}</p>
     <table class="doc-summary-table">
       <tr><td>Saldo Kas Perusahaan</td><td class="r">${rupiah(nr.saldoKas)}</td></tr>
-      <tr><td>Piutang Usaha</td><td class="r">${rupiah(nr.piutangUsaha)}</td></tr>
+      <tr><td>Piutang Usaha (termin pending + invoice terkirim)</td><td class="r">${rupiah(nr.piutangUsaha)}</td></tr>
       <tr><td>Nilai Stok Material &amp; Alat</td><td class="r">${rupiah(nr.nilaiStok)}</td></tr>
       <tr><td>Piutang Karyawan</td><td class="r">${rupiah(nr.piutangKaryawan)}</td></tr>
       <tr><td>Aset Tetap (nilai buku)</td><td class="r">${rupiah(Math.round(nr.asetTetapNilaiBuku))}</td></tr>
-      <tr class="total-row"><td>Total Aset = Total Modal Pemilik</td><td class="r">${rupiah(nr.totalAset)}</td></tr>
+      <tr class="total-row"><td>Total Aset</td><td class="r">${rupiah(nr.totalAset)}</td></tr>
+      <tr><td>Utang Usaha (sisa belum lunas)</td><td class="r">- ${rupiah(nr.utangUsaha)}</td></tr>
+      <tr class="total-row"><td>Total Modal Pemilik (Aset - Kewajiban)</td><td class="r">${rupiah(nr.modalPemilik)}</td></tr>
     </table>
-    <p style="font-size:11px; color:#777; margin-top:6px;">Ringkasan sederhana berbasis kas — nilai aset tetap dihitung dari harga beli dikurangi penyusutan garis lurus; utang usaha belum mengurangi total seperti neraca akuntansi penuh.</p>
+    <p style="font-size:11px; color:#777; margin-top:6px;">Neraca sederhana berbasis kas — aset tetap dihitung dari harga beli dikurangi penyusutan garis lurus; nilai stok &amp; piutang karyawan memakai posisi saat laporan dibuat.</p>
     <div style="display:flex; justify-content:flex-end; margin-top:30px; font-size:12.5px;">
       <div style="text-align:right;">
         Dibuat oleh,<br>${escapeHtml(state.company || "CV. Mitra Creative")}
@@ -5929,16 +6050,19 @@ document.getElementById("lk_exportExcelBtn").addEventListener("click", () => {
     { Kategori: "", Kelompok: "", Jumlah: null },
     { Kategori: "Total Pendapatan", Kelompok: "", Jumlah: pendapatan },
     { Kategori: "Total Beban", Kelompok: "", Jumlah: beban },
-    { Kategori: "Laba Bersih", Kelompok: "", Jumlah: labaBersih }
+    { Kategori: "Laba Bersih", Kelompok: "", Jumlah: labaBersih },
+    { Kategori: "Beban Penyusutan Aset Tetap (non-kas)", Kelompok: "", Jumlah: Math.round(computePenyusutanPeriode(mulai, selesai)) },
+    { Kategori: "Laba Bersih setelah Penyusutan", Kelompok: "", Jumlah: labaBersih - Math.round(computePenyusutanPeriode(mulai, selesai)) }
   ]), "Laba Rugi");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([
     { Pos: "Saldo Kas Perusahaan", Jumlah: neraca.saldoKas },
-    { Pos: "Piutang Usaha (belum cair)", Jumlah: neraca.piutangUsaha },
+    { Pos: "Piutang Usaha (termin pending + invoice terkirim)", Jumlah: neraca.piutangUsaha },
     { Pos: "Nilai Stok Material & Alat", Jumlah: neraca.nilaiStok },
     { Pos: "Piutang Karyawan (pinjaman belum lunas)", Jumlah: neraca.piutangKaryawan },
     { Pos: "Aset Tetap (nilai buku setelah penyusutan)", Jumlah: Math.round(neraca.asetTetapNilaiBuku) },
     { Pos: "Total Aset", Jumlah: neraca.totalAset },
-    { Pos: "Total Modal (= Total Aset)", Jumlah: neraca.totalAset }
+    { Pos: "Utang Usaha (sisa belum lunas)", Jumlah: neraca.utangUsaha },
+    { Pos: "Total Modal Pemilik (Aset - Kewajiban)", Jumlah: neraca.modalPemilik }
   ]), "Neraca");
   const forecast = computeCashFlowForecast(8);
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
@@ -5997,16 +6121,29 @@ function computeKpiProyek(mulai, selesai) {
   const today = hariIniIso();
   const semua = state.proyek;
   const baruPeriode = semua.filter(p => p.tanggalMulai && p.tanggalMulai >= mulai && p.tanggalMulai <= selesai).length;
-  const calcs = semua.map(p => projectCalc(p));
-  const marginRata = calcs.length ? (calcs.reduce((s, c) => s + c.marginPct, 0) / calcs.length) * 100 : null;
-  const progresses = semua.map(p => proyekProgressStatus(p, today)).filter(Boolean);
+  // Indikator kesehatan hanya dari proyek yang BELUM diarsip -- proyek
+  // lama yang sudah ditutup tidak boleh menyeret angka "saat ini"
+  // selamanya. Margin dihitung TERTIMBANG (total margin / total nilai
+  // kontrak), bukan rata-rata sederhana: proyek 500 juta tidak boleh
+  // berbobot sama dengan proyek 1 juta, dan proyek yang nilai kontraknya
+  // masih 0 tidak lagi ikut "menyumbang 0%" ke rata-rata.
+  const dinilai = semua.filter(p => !p.arsip);
+  const calcs = dinilai.map(p => projectCalc(p));
+  const totalKontrakDinilai = dinilai.reduce((s, p) => s + (p.nilaiKontrak || 0), 0);
+  const totalMarginDinilai = calcs.reduce((s, c) => s + c.margin, 0);
+  const marginRata = totalKontrakDinilai ? (totalMarginDinilai / totalKontrakDinilai) * 100 : null;
+  const progresses = dinilai.map(p => proyekProgressStatus(p, today)).filter(Boolean);
   const tepatWaktu = progresses.length ? (progresses.filter(x => !x.telat).length / progresses.length) * 100 : null;
   const totalAnggaran = calcs.reduce((s, c) => s + c.anggaranBahan + c.anggaranUpah + c.anggaranLain + c.anggaranSubkon, 0);
   const totalRealisasi = calcs.reduce((s, c) => s + c.totalBiaya, 0);
   const deviasiAnggaran = totalAnggaran ? ((totalRealisasi - totalAnggaran) / totalAnggaran) * 100 : null;
+  // Tren bulanan boleh memuat proyek arsip (sejarah per kohort bulan mulai
+  // memang milik bulan itu), tapi margin per kohort juga tertimbang.
   const trend = monthBuckets(selesai, 6).map(b => {
-    const cohort = semua.filter(p => p.tanggalMulai && p.tanggalMulai >= b.start && p.tanggalMulai <= b.end).map(p => projectCalc(p).marginPct);
-    return { label: b.label, marginRata: cohort.length ? (cohort.reduce((s, v) => s + v, 0) / cohort.length) * 100 : 0 };
+    const cohort = semua.filter(p => p.tanggalMulai && p.tanggalMulai >= b.start && p.tanggalMulai <= b.end);
+    const kontrak = cohort.reduce((s, p) => s + (p.nilaiKontrak || 0), 0);
+    const margin = cohort.reduce((s, p) => s + projectCalc(p).margin, 0);
+    return { label: b.label, marginRata: kontrak ? (margin / kontrak) * 100 : 0 };
   });
   // Proyek arsip tidak ikut daftar untung/rugi "saat ini" -- sudah ditutup,
   // Owner butuh melihat proyek yang masih relevan untuk ditindaklanjuti.
@@ -6017,8 +6154,12 @@ function computeKpiProyek(mulai, selesai) {
 }
 function computeKpiKeuangan(mulai, selesai) {
   const { pendapatan, beban, labaBersih } = computeLabaRugi(mulai, selesai);
-  const ku = kasSummary("kasUsaha");
-  const rasioPiutang = pendapatan ? (ku.pending / pendapatan) * 100 : null;
+  // Rasio piutang yang konsisten: POSISI piutang per akhir periode terpilih
+  // (termin pending + invoice terkirim, anti-dobel) dibandingkan pendapatan
+  // periode yang sama -- bukan lagi campuran piutang semua-waktu vs
+  // pendapatan periode yang bisa meledak kalau periodenya dipersempit.
+  const piutangAkhirPeriode = daftarPiutang(selesai).reduce((s, x) => s + x.jumlah, 0);
+  const rasioPiutang = pendapatan ? (piutangAkhirPeriode / pendapatan) * 100 : null;
   const now = new Date();
   const bulanIniMulai = isoTanggalLokal(new Date(now.getFullYear(), now.getMonth(), 1));
   const bulanIniSelesai = hariIniIso();
@@ -6054,27 +6195,16 @@ function computeKpiKeuangan(mulai, selesai) {
 // harus tertagih kapan pun periodenya.
 function computeKpiPenagihan() {
   const today = hariIniIso();
-  const items = [];
-  state.kasUsaha.transactions
-    .filter(t => t.tipe === "Masuk" && t.status === "pending")
-    .forEach(t => items.push({
-      tanggal: t.tanggal || today,
-      keterangan: t.keterangan || t.kategori || "Piutang Kas",
-      jumlah: t.jumlah || 0,
-      umur: daysBetweenIso(t.tanggal || today, today)
-    }));
+  // Daftar piutang gabungan (termin pending + invoice terkirim) dengan
+  // anti-dobel -- rumus yang sama dengan Neraca & Tutup Buku, supaya angka
+  // "Total Piutang" konsisten di semua laporan.
+  const items = daftarPiutang(null).map(x => ({ ...x, umur: daysBetweenIso(x.tanggal, today) }));
   let invBelumDibayar = 0, invNilaiBelumDibayar = 0;
   let bayarTotalHari = 0, bayarCount = 0;
   state.proyek.forEach(p => (p.invoices || []).forEach(inv => {
     if (inv.status === "terkirim") {
       invBelumDibayar++;
       invNilaiBelumDibayar += inv.jumlah || 0;
-      items.push({
-        tanggal: inv.tanggal || today,
-        keterangan: `Invoice ${inv.nomor || ""} — ${p.nama || ""}`.trim(),
-        jumlah: inv.jumlah || 0,
-        umur: daysBetweenIso(inv.tanggal || today, today)
-      });
     } else if (inv.status === "dibayar" && inv.tanggal && inv.tanggalBayar) {
       bayarTotalHari += Math.max(0, daysBetweenIso(inv.tanggal, inv.tanggalBayar));
       bayarCount++;
@@ -6082,9 +6212,13 @@ function computeKpiPenagihan() {
   }));
   items.sort((a, b) => b.umur - a.umur);
   const total = items.reduce((s, x) => s + x.jumlah, 0);
-  const bucket = (min, max) => items.filter(x => x.umur >= min && (max == null || x.umur <= max));
+  const bucket = (min, max) => items.filter(x => (min == null || x.umur >= min) && (max == null || x.umur <= max));
   const sumB = arr => arr.reduce((s, x) => s + x.jumlah, 0);
+  // Termasuk bucket "Belum jatuh tempo" untuk piutang bertanggal masa
+  // depan (umur negatif) -- tanpa ini jumlah aging tidak sama dengan
+  // Total Piutang.
   const aging = [
+    { label: "Belum jatuh tempo (tanggal masih di depan)", jumlah: sumB(bucket(null, -1)), count: bucket(null, -1).length },
     { label: "0–30 hari", jumlah: sumB(bucket(0, 30)), count: bucket(0, 30).length },
     { label: "31–60 hari", jumlah: sumB(bucket(31, 60)), count: bucket(31, 60).length },
     { label: "Lebih dari 60 hari", jumlah: sumB(bucket(61, null)), count: bucket(61, null).length }
@@ -6107,7 +6241,8 @@ function computeKpiTim(mulai, selesai) {
     });
   });
   const tingkatKehadiran = totalRecord ? (hadirCount / totalRecord) * 100 : null;
-  const calcs = state.proyek.map(p => ({ upah: projectCalc(p).realisasiUpah, kontrak: p.nilaiKontrak || 0 }));
+  // Hanya proyek non-arsip -- konsisten dengan indikator KPI Proyek.
+  const calcs = state.proyek.filter(p => !p.arsip).map(p => ({ upah: projectCalc(p).realisasiUpah, kontrak: p.nilaiKontrak || 0 }));
   const totalUpahRealisasi = calcs.reduce((s, c) => s + c.upah, 0);
   const totalNilaiKontrak = calcs.reduce((s, c) => s + c.kontrak, 0);
   const rasioBiayaTenagaKerja = totalNilaiKontrak ? (totalUpahRealisasi / totalNilaiKontrak) * 100 : null;
@@ -6127,6 +6262,51 @@ function computeKpiTim(mulai, selesai) {
     }
   }));
   return { karyawanAktif: aktif.length, tingkatKehadiran, totalLembur, rasioBiayaTenagaKerja, slipCount, totalGaji, totalUangMakan, trend };
+}
+// KPI Operasional: modul-modul yang belum terwakili di subtab lain --
+// Utang Usaha (sisi kewajiban, pasangan dari subtab Penagihan/Piutang),
+// QC produksi & lapangan, Aset Tetap, dan Stok.
+function computeKpiOperasional(mulai, selesai) {
+  const today = hariIniIso();
+  const utangTerbuka = (state.utangUsaha || [])
+    .map(u => ({ u, sisa: Math.max(0, utangSisa(u)) }))
+    .filter(x => x.sisa > 0);
+  const utangTotal = utangTerbuka.reduce((s, x) => s + x.sisa, 0);
+  const utangSegeraCount = utangJatuhTempoSegera(today).length;
+  const saldoKas = kasSummary("kasUsaha").saldoAkhir;
+  const rasioUtangKas = saldoKas > 0 ? (utangTotal / saldoKas) * 100 : null;
+  // Aging utang: telat = hari sejak jatuh tempo (negatif = belum jatuh tempo).
+  const telatHari = x => daysBetweenIso(x.u.jatuhTempo || today, today);
+  const bucketU = (min, max) => utangTerbuka.filter(x => {
+    const t = telatHari(x);
+    return (min == null || t >= min) && (max == null || t <= max);
+  });
+  const sumU = arr => arr.reduce((s, x) => s + x.sisa, 0);
+  const agingUtang = [
+    { label: "Belum jatuh tempo", jumlah: sumU(bucketU(null, -1)), count: bucketU(null, -1).length },
+    { label: "Terlambat 0–30 hari", jumlah: sumU(bucketU(0, 30)), count: bucketU(0, 30).length },
+    { label: "Terlambat lebih dari 30 hari", jumlah: sumU(bucketU(31, null)), count: bucketU(31, null).length }
+  ];
+  const qcs = semuaQc().filter(x => (x.q.tanggal || "") >= mulai && (x.q.tanggal || "") <= selesai);
+  const qcLulus = qcs.filter(x => qcStatus(x.q) === "lulus").length;
+  const qcPerbaikan = qcs.filter(x => qcStatus(x.q) === "perbaikan").length;
+  const qcAccDisetujui = qcs.filter(x => x.q.acc && x.q.acc.status === "disetujui").length;
+  const qcLulusRate = qcs.length ? (qcLulus / qcs.length) * 100 : null;
+  const asetAktif = (state.asetTetap || []).filter(a => a.status === "aktif");
+  const asetNilaiBuku = totalNilaiBukuAsetTetap(today);
+  // Beban penyusutan berjalan per bulan: hanya aset yang umurnya belum habis.
+  const penyusutanPerBulan = asetAktif.reduce((s, a) => {
+    const c = asetTetapCalc(a);
+    return s + (c.bulanTerpakai < c.umurBulan ? c.perBulan : 0);
+  }, 0);
+  const nilaiStok = state.stok.reduce((s, item) => s + stokValue(item), 0);
+  const stokDiBawahMin = state.stok.filter(item => (item.stokMinimum || 0) > 0 && stokQty(item) < item.stokMinimum).length;
+  return {
+    utangTotal, utangCount: utangTerbuka.length, utangSegeraCount, rasioUtangKas, agingUtang,
+    qcJumlah: qcs.length, qcLulus, qcPerbaikan, qcAccDisetujui, qcLulusRate,
+    asetAktifCount: asetAktif.length, asetNilaiBuku, penyusutanPerBulan,
+    nilaiStok, stokDiBawahMin
+  };
 }
 function kpiPeriode() {
   const mulaiInput = document.getElementById("kpi_mulai");
@@ -6252,6 +6432,30 @@ function renderKpiPenagihan() {
     </tr>
   `).join("") : `<tr><td colspan="4" class="muted">Tidak ada tagihan menunggak — semua pembayaran beres. 👍</td></tr>`;
 }
+function renderKpiOperasional() {
+  const { mulai, selesai } = kpiPeriode();
+  const k = computeKpiOperasional(mulai, selesai);
+  document.getElementById("kpi_opUtang").textContent = `${rupiah(k.utangTotal)} (${k.utangCount})`;
+  document.getElementById("kpi_opUtangSegera").textContent = `${k.utangSegeraCount} utang`;
+  document.getElementById("kpi_opRasioUtangKas").textContent = k.rasioUtangKas == null ? "-" : pct1(k.rasioUtangKas);
+  document.getElementById("kpi_opQcLulus").textContent = k.qcLulusRate == null ? "-" : pct1(k.qcLulusRate);
+  document.getElementById("kpi_opAgingUtang").innerHTML = k.agingUtang.map(a => `
+    <div class="summary-row"><span>${a.label} (${a.count})</span><strong>${rupiah(a.jumlah)}</strong></div>
+  `).join("");
+  document.getElementById("kpi_opQcRows").innerHTML = `
+    <div class="summary-row"><span>Inspeksi QC (periode)</span><strong>${k.qcJumlah}</strong></div>
+    <div class="summary-row"><span>Lulus</span><strong>${k.qcLulus}</strong></div>
+    <div class="summary-row"><span>Perlu Perbaikan</span><strong>${k.qcPerbaikan}</strong></div>
+    <div class="summary-row"><span>ACC Disetujui Klien</span><strong>${k.qcAccDisetujui}</strong></div>
+  `;
+  document.getElementById("kpi_opAsetStokRows").innerHTML = `
+    <div class="summary-row"><span>Aset Tetap Aktif</span><strong>${k.asetAktifCount} aset</strong></div>
+    <div class="summary-row"><span>Nilai Buku Aset Tetap</span><strong>${rupiah(Math.round(k.asetNilaiBuku))}</strong></div>
+    <div class="summary-row"><span>Beban Penyusutan Berjalan / Bulan</span><strong>${rupiah(Math.round(k.penyusutanPerBulan))}</strong></div>
+    <div class="summary-row"><span>Nilai Stok Material &amp; Alat</span><strong>${rupiah(k.nilaiStok)}</strong></div>
+    <div class="summary-row"><span>Item Stok di Bawah Minimum</span><strong>${k.stokDiBawahMin} item</strong></div>
+  `;
+}
 function renderKpiActiveSubtab() {
   const activeSubtab = document.querySelector('.subtab-item[data-subtab-page="kpi"].active');
   const name = activeSubtab ? activeSubtab.dataset.subtab : "penjualan";
@@ -6260,6 +6464,7 @@ function renderKpiActiveSubtab() {
   else if (name === "keuangan") renderKpiKeuangan();
   else if (name === "penagihan") renderKpiPenagihan();
   else if (name === "tim") renderKpiTim();
+  else if (name === "operasional") renderKpiOperasional();
 }
 document.getElementById("kpi_mulai").addEventListener("change", renderKpiActiveSubtab);
 document.getElementById("kpi_selesai").addEventListener("change", renderKpiActiveSubtab);
@@ -6287,15 +6492,15 @@ document.getElementById("kpi_exportExcelBtn").addEventListener("click", () => {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([
     { Indikator: "Total Proyek", Nilai: proyek.totalProyek },
     { Indikator: "Proyek Baru (Periode)", Nilai: proyek.baruPeriode },
-    { Indikator: "Margin Rata-rata (%)", Nilai: proyek.marginRata },
-    { Indikator: "Proyek Tepat Waktu (%)", Nilai: proyek.tepatWaktu },
-    { Indikator: "Deviasi Anggaran (%)", Nilai: proyek.deviasiAnggaran }
+    { Indikator: "Margin Tertimbang non-arsip (%)", Nilai: proyek.marginRata },
+    { Indikator: "Proyek Tepat Waktu non-arsip (%)", Nilai: proyek.tepatWaktu },
+    { Indikator: "Deviasi Anggaran non-arsip (%)", Nilai: proyek.deviasiAnggaran }
   ]), "Proyek");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([
     { Indikator: "Pendapatan (Rp)", Nilai: keuangan.pendapatan },
     { Indikator: "Beban (Rp)", Nilai: keuangan.beban },
     { Indikator: "Laba Bersih (Rp)", Nilai: keuangan.labaBersih },
-    { Indikator: "Rasio Piutang (%)", Nilai: keuangan.rasioPiutang },
+    { Indikator: "Rasio Piutang posisi akhir periode (%)", Nilai: keuangan.rasioPiutang },
     { Indikator: "Omzet Bulan Ini (Rp)", Nilai: keuangan.omzetBulanIni },
     { Indikator: "Target Omzet Bulanan (Rp)", Nilai: keuangan.targetOmzet },
     { Indikator: "Laba Bersih Bulan Ini (Rp)", Nilai: keuangan.labaBulanIni },
@@ -6324,6 +6529,24 @@ document.getElementById("kpi_exportExcelBtn").addEventListener("click", () => {
     );
   }
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(timSheet), "Tim");
+  const op = computeKpiOperasional(mulai, selesai);
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([
+    { Indikator: "Sisa Utang Usaha (Rp)", Nilai: op.utangTotal },
+    { Indikator: "Jumlah Utang Terbuka", Nilai: op.utangCount },
+    { Indikator: "Utang Jatuh Tempo <= 7 Hari", Nilai: op.utangSegeraCount },
+    { Indikator: "Rasio Utang vs Saldo Kas (%)", Nilai: op.rasioUtangKas },
+    ...op.agingUtang.map(a => ({ Indikator: `Umur Utang ${a.label} (Rp)`, Nilai: a.jumlah })),
+    { Indikator: "Inspeksi QC (Periode)", Nilai: op.qcJumlah },
+    { Indikator: "QC Lulus", Nilai: op.qcLulus },
+    { Indikator: "QC Perlu Perbaikan", Nilai: op.qcPerbaikan },
+    { Indikator: "QC ACC Disetujui Klien", Nilai: op.qcAccDisetujui },
+    { Indikator: "Tingkat Lulus QC (%)", Nilai: op.qcLulusRate },
+    { Indikator: "Aset Tetap Aktif", Nilai: op.asetAktifCount },
+    { Indikator: "Nilai Buku Aset Tetap (Rp)", Nilai: Math.round(op.asetNilaiBuku) },
+    { Indikator: "Beban Penyusutan Berjalan per Bulan (Rp)", Nilai: Math.round(op.penyusutanPerBulan) },
+    { Indikator: "Nilai Stok Material & Alat (Rp)", Nilai: op.nilaiStok },
+    { Indikator: "Item Stok di Bawah Minimum", Nilai: op.stokDiBawahMin }
+  ]), "Operasional");
   XLSX.writeFile(wb, `kpi-${mulai}_${selesai}.xlsx`);
 });
 

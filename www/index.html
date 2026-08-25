@@ -493,6 +493,14 @@
             <div class="stat-value" id="lr_labaBersih">Rp 0</div>
           </div>
         </div>
+        <div class="panel narrow">
+          <h3>Informasi Non-Kas (Penyusutan)</h3>
+          <div class="summary-rows">
+            <div class="summary-row"><span>Beban Penyusutan Aset Tetap (periode ini)</span><strong id="lr_penyusutan">Rp 0</strong></div>
+            <div class="summary-row total"><span>Laba Bersih setelah Penyusutan</span><strong id="lr_labaSetelahPenyusutan">Rp 0</strong></div>
+          </div>
+          <p class="muted" style="font-size:12px; margin-top:6px;">Laba Rugi di atas berbasis kas. Penyusutan bukan uang keluar, tapi mencerminkan ausnya kendaraan/mesin/alat — angka "setelah penyusutan" adalah laba yang lebih mendekati kenyataan ekonomi.</p>
+        </div>
         <div class="panel">
           <h3>Rincian per Kategori</h3>
           <div class="table-wrap">
@@ -509,16 +517,20 @@
           <div class="form-grid">
             <div class="field"><label>Per Tanggal</label><input type="date" id="nr_tanggal"></div>
           </div>
-          <p class="muted" style="font-size:12px;">Ringkasan sederhana berbasis kas — belum mencatat utang usaha/aset tetap seperti neraca akuntansi penuh.</p>
+          <p class="muted" style="font-size:12px;">Neraca sederhana: Aset = Kewajiban + Modal. Nilai Stok &amp; Piutang Karyawan memakai posisi saat ini (tidak bisa dihitung mundur per tanggal); komponen lain dihitung per tanggal yang dipilih.</p>
         </div>
         <div class="panel">
           <h3>Aset</h3>
           <div class="summary-rows" id="nr_asetRows"></div>
         </div>
         <div class="panel narrow">
+          <h3>Kewajiban</h3>
+          <div class="summary-rows" id="nr_kewajibanRows"></div>
+        </div>
+        <div class="panel narrow">
           <h3>Modal / Ekuitas Pemilik</h3>
           <div class="summary-rows">
-            <div class="summary-row total"><span>Total Modal (= Total Aset)</span><strong id="nr_modal">Rp 0</strong></div>
+            <div class="summary-row total"><span>Total Modal (Aset &minus; Kewajiban)</span><strong id="nr_modal">Rp 0</strong></div>
           </div>
         </div>
       </div>
@@ -604,6 +616,7 @@
         <button class="subtab-item" data-subtab="keuangan" data-subtab-page="kpi">Keuangan</button>
         <button class="subtab-item" data-subtab="penagihan" data-subtab-page="kpi">Penagihan/Piutang</button>
         <button class="subtab-item" data-subtab="tim" data-subtab-page="kpi">Tim/Karyawan</button>
+        <button class="subtab-item" data-subtab="operasional" data-subtab-page="kpi">Operasional (Utang/QC/Aset/Stok)</button>
       </div>
 
       <div class="subtab-panel active" id="kpi_penjualanPanel">
@@ -650,15 +663,15 @@
             <div class="stat-value" id="kpi_proyekBaru">0</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Margin Rata-rata (saat ini)</div>
+            <div class="stat-label">Margin Tertimbang (proyek non-arsip)</div>
             <div class="stat-value" id="kpi_marginRata">-</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Proyek Tepat Waktu (saat ini)</div>
+            <div class="stat-label">Proyek Tepat Waktu (non-arsip)</div>
             <div class="stat-value" id="kpi_tepatWaktu">-</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Deviasi Anggaran (saat ini)</div>
+            <div class="stat-label">Deviasi Anggaran (non-arsip)</div>
             <div class="stat-value" id="kpi_deviasiAnggaran">-</div>
           </div>
         </div>
@@ -683,7 +696,7 @@
             <div class="stat-value" id="kpi_labaBersih">Rp 0</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Rasio Piutang (Periode)</div>
+            <div class="stat-label">Rasio Piutang (posisi akhir periode)</div>
             <div class="stat-value" id="kpi_rasioPiutang">-</div>
           </div>
         </div>
@@ -755,7 +768,7 @@
             <div class="stat-value" id="kpi_totalLembur">0 jam</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Rasio Biaya Tenaga Kerja (saat ini)</div>
+            <div class="stat-label">Rasio Biaya Tenaga Kerja (proyek non-arsip)</div>
             <div class="stat-value" id="kpi_rasioTenagaKerja">-</div>
           </div>
         </div>
@@ -771,6 +784,39 @@
         <div class="panel">
           <h3>Tren Jam Lembur per Bulan (6 bulan terakhir)</h3>
           <div id="kpi_trendTim" class="bar-chart"></div>
+        </div>
+      </div>
+
+      <div class="subtab-panel" id="kpi_operasionalPanel">
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-label">Sisa Utang Usaha (saat ini)</div>
+            <div class="stat-value bad" id="kpi_opUtang">Rp 0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Utang Jatuh Tempo &le; 7 Hari</div>
+            <div class="stat-value" id="kpi_opUtangSegera">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Rasio Utang vs Saldo Kas</div>
+            <div class="stat-value" id="kpi_opRasioUtangKas">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Tingkat Lulus QC (Periode)</div>
+            <div class="stat-value good" id="kpi_opQcLulus">-</div>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Umur Utang Usaha (Aging, saat ini)</h3>
+          <div class="summary-rows" id="kpi_opAgingUtang"></div>
+        </div>
+        <div class="panel">
+          <h3>QC Produksi &amp; Lapangan (Periode)</h3>
+          <div class="summary-rows" id="kpi_opQcRows"></div>
+        </div>
+        <div class="panel">
+          <h3>Aset Tetap &amp; Stok (saat ini)</h3>
+          <div class="summary-rows" id="kpi_opAsetStokRows"></div>
         </div>
       </div>
     </section>
