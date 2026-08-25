@@ -77,6 +77,7 @@ function withDefaults(s) {
   if (typeof s.periodeTerkunci !== "string") s.periodeTerkunci = "";
   if (typeof s.approvalThreshold !== "number") s.approvalThreshold = 0;
   if (typeof s.targetOmzetBulanan !== "number") s.targetOmzetBulanan = 0;
+  if (typeof s.targetOmzetTahunan !== "number") s.targetOmzetTahunan = 0;
   if (typeof s.targetLababersihBulanan !== "number") s.targetLababersihBulanan = 0;
   if (!s.jamKerjaMulai) s.jamKerjaMulai = "08:00";
   if (!s.jamKerjaSelesai) s.jamKerjaSelesai = "17:00";
@@ -594,6 +595,11 @@ function klienToRow(k) {
     email: k.email || "",
     sumber: k.sumber || "",
     alamat: k.alamat || "",
+    wilayah: k.wilayah || "",
+    segmen: k.segmen || "",
+    potensi_nilai: k.potensiNilai || 0,
+    dibuat_oleh: k.dibuatOleh || "",
+    dibuat_tanggal: k.dibuatTanggal || null,
     tahap: k.tahap || "",
     tahap_sejak: k.tahapSejak || null,
     follow_up_berikutnya: k.followUpTanggal || null,
@@ -1406,6 +1412,7 @@ function companyProfileToRow() {
     mata_resolusi_markup_percent: state.mataResolusiMarkupPercent ?? 5,
     mata_resolusi_penawaran_counter: state.mataResolusiPenawaranCounter || 0,
     target_omzet_bulanan: state.targetOmzetBulanan || 0,
+    target_omzet_tahunan: state.targetOmzetTahunan || 0,
     target_laba_bersih_bulanan: state.targetLababersihBulanan || 0,
     jam_kerja_mulai: state.jamKerjaMulai || "08:00",
     jam_kerja_selesai: state.jamKerjaSelesai || "17:00",
@@ -1608,6 +1615,8 @@ function rowToKlien(r) {
   return {
     id: r.id, nama: r.nama || "", kontakNama: r.kontak_nama || "", telepon: r.telepon || "",
     email: r.email || "", sumber: r.sumber || "", alamat: r.alamat || "", tahap: r.tahap || "",
+    wilayah: r.wilayah || "", segmen: r.segmen || "", potensiNilai: r.potensi_nilai || 0,
+    dibuatOleh: r.dibuat_oleh || "", dibuatTanggal: r.dibuat_tanggal || "",
     tahapSejak: r.tahap_sejak || "", followUpTanggal: r.follow_up_berikutnya || "",
     catatan: r.catatan || "", kontakList: r.kontak_list || [], riwayatKontak: r.riwayat_kontak || []
   };
@@ -1789,6 +1798,7 @@ async function buildStateFromRelational(companyId) {
     mataResolusiMarkupPercent: (profileRow && profileRow.mata_resolusi_markup_percent) ?? 5,
     mataResolusiPenawaranCounter: (profileRow && profileRow.mata_resolusi_penawaran_counter) || 0,
     targetOmzetBulanan: (profileRow && profileRow.target_omzet_bulanan) || 0,
+    targetOmzetTahunan: (profileRow && profileRow.target_omzet_tahunan) || 0,
     targetLababersihBulanan: (profileRow && profileRow.target_laba_bersih_bulanan) || 0,
     jamKerjaMulai: (profileRow && profileRow.jam_kerja_mulai) || "08:00",
     jamKerjaSelesai: (profileRow && profileRow.jam_kerja_selesai) || "17:00",
@@ -5348,6 +5358,17 @@ function klienIsStale(k, today) {
 function renderKlienList() {
   const filterSel = document.getElementById("kl_filterTahap");
   if (filterSel.options.length <= 1) filterSel.innerHTML = '<option value="">Semua Tahap</option>' + KLIEN_TAHAP.map(t => `<option value="${t}">${t}</option>`).join("");
+  // Filter babat alas: pilihan wilayah dibangun dari data (berubah-ubah),
+  // segmen dari daftar tetap. Nilai terpilih dipertahankan saat rebuild.
+  const wilSel = document.getElementById("kl_filterWilayah");
+  const wilTerpilih = wilSel.value;
+  wilSel.innerHTML = '<option value="">Semua Wilayah</option>' +
+    [...new Set(state.klien.map(k => k.wilayah).filter(Boolean))].sort().map(w => `<option value="${escapeHtml(w)}">${escapeHtml(w)}</option>`).join("");
+  if ([...wilSel.options].some(o => o.value === wilTerpilih)) wilSel.value = wilTerpilih;
+  const segSel = document.getElementById("kl_filterSegmen");
+  if (segSel.options.length <= 1) segSel.innerHTML = '<option value="">Semua Segmen</option>' + SEGMEN_BABAT_ALAS.filter(Boolean).map(s => `<option value="${s}">${s}</option>`).join("");
+  // Anti-fraud: role Marketing tidak boleh mengambil seluruh daftar klien.
+  document.getElementById("kl_printBtn").style.display = currentTeamRole === "marketing" ? "none" : "";
 
   const today = hariIniIso();
   const finalTahap = ["Selesai", "Hilang"];
@@ -5367,15 +5388,20 @@ function renderKlienList() {
 
   const search = (document.getElementById("kl_search").value || "").toLowerCase();
   const filterTahap = document.getElementById("kl_filterTahap").value;
+  const filterWilayah = wilSel.value;
+  const filterSegmen = segSel.value;
   let rows = rowsAll;
   if (search) rows = rows.filter(k => k.nama.toLowerCase().includes(search));
   if (filterTahap) rows = rows.filter(k => k.tahap === filterTahap);
+  if (filterWilayah) rows = rows.filter(k => k.wilayah === filterWilayah);
+  if (filterSegmen) rows = rows.filter(k => k.segmen === filterSegmen);
   rows = rows.slice().sort((a, b) => a.nama.localeCompare(b.nama));
 
+  const bolehHapus = currentTeamRole !== "marketing";
   const tbody = document.querySelector("#kl_table tbody");
   tbody.innerHTML = "";
   if (!rows.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Belum ada klien</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="7">Belum ada klien</td></tr>';
     return;
   }
   rows.forEach(k => {
@@ -5384,6 +5410,7 @@ function renderKlienList() {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${escapeHtml(k.nama)}</td>
+      <td>${escapeHtml(k.wilayah || "-")}${k.segmen ? `<br><small class="muted">${escapeHtml(k.segmen)}</small>` : ""}</td>
       <td><span class="badge-margin ${klienTahapBadge(k.tahap)}">${escapeHtml(k.tahap || "Leads")}</span>${stale ? ` <span class="bad" style="font-size:11px;" title="Sudah ${daysBetweenIso(k.tahapSejak, today)} hari tanpa perubahan tahap">⚠️ Mandek</span>` : ""}</td>
       <td>${escapeHtml(k.kontakNama || "-")}${k.telepon ? ` · ${escapeHtml(k.telepon)}` : ""}</td>
       <td class="${overdue ? "bad" : ""}">${k.followUpTanggal ? formatTanggal(k.followUpTanggal) : "-"}${overdue ? " ⚠️" : ""}</td>
@@ -5392,7 +5419,7 @@ function renderKlienList() {
         <div class="row-actions">
           <button class="icon-btn" data-open-klien="${k.id}" title="Buka Detail">📂</button>
           <button class="icon-btn" data-edit-klien="${k.id}" title="Edit">✏️</button>
-          <button class="icon-btn" data-delete-klien="${k.id}" title="Hapus">🗑️</button>
+          ${bolehHapus ? `<button class="icon-btn" data-delete-klien="${k.id}" title="Hapus">🗑️</button>` : ""}
         </div>
       </td>
     `;
@@ -5439,9 +5466,13 @@ function buildKlienListPrintHtml() {
   `;
 }
 document.getElementById("kl_printBtn").addEventListener("click", () => {
+  if (currentTeamRole === "marketing") { alert("Role Marketing tidak dapat mencetak seluruh daftar klien."); return; }
   document.getElementById("printArea").innerHTML = buildKlienListPrintHtml();
   cetakPrintArea();
 });
+document.getElementById("kl_filterWilayah").addEventListener("change", renderKlienList);
+document.getElementById("kl_filterSegmen").addEventListener("change", renderKlienList);
+attachNumberFormatting(document.getElementById("kl_potensiNilai"));
 function renderKlienDetail() {
   const k = state.klien.find(x => x.id === currentKlienId);
   if (!k) { showKlienList(); return; }
@@ -5466,18 +5497,26 @@ function renderKlienDetail() {
     <div class="summary-row"><span>Email</span><strong>${escapeHtml(k.email || "-")}</strong></div>
     <div class="summary-row"><span>Alamat</span><strong>${escapeHtml(k.alamat || "-")}</strong></div>
     <div class="summary-row"><span>Sumber</span><strong>${escapeHtml(k.sumber || "-")}</strong></div>
+    <div class="summary-row"><span>Wilayah / Segmen</span><strong>${escapeHtml(k.wilayah || "-")}${k.segmen ? " · " + escapeHtml(k.segmen) : ""}</strong></div>
+    <div class="summary-row"><span>Potensi Nilai (perkiraan)</span><strong>${k.potensiNilai ? rupiah(k.potensiNilai) : "-"}</strong></div>
+    <div class="summary-row"><span>Diinput oleh</span><strong>${escapeHtml(k.dibuatOleh || "-")}${k.dibuatTanggal ? " · " + formatTanggal(k.dibuatTanggal) : ""}</strong></div>
     <div class="summary-row"><span>Follow-up Berikutnya</span><strong>${k.followUpTanggal ? formatTanggal(k.followUpTanggal) : "-"}</strong></div>
     <div class="summary-row"><span>Catatan</span><strong>${escapeHtml(k.catatan || "-")}</strong></div>
   `;
 
+  // Riwayat kontak: jejak kerja marketing. Role Marketing tidak boleh
+  // menghapus jejaknya sendiri (anti-fraud).
+  const bolehHapusRiwayat = currentTeamRole !== "marketing";
   const kontakRows = k.riwayatKontak.slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
   document.querySelector("#kld_kontakTable tbody").innerHTML = kontakRows.length ? kontakRows.map(r => `
     <tr>
       <td>${formatTanggal(r.tanggal)}</td>
+      <td>${escapeHtml(r.jenis || "-")}</td>
       <td>${escapeHtml(r.catatan)}</td>
-      <td><div class="row-actions"><button class="icon-btn" data-delete-kontak="${r.id}" title="Hapus">🗑️</button></div></td>
+      <td><small>${escapeHtml(r.petugas || "-")}</small></td>
+      <td><div class="row-actions">${bolehHapusRiwayat ? `<button class="icon-btn" data-delete-kontak="${r.id}" title="Hapus">🗑️</button>` : ""}</div></td>
     </tr>
-  `).join("") : '<tr class="empty-row"><td colspan="3">Belum ada riwayat kontak</td></tr>';
+  `).join("") : '<tr class="empty-row"><td colspan="5">Belum ada riwayat kontak</td></tr>';
 
   document.querySelector("#kld_rabTable tbody").innerHTML = derived.rabTerkait.length ? derived.rabTerkait.slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || "")).map(r => {
     const { total } = rabTotals(r);
@@ -5512,12 +5551,28 @@ function renderKlienDetail() {
     </tr>
   `).join("") : '<tr class="empty-row"><td colspan="6">Belum ada kontak/PIC tercatat</td></tr>';
 }
+// ===== Babat Alas: segmen prioritas & identitas petugas =====
+const SEGMEN_BABAT_ALAS = [
+  "", "Instansi Pemerintah / BUMN", "Developer & Kontraktor", "Pabrik / Kawasan Industri",
+  "RS / Klinik / Sekolah / Kampus", "Ritel / F&B / Hotel", "Perorangan", "Lainnya"
+];
+const JENIS_KONTAK = ["Telepon", "WhatsApp", "Kunjungan", "Meeting", "Email", "Lainnya"];
+// Identitas penginput untuk jejak "siapa mengerjakan apa" -- dari akun
+// login (email); sesi lokal tanpa login dianggap Owner.
+function petugasSaatIni() {
+  return (currentSyncUser && currentSyncUser.email) || "Owner (lokal)";
+}
 const klienModal = document.getElementById("klienModal");
 function openKlienModal(existing) {
   const sumberSel = document.getElementById("kl_sumber");
   if (sumberSel.options.length === 0) sumberSel.innerHTML = KLIEN_SUMBER.map(s => `<option value="${s}">${s}</option>`).join("");
   const tahapSel = document.getElementById("kl_tahap");
   if (tahapSel.options.length === 0) tahapSel.innerHTML = KLIEN_TAHAP.map(t => `<option value="${t}">${t}</option>`).join("");
+  const segmenSel = document.getElementById("kl_segmen");
+  if (segmenSel.options.length === 0) segmenSel.innerHTML = SEGMEN_BABAT_ALAS.map(s => `<option value="${s}">${s || "(belum dipilih)"}</option>`).join("");
+  // Saran wilayah dari data yang sudah ada, supaya penulisan konsisten.
+  document.getElementById("wilayahList").innerHTML =
+    [...new Set(state.klien.map(k => k.wilayah).filter(Boolean))].sort().map(w => `<option value="${escapeHtml(w)}">`).join("");
 
   document.getElementById("kl_id").value = existing ? existing.id : "";
   document.getElementById("klienModalTitle").textContent = existing ? "Edit Klien" : "Tambah Klien";
@@ -5527,6 +5582,9 @@ function openKlienModal(existing) {
   document.getElementById("kl_email").value = existing ? (existing.email || "") : "";
   sumberSel.value = existing ? (existing.sumber || KLIEN_SUMBER[0]) : KLIEN_SUMBER[0];
   document.getElementById("kl_alamat").value = existing ? (existing.alamat || "") : "";
+  document.getElementById("kl_wilayah").value = existing ? (existing.wilayah || "") : "";
+  segmenSel.value = existing && SEGMEN_BABAT_ALAS.includes(existing.segmen) ? existing.segmen : "";
+  document.getElementById("kl_potensiNilai").value = existing && existing.potensiNilai ? formatNumberInput(existing.potensiNilai) : "";
   tahapSel.value = existing ? (existing.tahap || "Leads") : "Leads";
   document.getElementById("kl_followUpTanggal").value = existing ? (existing.followUpTanggal || "") : "";
   document.getElementById("kl_catatan").value = existing ? (existing.catatan || "") : "";
@@ -5549,12 +5607,19 @@ document.getElementById("klienForm").addEventListener("submit", e => {
     email: document.getElementById("kl_email").value.trim(),
     sumber: document.getElementById("kl_sumber").value,
     alamat: document.getElementById("kl_alamat").value.trim(),
+    wilayah: document.getElementById("kl_wilayah").value.trim(),
+    segmen: document.getElementById("kl_segmen").value,
+    potensiNilai: parseNumberInput(document.getElementById("kl_potensiNilai").value),
     tahap: tahapBaru,
     tahapSejak: tahapBerubah ? hariIniIso() : (existing.tahapSejak || hariIniIso()),
     followUpTanggal: document.getElementById("kl_followUpTanggal").value,
     catatan: document.getElementById("kl_catatan").value.trim(),
     riwayatKontak: existing ? (existing.riwayatKontak || []) : [],
-    kontakList: existing ? (existing.kontakList || []) : []
+    kontakList: existing ? (existing.kontakList || []) : [],
+    // Jejak penginput: dipatri saat dibuat, tidak berubah saat diedit --
+    // dasar penilaian kerja marketing & bukti kepemilikan data.
+    dibuatOleh: existing ? (existing.dibuatOleh || "") : petugasSaatIni(),
+    dibuatTanggal: existing ? (existing.dibuatTanggal || "") : hariIniIso()
   };
   if (idx >= 0) state.klien[idx] = k; else state.klien.push(k);
   saveState();
@@ -5571,6 +5636,9 @@ document.getElementById("kl_table").addEventListener("click", e => {
     const k = state.klien.find(x => x.id === editBtn.dataset.editKlien);
     if (k) openKlienModal(k);
   } else if (delBtn) {
+    // Anti-fraud: penghapusan data klien hanya oleh Owner/Admin (RLS
+    // database juga menolak, ini lapis UI-nya).
+    if (currentTeamRole === "marketing") { alert("Role Marketing tidak dapat menghapus data klien. Hubungi Owner."); return; }
     if (confirm("Hapus klien ini? Proyek/Penawaran yang sudah dikaitkan tidak akan ikut terhapus, hanya kaitannya yang hilang.")) {
       const deleted = state.klien.find(x => x.id === delBtn.dataset.deleteKlien);
       state.klien = state.klien.filter(x => x.id !== delBtn.dataset.deleteKlien);
@@ -5625,20 +5693,30 @@ document.getElementById("kld_picTable").addEventListener("click", e => {
 document.getElementById("rk_addBtn").addEventListener("click", () => {
   const k = state.klien.find(x => x.id === currentKlienId);
   if (!k) return;
+  const jenisSel = document.getElementById("rk_jenis");
+  if (jenisSel.options.length === 0) jenisSel.innerHTML = JENIS_KONTAK.map(j => `<option value="${j}">${j}</option>`).join("");
   const tanggal = document.getElementById("rk_tanggal").value;
   const catatan = document.getElementById("rk_catatan").value.trim();
+  const followUp = document.getElementById("rk_followUp").value;
   if (!tanggal || !catatan) { alert("Isi tanggal dan catatan terlebih dahulu."); return; }
   if (!k.riwayatKontak) k.riwayatKontak = [];
-  k.riwayatKontak.push({ id: uid(), tanggal, catatan });
+  // Petugas dipatri otomatis (bukan diketik) supaya jejak kerja marketing
+  // tidak bisa dipalsukan atas nama orang lain.
+  k.riwayatKontak.push({ id: uid(), tanggal, jenis: jenisSel.value || "Lainnya", catatan, petugas: petugasSaatIni() });
+  // Sekali input: jadwal follow-up berikutnya langsung memperbarui klien
+  // (muncul di daftar, Dashboard, dan Kalender tanpa input ulang).
+  if (followUp) k.followUpTanggal = followUp;
   saveState();
   mirrorKlienUpsert(k);
   document.getElementById("rk_tanggal").value = "";
   document.getElementById("rk_catatan").value = "";
+  document.getElementById("rk_followUp").value = "";
   renderKlienDetail();
 });
 document.getElementById("kld_kontakTable").addEventListener("click", e => {
   const delBtn = e.target.closest("[data-delete-kontak]");
   const k = state.klien.find(x => x.id === currentKlienId);
+  if (delBtn && currentTeamRole === "marketing") { alert("Role Marketing tidak dapat menghapus riwayat kontak."); return; }
   if (delBtn && k && confirm("Hapus riwayat kontak ini?")) {
     k.riwayatKontak = (k.riwayatKontak || []).filter(r => r.id !== delBtn.dataset.deleteKontak);
     saveState();
@@ -6117,6 +6195,63 @@ function computeKpiPenjualan(mulai, selesai) {
   });
   return { terkirim: pwPeriode.length, disetujui: disetujui.length, ditolak: ditolak.length, winRate, nilaiDisetujui, pipelineCount: pipelineAktif.length, nilaiPipeline, funnel, trend };
 }
+// Kalkulator target tahunan (mundur dari target omzet): berapa deal,
+// penawaran, dan prospek baru yang harus dihasilkan per bulan. Asumsi
+// rata-rata nilai deal & win rate diambil dari data 12 bulan terakhir;
+// kalau datanya belum cukup, dipakai asumsi awal rencana babat alas
+// (rata-rata Rp 250 juta, win rate 30%, 50% prospek jadi penawaran).
+function computeKpiTarget() {
+  const today = hariIniIso();
+  const tahunIni = today.slice(0, 4);
+  const target = state.targetOmzetTahunan || (state.targetOmzetBulanan || 0) * 12;
+  const realisasi = computeLabaRugi(`${tahunIni}-01-01`, today).pendapatan;
+  const sisaTarget = Math.max(0, target - realisasi);
+  const bulanBerjalan = new Date(today + "T00:00:00").getMonth() + 1;
+  const bulanTersisa = Math.max(1, 12 - bulanBerjalan + 1);
+  const perBulanDibutuhkan = sisaTarget / bulanTersisa;
+  const setahunLalu = addDaysIso(today, -365);
+  const pwSetahun = state.penawaran.filter(p => (p.tanggal || "") >= setahunLalu);
+  const disetujui = pwSetahun.filter(p => p.status === "disetujui");
+  const ditolak = pwSetahun.filter(p => p.status === "ditolak");
+  const avgDeal = disetujui.length >= 3
+    ? disetujui.reduce((s, p) => s + penawaranTotals(p).total, 0) / disetujui.length
+    : 250000000;
+  const winRate = (disetujui.length + ditolak.length) >= 5
+    ? disetujui.length / (disetujui.length + ditolak.length)
+    : 0.3;
+  const dealPerBulan = perBulanDibutuhkan / Math.max(1, avgDeal);
+  const penawaranPerBulan = dealPerBulan / Math.max(0.05, winRate);
+  const prospekPerBulan = penawaranPerBulan / 0.5;
+  // ±5 sentuhan (kontak/follow-up) per prospek serius, 22 hari kerja/bulan.
+  const kontakPerHari = (prospekPerBulan * 5) / 22;
+  return {
+    target, realisasi, sisaTarget, bulanTersisa, perBulanDibutuhkan,
+    avgDeal, winRatePct: winRate * 100,
+    dealPerBulan, penawaranPerBulan, prospekPerBulan, kontakPerHari,
+    pakaiDataNyata: disetujui.length >= 3
+  };
+}
+// Aktivitas per petugas (dari stamp dibuatOleh & riwayat kontak) --
+// dasar penilaian kerja marketing yang objektif.
+function computeAktivitasMarketing(mulai, selesai) {
+  const per = {};
+  const rec = nama => {
+    const kunci = nama || "(tanpa nama)";
+    if (!per[kunci]) per[kunci] = { prospekBaru: 0, kontak: 0, kunjungan: 0 };
+    return per[kunci];
+  };
+  (state.klien || []).forEach(k => {
+    if (k.dibuatOleh && k.dibuatTanggal && k.dibuatTanggal >= mulai && k.dibuatTanggal <= selesai) rec(k.dibuatOleh).prospekBaru++;
+    (k.riwayatKontak || []).forEach(r => {
+      if (!r.petugas || !r.tanggal || r.tanggal < mulai || r.tanggal > selesai) return;
+      const x = rec(r.petugas);
+      x.kontak++;
+      if (r.jenis === "Kunjungan" || r.jenis === "Meeting") x.kunjungan++;
+    });
+  });
+  return Object.entries(per).map(([petugas, v]) => ({ petugas, ...v }))
+    .sort((a, b) => (b.prospekBaru + b.kontak) - (a.prospekBaru + a.kontak));
+}
 function computeKpiProyek(mulai, selesai) {
   const today = hariIniIso();
   const semua = state.proyek;
@@ -6327,6 +6462,23 @@ function renderKpiPenjualan() {
   document.getElementById("kpi_winRate").textContent = pct1(k.winRate);
   document.getElementById("kpi_nilaiDisetujui").textContent = rupiah(k.nilaiDisetujui);
   document.getElementById("kpi_pipelineAktif").textContent = `${rupiah(k.nilaiPipeline)} (${k.pipelineCount})`;
+  const t = computeKpiTarget();
+  document.getElementById("kpi_targetRows").innerHTML = t.target > 0 ? `
+    <div class="summary-row"><span>Target Omzet Tahunan</span><strong>${rupiah(t.target)}</strong></div>
+    <div class="summary-row"><span>Realisasi Pendapatan Tahun Ini</span><strong>${rupiah(t.realisasi)}</strong></div>
+    <div class="summary-row"><span>Sisa Target (${t.bulanTersisa} bulan tersisa)</span><strong>${rupiah(Math.round(t.sisaTarget))}</strong></div>
+    <div class="summary-row total"><span>Dibutuhkan per Bulan</span><strong>${rupiah(Math.round(t.perBulanDibutuhkan))}</strong></div>
+    <div class="summary-row"><span>Asumsi Rata-rata Nilai Deal ${t.pakaiDataNyata ? "(dari data 12 bln)" : "(asumsi awal)"}</span><strong>${rupiah(Math.round(t.avgDeal))}</strong></div>
+    <div class="summary-row"><span>Asumsi Win Rate ${t.pakaiDataNyata ? "(dari data)" : "(asumsi awal)"}</span><strong>${t.winRatePct.toFixed(0)}%</strong></div>
+    <div class="summary-row"><span>➡️ Deal / bulan</span><strong>${t.dealPerBulan.toFixed(1)}</strong></div>
+    <div class="summary-row"><span>➡️ Penawaran keluar / bulan</span><strong>${Math.ceil(t.penawaranPerBulan)}</strong></div>
+    <div class="summary-row"><span>➡️ Prospek serius baru / bulan</span><strong>${Math.ceil(t.prospekPerBulan)}</strong></div>
+    <div class="summary-row"><span>➡️ Kontak/follow-up / hari kerja</span><strong>${Math.ceil(t.kontakPerHari)}</strong></div>
+  ` : '<div class="summary-row"><span>Isi Target Omzet Tahunan di Pengaturan → Target KPI untuk mengaktifkan kalkulator ini.</span><strong>-</strong></div>';
+  const akt = computeAktivitasMarketing(mulai, selesai);
+  document.querySelector("#kpi_aktivitasMarketingTable tbody").innerHTML = akt.length ? akt.map(a => `
+    <tr><td>${escapeHtml(a.petugas)}</td><td class="num">${a.prospekBaru}</td><td class="num">${a.kontak}</td><td class="num">${a.kunjungan}</td></tr>
+  `).join("") : '<tr class="empty-row"><td colspan="4">Belum ada aktivitas tercatat di periode ini</td></tr>';
   document.getElementById("kpi_funnelRows").innerHTML = k.funnel.map(f => `
     <div class="summary-row"><span>${escapeHtml(f.tahap)}</span><strong>${f.jumlah}</strong></div>
   `).join("");
@@ -11626,6 +11778,8 @@ function renderAll() {
   if (document.activeElement !== mrMarkupInput) mrMarkupInput.value = state.mataResolusiMarkupPercent ?? 5;
   const targetOmzetInput = document.getElementById("settingsTargetOmzet");
   if (document.activeElement !== targetOmzetInput) targetOmzetInput.value = formatNumberInput(state.targetOmzetBulanan || 0);
+  const targetTahunanInput = document.getElementById("settingsTargetOmzetTahunan");
+  if (document.activeElement !== targetTahunanInput) targetTahunanInput.value = formatNumberInput(state.targetOmzetTahunan || 0);
   document.getElementById("sgo_aktif").checked = (state.gajiOwner || {}).aktif === true;
   const sgoJumlahInput = document.getElementById("sgo_jumlah");
   if (document.activeElement !== sgoJumlahInput) sgoJumlahInput.value = formatNumberInput((state.gajiOwner || {}).jumlah || 0);
@@ -12724,6 +12878,8 @@ document.getElementById("sgo_jumlah").addEventListener("input", simpanGajiOwnerS
 document.getElementById("sgo_tanggal").addEventListener("change", simpanGajiOwnerSetting);
 attachNumberFormatting(document.getElementById("settingsTargetOmzet"));
 document.getElementById("settingsTargetOmzet").addEventListener("input", e => { state.targetOmzetBulanan = parseNumberInput(e.target.value); saveState(); mirrorCompanyProfileUpsert(); });
+attachNumberFormatting(document.getElementById("settingsTargetOmzetTahunan"));
+document.getElementById("settingsTargetOmzetTahunan").addEventListener("input", e => { state.targetOmzetTahunan = parseNumberInput(e.target.value); saveState(); mirrorCompanyProfileUpsert(); });
 document.getElementById("settingsJamKerjaMulai").addEventListener("change", e => { state.jamKerjaMulai = e.target.value || "08:00"; saveState(); mirrorCompanyProfileUpsert(); });
 document.getElementById("settingsJamKerjaSelesai").addEventListener("change", e => { state.jamKerjaSelesai = e.target.value || "17:00"; saveState(); mirrorCompanyProfileUpsert(); });
 document.getElementById("settingsRadiusProyek").addEventListener("input", e => { state.radiusProyekMeter = Math.max(0, Number(e.target.value) || 0); saveState(); mirrorCompanyProfileUpsert(); });
