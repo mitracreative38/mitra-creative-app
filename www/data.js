@@ -922,3 +922,244 @@ const QC_TEMPLATES = {
     "Area kerja aman & bersih setiap akhir hari kerja"
   ]
 };
+
+// ===== SOP Perusahaan: pedoman kerja baku per peran (halaman "SOP") =====
+// Disusun untuk perusahaan rintisan dengan tim kecil -- satu orang bisa
+// merangkap beberapa peran; ikuti SOP peran yang sedang dijalankan.
+// Bisa dicetak per peran (pegangan karyawan) atau sebagai Buku SOP lengkap.
+const SOP_PERUSAHAAN = [
+  {
+    peran: "Aturan Umum Semua Karyawan", ikon: "📌",
+    ringkas: "Berlaku untuk seluruh karyawan tanpa kecuali, dari manajer sampai pekerja harian.",
+    bagian: [
+      { judul: "Kedisiplinan & Kehadiran", butir: [
+        "Jam kerja mengikuti jam yang ditetapkan perusahaan; hadir 10 menit sebelum mulai.",
+        "Absen masuk dan pulang setiap hari lewat aplikasi (QR/absen digital) — tidak diwakilkan.",
+        "Izin/sakit wajib memberi tahu atasan langsung sebelum jam kerja dimulai; sakit lebih dari 1 hari melampirkan surat dokter.",
+        "Tidak meninggalkan pekerjaan/lokasi tanpa izin atasan."
+      ] },
+      { judul: "Uang & Barang Perusahaan", butir: [
+        "Semua pembayaran dari klien HANYA masuk ke rekening resmi perusahaan — tidak ada karyawan yang boleh menerima uang klien secara pribadi.",
+        "Pengeluaran memakai uang perusahaan wajib ada nota/bukti dan dicatat di aplikasi hari itu juga.",
+        "Alat dan bahan milik perusahaan dipakai hanya untuk pekerjaan perusahaan; kehilangan/kerusakan segera dilaporkan.",
+        "Dilarang mengambil pekerjaan sampingan memakai alat, bahan, waktu, atau klien perusahaan."
+      ] },
+      { judul: "Data & Kerahasiaan", butir: [
+        "Data klien, harga, dan keuangan perusahaan adalah rahasia — dilarang dibagikan ke pihak luar.",
+        "Semua pekerjaan dicatat di aplikasi perusahaan; pekerjaan yang tidak tercatat dianggap tidak dikerjakan.",
+        "Akun aplikasi bersifat pribadi — dilarang meminjamkan akun/password ke orang lain."
+      ] },
+      { judul: "Sikap Kerja", butir: [
+        "Sopan kepada klien, pemasok, dan sesama rekan; keluhan klien diteruskan ke atasan hari itu juga.",
+        "Masalah antar rekan diselesaikan lewat atasan, bukan diributkan di lokasi kerja/di depan klien.",
+        "Kesalahan kerja segera dilaporkan — menyembunyikan kesalahan lebih berat sanksinya daripada kesalahan itu sendiri."
+      ] }
+    ]
+  },
+  {
+    peran: "Owner / Direktur", ikon: "👑",
+    ringkas: "Pemegang keputusan akhir: harga, uang keluar besar, arah usaha, dan kesejahteraan tim.",
+    bagian: [
+      { judul: "Rutinitas Harian", butir: [
+        "Pagi: buka Dashboard aplikasi — cek panel Perlu Perhatian, saldo kas, dan jadwal hari ini.",
+        "Setujui/tolak pengeluaran besar yang Menunggu Persetujuan di Kas Perusahaan.",
+        "Sore: baca laporan singkat marketing & produksi (WA/aplikasi)."
+      ] },
+      { judul: "Rutinitas Mingguan", butir: [
+        "Senin: meeting 30 menit dengan marketing (lihat SOP Marketing) — review KPI Penjualan & daftar prospek mandek.",
+        "Cek Margin Proyek: proyek yang biayanya mendekati/melebihi anggaran langsung dievaluasi.",
+        "Pastikan gaji mingguan tim dibayarkan lewat modul Penggajian (bukan hitung manual)."
+      ] },
+      { judul: "Ritual Awal Bulan (Tutup Buku)", butir: [
+        "Buka Laporan Keuangan → Tutup Buku: cetak paket laporan bulan lalu, lalu kunci periodenya.",
+        "Jalankan Alokasi Laba (dana darurat, pengembangan, pajak, tim, keluarga) sesuai persentase yang ditetapkan.",
+        "Jalankan Pemeriksaan Integrasi Data di Dashboard dan rapikan semua temuan.",
+        "Review KPI bulanan: capaian target omzet, margin tertimbang, piutang & utang."
+      ] },
+      { judul: "Batas Wewenang", butir: [
+        "Harga penawaran final dan diskon di atas kebijakan standar hanya diputuskan Owner.",
+        "Perekrutan, pengangkatan, kenaikan gaji, dan pemberhentian karyawan diputuskan Owner.",
+        "Hanya Owner yang memegang akses penuh keuangan (Kas, Gaji, Laporan, Aktivitas Tim)."
+      ] }
+    ]
+  },
+  {
+    peran: "Admin & Keuangan", ikon: "🧾",
+    ringkas: "Menjaga semua uang dan dokumen tercatat rapi, hari itu juga, tanpa kecuali.",
+    bagian: [
+      { judul: "Harian", butir: [
+        "Catat SEMUA uang masuk & keluar di Kas Perusahaan hari itu juga, lengkap dengan kategori, proyek terkait, dan foto nota.",
+        "Cek invoice jatuh tempo & piutang — tagih/ingatkan klien yang lewat tanggal.",
+        "Arsipkan dokumen proyek (SPK, BAP, BAST, invoice) di aplikasi pada proyek masing-masing.",
+        "Isi absensi harian karyawan + uang makan/bon sesuai kenyataan lapangan."
+      ] },
+      { judul: "Mingguan", butir: [
+        "Proses Penggajian mingguan dari absensi (aplikasi menghitung otomatis) — minta persetujuan Owner sebelum dibayar.",
+        "Cek Utang Usaha yang jatuh tempo ≤ 7 hari dan siapkan pembayarannya.",
+        "Opname Kas: cocokkan uang fisik/saldo rekening dengan saldo aplikasi; selisih dilaporkan ke Owner hari itu juga."
+      ] },
+      { judul: "Per Proyek", butir: [
+        "Terbitkan invoice dari aplikasi (nomor otomatis) begitu termin bisa ditagih — jangan menunda.",
+        "Saat pembayaran masuk, ubah status invoice menjadi Dibayar (kas tercatat otomatis).",
+        "Semua belanja material proyek dicatat lewat Belanja Material di proyeknya, bukan kas umum."
+      ] },
+      { judul: "Larangan", butir: [
+        "Dilarang mencatat transaksi tanpa bukti, menunda pencatatan, atau mencampur uang pribadi dengan uang perusahaan.",
+        "Dilarang mengubah data periode yang sudah dikunci Tutup Buku tanpa persetujuan Owner."
+      ] }
+    ]
+  },
+  {
+    peran: "HRD / Manajer Operasional", ikon: "🧑‍💼",
+    ringkas: "Mengurus orang: rekrut, jadwalkan, bina, evaluasi — supaya Owner tidak mengurus semuanya sendiri.",
+    bagian: [
+      { judul: "Rekrutmen & Onboarding", butir: [
+        "Rekrut sesuai kebutuhan yang disetujui Owner; wajib cek referensi tempat kerja sebelumnya + KTP/KK.",
+        "Hari pertama: kontrak & aturan ditandatangani, SOP peran dicetak & dijelaskan, akun aplikasi dibuatkan sesuai role.",
+        "Minggu pertama: karyawan baru didampingi karyawan senior; evaluasi singkat di akhir minggu.",
+        "Masa percobaan maksimal 3 bulan dengan target jelas; keputusan lanjut/tidak berdasarkan data (absensi, hasil kerja, sikap)."
+      ] },
+      { judul: "Harian & Mingguan", butir: [
+        "Susun pembagian kerja/penugasan harian dan pastikan absensi terisi benar.",
+        "Cek kehadiran di KPI Tim; karyawan yang sering absen/terlambat dibina, tercatat, dan bertahap diberi SP.",
+        "Pastikan pekerja lapangan berangkat dengan APD, alat, dan surat tugas/SPK yang jelas."
+      ] },
+      { judul: "Pembinaan & Sanksi", butir: [
+        "Teguran lisan → SP1 → SP2 → SP3/putus kerja; setiap tahap dicatat tertulis dengan tanggal & alasan.",
+        "Pelanggaran berat (mencuri, memalsukan data, menerima uang klien secara pribadi, membocorkan rahasia) langsung diproses tanpa tahapan.",
+        "Prestasi juga dicatat — jadi dasar bonus/kenaikan, bukan hanya hukuman."
+      ] },
+      { judul: "Kesejahteraan", butir: [
+        "Gaji/upah dibayar tepat waktu sesuai jadwal; keterlambatan wajib dikomunikasikan sebelum hari-H.",
+        "Keluhan karyawan ditampung dan diteruskan ke Owner dengan usulan solusi.",
+        "Pinjaman karyawan mengikuti kebijakan Owner dan dicatat di aplikasi (terpotong otomatis dari gaji)."
+      ] }
+    ]
+  },
+  {
+    peran: "Marketing", ikon: "📣",
+    ringkas: "Membuka pintu order: babat alas wilayah baru, kawal prospek sampai deal. (Rincian lengkap di dokumen Rencana Marketing & SOP Babat Alas.)",
+    bagian: [
+      { judul: "Harian", butir: [
+        "Pagi: buka aplikasi — cek follow-up jatuh tempo hari ini & prospek mandek; susun rute kunjungan.",
+        "Kerjakan target harian: 6 kontak baru, 1-2 kunjungan/meeting, 5 follow-up.",
+        "Sore: input SEMUA hasil hari ini ke aplikasi (prospek baru + riwayat kontak + jadwal follow-up). Belum diinput = dianggap belum kerja.",
+        "Kirim laporan singkat ke Owner via WA."
+      ] },
+      { judul: "Aturan Emas", butir: [
+        "Semua prospek milik perusahaan dan wajib tercatat di aplikasi hari itu juga.",
+        "Harga & penawaran hanya keluar dari aplikasi dengan persetujuan Owner — dilarang membuat penawaran sendiri.",
+        "Dilarang menerima pembayaran klien dalam bentuk apa pun — arahkan ke rekening resmi perusahaan.",
+        "Komisi dihitung dari pembayaran yang sudah CAIR ke rekening perusahaan."
+      ] },
+      { judul: "Mingguan", butir: [
+        "Senin: meeting 30 menit dengan Owner — buka KPI Penjualan bersama, bahas prospek mandek & deal yang butuh keputusan.",
+        "Rabu: telepon semua penawaran terkirim > 7 hari tanpa kabar.",
+        "Jumat: rapikan pipeline — semua prospek harus punya tanggal follow-up berikutnya."
+      ] }
+    ]
+  },
+  {
+    peran: "Kepala Produksi / Workshop", ikon: "🏭",
+    ringkas: "Mengubah SPK menjadi barang jadi: tepat spesifikasi, tepat waktu, tepat biaya.",
+    bagian: [
+      { judul: "Menerima Pekerjaan", butir: [
+        "Pekerjaan dimulai hanya berdasarkan SPK/penugasan resmi — bukan perintah lisan tanpa catatan.",
+        "Pelajari spesifikasi & gambar/desain; kalau ada yang janggal, tanyakan SEBELUM produksi dimulai.",
+        "Hitung kebutuhan bahan; ambil dari stok (catat Stok Keluar ke proyek) atau ajukan Belanja Material."
+      ] },
+      { judul: "Selama Produksi", butir: [
+        "Bagi tugas tim produksi dan pastikan target harian jelas.",
+        "Isi Laporan Harian proyek di aplikasi (pakai tombol Isi Otomatis lalu koreksi seperlunya).",
+        "Bahan sisa dikembalikan/dicatat — tidak dibiarkan tercecer di workshop.",
+        "Kerusakan mesin/alat segera dilaporkan dan dicatat di jadwal servis alat."
+      ] },
+      { judul: "Sebelum Kirim (QC Produksi wajib)", butir: [
+        "Jalankan checklist QC Produksi di aplikasi untuk setiap pesanan sebelum keluar workshop.",
+        "Ukuran, warna, tulisan/desain dicek terhadap penawaran/desain yang disetujui klien.",
+        "Item yang gagal QC diperbaiki dulu — dilarang mengirim barang cacat dengan alasan kejar waktu.",
+        "Foto hasil akhir sebelum packing sebagai dokumentasi."
+      ] }
+    ]
+  },
+  {
+    peran: "Teknisi / Tukang Pemasangan Lapangan", ikon: "🔧",
+    ringkas: "Wajah perusahaan di lokasi klien: pasang dengan rapi, aman, dan terdokumentasi.",
+    bagian: [
+      { judul: "Sebelum Berangkat", butir: [
+        "Cek surat tugas: alamat, PIC klien, lingkup kerja, dan jam janjian.",
+        "Cek barang & alat lengkap sesuai daftar — kembali ke workshop karena alat tertinggal = buang waktu & bensin.",
+        "Pakai seragam/atribut perusahaan dan bawa APD (helm, sarung tangan, body harness untuk ketinggian)."
+      ] },
+      { judul: "Di Lokasi", butir: [
+        "Lapor ke PIC klien sebelum mulai; foto kondisi lokasi SEBELUM pekerjaan.",
+        "Pasang sesuai titik & spesifikasi; perubahan permintaan klien di lokasi tidak dikerjakan sebelum dikonfirmasi ke kantor (bisa jadi biaya tambah).",
+        "Utamakan keselamatan: listrik dimatikan saat menyambung, area kerja diberi pengaman bila di atas jalan/orang lewat.",
+        "Selesai: tes fungsi (lampu menyala, kokoh, level/lurus), bersihkan lokasi, foto hasil SESUDAH."
+      ] },
+      { judul: "Serah Terima", butir: [
+        "Jalankan checklist QC Lapangan di aplikasi bersama perwakilan klien; minta ACC klien.",
+        "Sampaikan cara perawatan & masa garansi ke klien.",
+        "Kekurangan/permintaan tambahan dicatat tertulis dan dilaporkan ke kantor hari itu juga — jangan menjanjikan apa pun sendiri."
+      ] }
+    ]
+  },
+  {
+    peran: "Pekerja Harian", ikon: "👷",
+    ringkas: "Tenaga inti di lapangan/workshop: kerja sesuai arahan, aman, dan tercatat.",
+    bagian: [
+      { judul: "Setiap Hari", butir: [
+        "Datang tepat waktu, absen masuk lewat aplikasi/QR di lokasi — upah dihitung dari absensi ini.",
+        "Kerjakan tugas sesuai arahan mandor/kepala tukang; kalau ragu, bertanya — jangan menebak.",
+        "Pakai APD yang diberikan; dilarang bekerja di ketinggian/listrik tanpa pengaman.",
+        "Jaga alat yang dipinjamkan; kembalikan dan lapor kondisinya di akhir hari.",
+        "Absen pulang sebelum meninggalkan lokasi."
+      ] },
+      { judul: "Yang Wajib Dilaporkan Segera", butir: [
+        "Kecelakaan kerja sekecil apa pun — walau hanya lecet.",
+        "Alat/bahan rusak, hilang, atau kurang.",
+        "Kondisi berbahaya di lokasi (kabel terkelupas, struktur goyang, cuaca ekstrem).",
+        "Uang makan/bon harian dicatat oleh admin — pastikan jumlahnya benar sebelum tanda tangan."
+      ] }
+    ]
+  },
+  {
+    peran: "K3 — Keselamatan & Kesehatan Kerja", ikon: "⛑️",
+    ringkas: "Nyawa lebih mahal dari proyek mana pun. Berlaku untuk semua pekerjaan lapangan & workshop.",
+    bagian: [
+      { judul: "Wajib Selalu", butir: [
+        "APD dasar (helm, sepatu, sarung tangan) untuk semua pekerjaan konstruksi/pemasangan; kacamata & masker saat menggerinda/mengelas/mengecat.",
+        "Kerja di ketinggian > 2 meter wajib body harness yang terikat ke titik kuat + tangga/scaffolding yang layak.",
+        "Pekerjaan listrik: pastikan arus mati, gunakan tespen, dilarang bekerja saat hujan untuk instalasi luar.",
+        "Area kerja di pinggir jalan diberi rambu/pembatas; jangan biarkan material menghalangi orang lewat."
+      ] },
+      { judul: "Alat & Bahan", butir: [
+        "Periksa kabel, mesin las, gerinda, dan tangga sebelum dipakai — alat rusak dilarang dipakai.",
+        "Bahan mudah terbakar (thinner, cat, gas) disimpan jauh dari percikan api dan dilarang merokok di dekatnya."
+      ] },
+      { judul: "Tanggap Darurat", butir: [
+        "Kotak P3K tersedia di workshop dan dibawa ke lokasi proyek besar.",
+        "Kecelakaan serius: hentikan pekerjaan, tolong korban, hubungi Owner & fasilitas kesehatan terdekat — jangan tunda karena takut disalahkan.",
+        "Setiap insiden dicatat dan dibahas supaya tidak terulang."
+      ] }
+    ]
+  },
+  {
+    peran: "QC — Pengendalian Mutu", ikon: "🔍",
+    ringkas: "Bisa dirangkap kepala produksi/teknisi senior: tidak ada barang keluar & serah terima tanpa dicek.",
+    bagian: [
+      { judul: "Prinsip", butir: [
+        "Dua gerbang wajib: QC Produksi (sebelum barang keluar workshop) dan QC Lapangan (sebelum serah terima ke klien).",
+        "Checklist QC di aplikasi (menu QC) wajib diisi — bukan sekadar dilihat.",
+        "Yang gagal QC dicatat apa adanya; inspeksi ulang setelah perbaikan.",
+        "ACC klien pada QC Lapangan menjadi dasar BAST — tanpa ACC, serah terima belum sah."
+      ] },
+      { judul: "Yang Dicek Minimum", butir: [
+        "Kesesuaian dengan penawaran/desain yang disetujui: ukuran, bahan, warna, tulisan.",
+        "Kekuatan & keamanan: las-lasan, baut, angkur, kelistrikan.",
+        "Kerapian akhir: cat, finishing, kebersihan lokasi.",
+        "Dokumentasi foto sebelum & sesudah selalu ada."
+      ] }
+    ]
+  }
+];

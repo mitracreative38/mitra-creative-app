@@ -11801,9 +11801,84 @@ function renderAll() {
 // hanya halaman yang terdaftar di sini yang boleh diakses.
 const ROLE_PAGE_ACCESS = {
   owner: null,
-  admin: ["dashboard", "kalender", "klien", "kasUsaha", "laporan", "kpi", "proyek", "qc", "sewaAset", "asetTetap", "karyawan", "lokasi", "stok", "pemasok", "ahsp", "rab", "penawaran", "pengaturan"],
-  marketing: ["klien", "ahsp", "rab", "penawaran", "pengaturan"]
+  admin: ["dashboard", "kalender", "sop", "klien", "kasUsaha", "laporan", "kpi", "proyek", "qc", "sewaAset", "asetTetap", "karyawan", "lokasi", "stok", "pemasok", "ahsp", "rab", "penawaran", "pengaturan"],
+  marketing: ["sop", "klien", "ahsp", "rab", "penawaran", "pengaturan"]
 };
+
+// ===== SOP Perusahaan: pedoman kerja per peran (data di SOP_PERUSAHAAN) =====
+// Bisa dibaca semua role -- setiap karyawan membuka SOP perannya sendiri;
+// cetak per peran / Buku SOP lengkap untuk pegangan & tanda tangan.
+function renderSop() {
+  const sel = document.getElementById("sop_peran");
+  if (sel.options.length === 0) {
+    sel.innerHTML = SOP_PERUSAHAAN.map((p, i) => `<option value="${i}">${p.ikon} ${p.peran}</option>`).join("");
+  }
+  const p = SOP_PERUSAHAAN[parseInt(sel.value, 10) || 0];
+  document.getElementById("sop_isi").innerHTML = `
+    <div class="panel">
+      <h3>${p.ikon} ${escapeHtml(p.peran)}</h3>
+      <p class="muted" style="font-size:13px;">${escapeHtml(p.ringkas)}</p>
+    </div>
+    ${p.bagian.map(b => `
+      <div class="panel">
+        <h3>${escapeHtml(b.judul)}</h3>
+        <ol style="margin:8px 0 4px 20px; display:flex; flex-direction:column; gap:6px; font-size:13.5px;">
+          ${b.butir.map(x => `<li>${escapeHtml(x)}</li>`).join("")}
+        </ol>
+      </div>
+    `).join("")}
+  `;
+}
+function sopPeranPrintBlock(p) {
+  return `
+    <h3 style="margin:18px 0 4px; letter-spacing:.3px;">${p.ikon} ${escapeHtml(p.peran)}</h3>
+    <p class="doc-p" style="font-style:italic; margin-bottom:8px;">${escapeHtml(p.ringkas)}</p>
+    ${p.bagian.map(b => `
+      <p class="doc-p" style="font-weight:700; margin:10px 0 4px;">${escapeHtml(b.judul)}</p>
+      <ol style="margin:0 0 8px 20px; font-size:12.5px; line-height:1.55;">
+        ${b.butir.map(x => `<li>${escapeHtml(x)}</li>`).join("")}
+      </ol>
+    `).join("")}
+  `;
+}
+function buildSopPrintHtml(perans, judul) {
+  return `
+    <div class="letterhead">
+      <div class="letterhead-logo">${LOGO_SVG}</div>
+      <div class="letterhead-text">
+        <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+      </div>
+    </div>
+    <div class="letterhead-rule"></div>
+    <h3 style="text-align:center; margin:6px 0 14px; letter-spacing:.5px;">${escapeHtml(judul)}</h3>
+    ${perans.map(sopPeranPrintBlock).join('<div style="border-top:1px dashed #bbb; margin:14px 0;"></div>')}
+    <p class="doc-p" style="margin-top:16px; font-size:12px;">Dengan menandatangani dokumen ini, karyawan menyatakan telah membaca, memahami, dan bersedia menjalankan SOP di atas.</p>
+    <div style="display:flex; justify-content:space-between; margin-top:28px; font-size:12.5px;">
+      <div style="text-align:center;">
+        Karyawan,<br><br><br><br>
+        ( ................................. )
+      </div>
+      <div style="text-align:center;">
+        ${escapeHtml(state.company || "CV. Mitra Creative")}
+        ${ownerTtdOrSpace(state.ownerNama)}
+        <strong>${escapeHtml(state.ownerNama)}</strong><br>${escapeHtml(state.ownerJabatan)}
+      </div>
+    </div>
+  `;
+}
+document.getElementById("sop_peran").addEventListener("change", renderSop);
+document.getElementById("sop_printBtn").addEventListener("click", () => {
+  const p = SOP_PERUSAHAAN[parseInt(document.getElementById("sop_peran").value, 10) || 0];
+  document.getElementById("printArea").innerHTML = buildSopPrintHtml([p], `STANDAR OPERASIONAL PROSEDUR — ${p.peran.toUpperCase()}`);
+  cetakPrintArea();
+});
+document.getElementById("sop_printSemuaBtn").addEventListener("click", () => {
+  document.getElementById("printArea").innerHTML = buildSopPrintHtml(SOP_PERUSAHAAN, "BUKU STANDAR OPERASIONAL PROSEDUR (SOP) PERUSAHAAN");
+  cetakPrintArea();
+});
+renderSop();
 function canAccessPage(name) {
   const allowed = ROLE_PAGE_ACCESS[currentTeamRole];
   return !allowed || allowed.includes(name);
