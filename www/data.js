@@ -826,6 +826,314 @@ const AHSP_TEMPLATES = [
     komponen: [
       { jenis: "Bahan", uraian: "Vinyl Import + Cetak + Laminasi", satuan: "m2", koefisien: 1.1, harga: 220000 },
       { jenis: "Upah", uraian: "Aplikator Sticker", satuan: "OH", koefisien: 0.25 }
+    ] },
+
+  // ===== Template klien: Gadai Sakti / Nusantara Sakti / NSC Finance =====
+  // Disarikan dari RAB/BOQ & analisa harga satuan resmi milik klien
+  // (SLW41 Slawi, UBL41 Umbulharjo, CLM41 Colomadu, RAB Nusantara Sakti,
+  // Simulasi RAB Semarang, 2024-2025). Harga bahan mengikuti analisa file
+  // klien; SEMUA komponen Upah sengaja tanpa harga supaya saat impor
+  // otomatis tersambung ke "Upah Tertinggi Mitra +20%" — jadi upah selalu
+  // mengikuti upah pekerja Mitra Creative yang berlaku, bukan angka mati.
+
+  // --- Klien: Gadai Sakti (tampak depan gudang, tiang reklame, partisi pengaman) ---
+  { kode: "TPL-GS-01", kategori: "Klien: Gadai Sakti", uraian: "Papan Reklame Tampak Depan Gadai — MMT German 510gsm (cetak + pasang di rangka)", satuan: "m2", overhead: 10,
+    referensi: "BOQ SLW41/UBL41 PT. Gadai Sakti Nusantara 2025 — rangka & tiang dihitung terpisah (TPL-GS-02 s/d 08)",
+    komponen: [
+      { jenis: "Bahan", uraian: "MMT German 510gsm Cetak", satuan: "m2", koefisien: 1.05, harga: 100000 },
+      { jenis: "Bahan", uraian: "Rivet, Roping & Aksesoris Pasang", satuan: "ls", koefisien: 1, harga: 5000 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.1 },
+      { jenis: "Upah", uraian: "Tukang Pasang", satuan: "OH", koefisien: 0.1 }
+    ] },
+  { kode: "TPL-GS-02", kategori: "Klien: Gadai Sakti", uraian: "Rangka Fasad Hollow Galvanis 40.40.2,3 mm (potong, las, rakit)", satuan: "m1", overhead: 10,
+    referensi: "Analisa SLW41 Gadai Sakti Slawi 2025 — hollow galvanis 4x4 + zincromate + cat ftalit",
+    komponen: [
+      { jenis: "Bahan", uraian: "Hollow Galvanis 40x40x2,3 mm", satuan: "m1", koefisien: 1.1, harga: 27700 },
+      { jenis: "Bahan", uraian: "Zincromate", satuan: "kg", koefisien: 0.009, harga: 55000 },
+      { jenis: "Bahan", uraian: "Cat Ftalit Hella Grey", satuan: "kg", koefisien: 0.016, harga: 72000 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.03 },
+      { jenis: "Upah", uraian: "Tukang Las", satuan: "OH", koefisien: 0.01 },
+      { jenis: "Upah", uraian: "Kepala Tukang", satuan: "OH", koefisien: 0.006 },
+      { jenis: "Upah", uraian: "Mandor", satuan: "OH", koefisien: 0.004 }
+    ] },
+  { kode: "TPL-GS-03", kategori: "Klien: Gadai Sakti", uraian: "Rangka Fasad Hollow Blacksteel 40.40.2 mm (potong, las, rakit)", satuan: "m1", overhead: 10,
+    referensi: "Analisa CLM41 partisi Gadai Sakti Colomadu 2024 — hollow blacksteel + zincromate + cat finish",
+    komponen: [
+      { jenis: "Bahan", uraian: "Hollow Blacksteel 40x40x2 mm", satuan: "m1", koefisien: 1.05, harga: 21700 },
+      { jenis: "Bahan", uraian: "Zincromate", satuan: "kg", koefisien: 0.01, harga: 43000 },
+      { jenis: "Bahan", uraian: "Cat Finish Ftalit Hella Grey", satuan: "kg", koefisien: 0.002, harga: 84000 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.03 },
+      { jenis: "Upah", uraian: "Tukang Las", satuan: "OH", koefisien: 0.01 },
+      { jenis: "Upah", uraian: "Kepala Tukang", satuan: "OH", koefisien: 0.006 },
+      { jenis: "Upah", uraian: "Mandor", satuan: "OH", koefisien: 0.004 }
+    ] },
+  { kode: "TPL-GS-04", kategori: "Klien: Gadai Sakti", uraian: "Penutup Fasad Plat Galvalum 0,3 mm", satuan: "m2", overhead: 10,
+    referensi: "Analisa SLW41/UBL41 Gadai Sakti 2025 — plat galvalum + zincromate",
+    komponen: [
+      { jenis: "Bahan", uraian: "Plat Galvalum 0,3 mm", satuan: "m2", koefisien: 1.1, harga: 50000 },
+      { jenis: "Bahan", uraian: "Zincromate", satuan: "kg", koefisien: 0.083, harga: 55000 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.02 },
+      { jenis: "Upah", uraian: "Tukang Besi", satuan: "OH", koefisien: 0.08 },
+      { jenis: "Upah", uraian: "Kepala Tukang", satuan: "OH", koefisien: 0.01 },
+      { jenis: "Upah", uraian: "Mandor", satuan: "OH", koefisien: 0.006 }
+    ] },
+  { kode: "TPL-GS-05", kategori: "Klien: Gadai Sakti", uraian: "List Siku 30x30x3 mm (bingkai papan reklame)", satuan: "m1", overhead: 10,
+    referensi: "Analisa SLW41/UBL41 Gadai Sakti 2025 — siku 30x30x3 + zincromate + cat ftalit",
+    komponen: [
+      { jenis: "Bahan", uraian: "Besi Siku 30x30x3 mm", satuan: "m1", koefisien: 1.1, harga: 22500 },
+      { jenis: "Bahan", uraian: "Zincromate", satuan: "kg", koefisien: 0.009, harga: 55000 },
+      { jenis: "Bahan", uraian: "Cat Ftalit Hella Grey", satuan: "kg", koefisien: 0.016, harga: 72000 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.03 },
+      { jenis: "Upah", uraian: "Tukang Las", satuan: "OH", koefisien: 0.01 },
+      { jenis: "Upah", uraian: "Kepala Tukang", satuan: "OH", koefisien: 0.006 },
+      { jenis: "Upah", uraian: "Mandor", satuan: "OH", koefisien: 0.004 }
+    ] },
+  { kode: "TPL-GS-06", kategori: "Klien: Gadai Sakti", uraian: "Tiang Pipa Blacksteel 2,5\" SCH40 (las + finishing terpasang)", satuan: "m1", overhead: 10,
+    referensi: "Analisa SLW41 Gadai Sakti Slawi 2025 — pipa hitam 2,5\" t:5,16mm SCH40",
+    komponen: [
+      { jenis: "Bahan", uraian: "Pipa Blacksteel 2,5\" SCH40", satuan: "m1", koefisien: 1, harga: 161800 },
+      { jenis: "Bahan", uraian: "Zincromate", satuan: "kg", koefisien: 0.131, harga: 55000 },
+      { jenis: "Bahan", uraian: "Cat Ftalit Hella Grey", satuan: "kg", koefisien: 0.239, harga: 80000 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.108 },
+      { jenis: "Upah", uraian: "Tukang Besi", satuan: "OH", koefisien: 0.18 },
+      { jenis: "Upah", uraian: "Kepala Tukang", satuan: "OH", koefisien: 0.018 },
+      { jenis: "Upah", uraian: "Mandor", satuan: "OH", koefisien: 0.005 }
+    ] },
+  { kode: "TPL-GS-07", kategori: "Klien: Gadai Sakti", uraian: "Tiang Pipa Blacksteel 5\" (las + finishing terpasang)", satuan: "m1", overhead: 10,
+    referensi: "Analisa UBL41 Gadai Sakti Umbulharjo 2025 — pipa hitam 5\" + zincromate + cat + thinner",
+    komponen: [
+      { jenis: "Bahan", uraian: "Pipa Blacksteel 5\"", satuan: "m1", koefisien: 1, harga: 324900 },
+      { jenis: "Bahan", uraian: "Zincromate", satuan: "kg", koefisien: 0.033, harga: 55000 },
+      { jenis: "Bahan", uraian: "Cat Ftalit Hella Grey", satuan: "kg", koefisien: 0.033, harga: 82500 },
+      { jenis: "Bahan", uraian: "Thinner", satuan: "liter", koefisien: 0.066, harga: 27000 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.135 },
+      { jenis: "Upah", uraian: "Tukang Besi", satuan: "OH", koefisien: 0.225 },
+      { jenis: "Upah", uraian: "Kepala Tukang", satuan: "OH", koefisien: 0.023 },
+      { jenis: "Upah", uraian: "Mandor", satuan: "OH", koefisien: 0.007 }
+    ] },
+  { kode: "TPL-GS-08", kategori: "Klien: Gadai Sakti", uraian: "Tiang Pipa Blacksteel 8\" (las + finishing terpasang)", satuan: "m1", overhead: 10,
+    referensi: "Analisa UBL41/SLW41 Gadai Sakti 2025 — pipa hitam 8\" + zincromate + cat + thinner",
+    komponen: [
+      { jenis: "Bahan", uraian: "Pipa Blacksteel 8\"", satuan: "m1", koefisien: 1, harga: 641300 },
+      { jenis: "Bahan", uraian: "Zincromate", satuan: "kg", koefisien: 0.053, harga: 55000 },
+      { jenis: "Bahan", uraian: "Cat Ftalit Hella Grey", satuan: "kg", koefisien: 0.053, harga: 82500 },
+      { jenis: "Bahan", uraian: "Thinner", satuan: "liter", koefisien: 0.106, harga: 27000 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.135 },
+      { jenis: "Upah", uraian: "Tukang Besi", satuan: "OH", koefisien: 0.225 },
+      { jenis: "Upah", uraian: "Kepala Tukang", satuan: "OH", koefisien: 0.023 },
+      { jenis: "Upah", uraian: "Mandor", satuan: "OH", koefisien: 0.007 }
+    ] },
+  { kode: "TPL-GS-09", kategori: "Klien: Gadai Sakti", uraian: "Partisi Pengaman Teralis Besi Beton Ø10 Jarak 4cm + Hollow 40.40.2,3 (fabrikasi + pasang)", satuan: "m2", overhead: 10,
+    referensi: "Analisa CLM41 partisi pengaman gudang Gadai Sakti Colomadu 2024 — upah fabrikasi las dihitung di komponen Upah",
+    komponen: [
+      { jenis: "Bahan", uraian: "Besi Beton Ø10 (teralis jarak 4cm)", satuan: "kg", koefisien: 32.24, harga: 12150 },
+      { jenis: "Bahan", uraian: "Hollow Blacksteel 40x40x2,3 mm", satuan: "m1", koefisien: 1, harga: 29650 },
+      { jenis: "Bahan", uraian: "Dynabolt M10", satuan: "bh", koefisien: 2, harga: 3500 },
+      { jenis: "Bahan", uraian: "Plat t:5mm", satuan: "kg", koefisien: 0.377, harga: 29000 },
+      { jenis: "Bahan", uraian: "Zincromate", satuan: "kg", koefisien: 0.093, harga: 45000 },
+      { jenis: "Bahan", uraian: "Cat Ftalit Hella Grey", satuan: "kg", koefisien: 0.186, harga: 60000 },
+      { jenis: "Bahan", uraian: "Alat Bantu Las (elektroda, gerinda, dll)", satuan: "ls", koefisien: 1, harga: 45500 },
+      { jenis: "Alat", uraian: "Sewa Scaffolding", satuan: "set", koefisien: 0.2, harga: 125000 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.35 },
+      { jenis: "Upah", uraian: "Tukang Las", satuan: "OH", koefisien: 0.35 },
+      { jenis: "Upah", uraian: "Kepala Tukang", satuan: "OH", koefisien: 0.035 },
+      { jenis: "Upah", uraian: "Mandor", satuan: "OH", koefisien: 0.02 }
+    ] },
+  { kode: "TPL-GS-10", kategori: "Klien: Gadai Sakti", uraian: "Pintu Teralis Besi Beton Ø10 + Frame Hollow, uk. ±0,9x2,2 m (lengkap aksesoris)", satuan: "unit", overhead: 10,
+    referensi: "Analisa PTS CLM41 Gadai Sakti Colomadu 2024 — termasuk handle, lockcase, gembok, grendel, engsel",
+    komponen: [
+      { jenis: "Bahan", uraian: "Kusen Hollow Blacksteel 40x40x2,3 mm", satuan: "m1", koefisien: 6.2, harga: 27250 },
+      { jenis: "Bahan", uraian: "Teralis Besi Beton Ø10 Jarak 4cm", satuan: "kg", koefisien: 63.984, harga: 14150 },
+      { jenis: "Bahan", uraian: "Frame Hollow Blacksteel 40x40x2,3 mm", satuan: "m1", koefisien: 5.3, harga: 27250 },
+      { jenis: "Bahan", uraian: "Handle Pintu", satuan: "psg", koefisien: 1, harga: 115000 },
+      { jenis: "Bahan", uraian: "Lockcase", satuan: "unit", koefisien: 1, harga: 150000 },
+      { jenis: "Bahan", uraian: "Kunci Gembok", satuan: "unit", koefisien: 2, harga: 60000 },
+      { jenis: "Bahan", uraian: "Grendel", satuan: "unit", koefisien: 2, harga: 35000 },
+      { jenis: "Bahan", uraian: "Engsel", satuan: "unit", koefisien: 2, harga: 48600 },
+      { jenis: "Bahan", uraian: "Alat Bantu Las", satuan: "lot", koefisien: 1, harga: 82000 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.35 },
+      { jenis: "Upah", uraian: "Tukang Las", satuan: "OH", koefisien: 0.5 }
+    ] },
+  { kode: "TPL-GS-11", kategori: "Klien: Gadai Sakti", uraian: "Jendela Teralis Besi Beton + Frame Plat Strip, uk. ±0,8x1,6 m", satuan: "unit", overhead: 10,
+    referensi: "Analisa PTS CLM41 Gadai Sakti Colomadu 2024 — teralis besi beton Ø10 jarak 4cm, frame plat strip 30x30x3",
+    komponen: [
+      { jenis: "Bahan", uraian: "Plat Strip 30x30x3 + Zincromate", satuan: "kg", koefisien: 14.893, harga: 35700 },
+      { jenis: "Bahan", uraian: "Teralis Besi Beton Ø10 Jarak 4cm", satuan: "kg", koefisien: 44.913, harga: 25600 },
+      { jenis: "Bahan", uraian: "Skrup", satuan: "bh", koefisien: 28, harga: 150 },
+      { jenis: "Bahan", uraian: "Cat Ftalit Hella Grey", satuan: "m2", koefisien: 1.323, harga: 19150 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.35 },
+      { jenis: "Upah", uraian: "Tukang Las", satuan: "OH", koefisien: 0.5 }
+    ] },
+  { kode: "TPL-GS-12", kategori: "Klien: Gadai Sakti", uraian: "Instalasi Lampu Sorot LED 50W di Tiang Reklame (per titik)", satuan: "titik", overhead: 10,
+    referensi: "Analisa UBL41 Gadai Sakti Umbulharjo 2025 — lampu sorot + kabel NYM + pipa galvanis 1\"",
+    komponen: [
+      { jenis: "Bahan", uraian: "Lampu Sorot LED 50W", satuan: "bh", koefisien: 1, harga: 85000 },
+      { jenis: "Bahan", uraian: "Kabel NYM 2x1,5 mm2", satuan: "m1", koefisien: 15, harga: 8900 },
+      { jenis: "Bahan", uraian: "Pipa Galvanis 1\"", satuan: "m1", koefisien: 2.5, harga: 37350 },
+      { jenis: "Bahan", uraian: "Material Pengelasan Dudukan", satuan: "lot", koefisien: 0.1, harga: 96700 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.15 },
+      { jenis: "Upah", uraian: "Tukang Listrik", satuan: "OH", koefisien: 0.2 }
+    ] },
+
+  // --- Klien: Nusantara Sakti (pondasi/beton reklame, aluminium, gypsum, listrik) ---
+  { kode: "TPL-NS-01", kategori: "Klien: Nusantara Sakti", uraian: "Galian Tanah Pondasi Tiang Reklame (kedalaman s/d 2m)", satuan: "m3", overhead: 10,
+    referensi: "Analisa UBL41/SLW41 NSS Property 2025 — pekerjaan tenaga saja",
+    komponen: [
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.75 },
+      { jenis: "Upah", uraian: "Mandor", satuan: "OH", koefisien: 0.025 }
+    ] },
+  { kode: "TPL-NS-02", kategori: "Klien: Nusantara Sakti", uraian: "Urugan Pasir Bawah Pondasi", satuan: "m3", overhead: 10,
+    referensi: "Analisa UBL41/SLW41 NSS Property 2025",
+    komponen: [
+      { jenis: "Bahan", uraian: "Pasir Urug", satuan: "m3", koefisien: 1.2, harga: 200000 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.3 },
+      { jenis: "Upah", uraian: "Mandor", satuan: "OH", koefisien: 0.01 }
+    ] },
+  { kode: "TPL-NS-03", kategori: "Klien: Nusantara Sakti", uraian: "Pasangan Batu Kosong (Aanstamping)", satuan: "m3", overhead: 10,
+    referensi: "Analisa UBL41/SLW41 NSS Property 2025",
+    komponen: [
+      { jenis: "Bahan", uraian: "Batu Belah", satuan: "m3", koefisien: 1.2, harga: 250000 },
+      { jenis: "Bahan", uraian: "Pasir Urug", satuan: "m3", koefisien: 0.432, harga: 200000 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.78 },
+      { jenis: "Upah", uraian: "Tukang Batu", satuan: "OH", koefisien: 0.39 },
+      { jenis: "Upah", uraian: "Kepala Tukang", satuan: "OH", koefisien: 0.039 },
+      { jenis: "Upah", uraian: "Mandor", satuan: "OH", koefisien: 0.039 }
+    ] },
+  { kode: "TPL-NS-04", kategori: "Klien: Nusantara Sakti", uraian: "Lantai Kerja Beton (t:50mm)", satuan: "m3", overhead: 10,
+    referensi: "Analisa UBL41/SLW41 NSS Property 2025",
+    komponen: [
+      { jenis: "Bahan", uraian: "Portland Cement", satuan: "kg", koefisien: 230, harga: 1365 },
+      { jenis: "Bahan", uraian: "Pasir Beton", satuan: "m3", koefisien: 0.525, harga: 330000 },
+      { jenis: "Bahan", uraian: "Kerikil Beton", satuan: "kg", koefisien: 1027, harga: 185 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 1.2 },
+      { jenis: "Upah", uraian: "Tukang Batu", satuan: "OH", koefisien: 0.2 },
+      { jenis: "Upah", uraian: "Kepala Tukang", satuan: "OH", koefisien: 0.02 },
+      { jenis: "Upah", uraian: "Mandor", satuan: "OH", koefisien: 0.06 }
+    ] },
+  { kode: "TPL-NS-05", kategori: "Klien: Nusantara Sakti", uraian: "Beton Site Mix K-225 (f'c 19,3 MPa) Pondasi Tiang Reklame", satuan: "m3", overhead: 10,
+    referensi: "Analisa SLW41 NSS Property 2025 — campur di lokasi pakai molen",
+    komponen: [
+      { jenis: "Bahan", uraian: "Portland Cement", satuan: "kg", koefisien: 371, harga: 1365 },
+      { jenis: "Bahan", uraian: "Pasir Beton", satuan: "m3", koefisien: 0.499, harga: 330000 },
+      { jenis: "Bahan", uraian: "Kerikil Beton", satuan: "m3", koefisien: 0.776, harga: 275000 },
+      { jenis: "Alat", uraian: "Sewa Molen", satuan: "hari", koefisien: 0.25, harga: 250000 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 1.65 },
+      { jenis: "Upah", uraian: "Tukang Batu", satuan: "OH", koefisien: 0.275 },
+      { jenis: "Upah", uraian: "Kepala Tukang", satuan: "OH", koefisien: 0.028 },
+      { jenis: "Upah", uraian: "Mandor", satuan: "OH", koefisien: 0.083 }
+    ] },
+  { kode: "TPL-NS-06", kategori: "Klien: Nusantara Sakti", uraian: "Beton Site Mix K-300 (f'c 26,4 MPa)", satuan: "m3", overhead: 10,
+    referensi: "Analisa SLW41/UBL41 NSS Property 2025 — campur di lokasi pakai molen",
+    komponen: [
+      { jenis: "Bahan", uraian: "Portland Cement", satuan: "kg", koefisien: 413, harga: 1365 },
+      { jenis: "Bahan", uraian: "Pasir Beton", satuan: "m3", koefisien: 0.486, harga: 330000 },
+      { jenis: "Bahan", uraian: "Kerikil Beton", satuan: "m3", koefisien: 0.756, harga: 275000 },
+      { jenis: "Alat", uraian: "Sewa Molen", satuan: "hari", koefisien: 0.25, harga: 250000 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 1.65 },
+      { jenis: "Upah", uraian: "Tukang Batu", satuan: "OH", koefisien: 0.275 },
+      { jenis: "Upah", uraian: "Kepala Tukang", satuan: "OH", koefisien: 0.028 },
+      { jenis: "Upah", uraian: "Mandor", satuan: "OH", koefisien: 0.083 }
+    ] },
+  { kode: "TPL-NS-07", kategori: "Klien: Nusantara Sakti", uraian: "Pembesian Besi Beton BJTD/BJTP (potong, bengkok, rakit)", satuan: "kg", overhead: 10,
+    referensi: "Analisa SLW41 NSS Property 2025 — besi tulangan pondasi tiang T",
+    komponen: [
+      { jenis: "Bahan", uraian: "Besi Beton", satuan: "kg", koefisien: 1, harga: 14600 },
+      { jenis: "Bahan", uraian: "Kawat Bendrat", satuan: "kg", koefisien: 0.015, harga: 15000 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.007 },
+      { jenis: "Upah", uraian: "Tukang Besi", satuan: "OH", koefisien: 0.007 },
+      { jenis: "Upah", uraian: "Kepala Tukang", satuan: "OH", koefisien: 0.001 },
+      { jenis: "Upah", uraian: "Mandor", satuan: "OH", koefisien: 0.0004 }
+    ] },
+  { kode: "TPL-NS-08", kategori: "Klien: Nusantara Sakti", uraian: "Pintu Aluminium Openback 3 Daun + Kaca, uk. ±2,35x2,2 m", satuan: "unit", overhead: 10,
+    referensi: "Analisa aluminium RAB Nusantara Sakti 2025 — kusen openback, daun, rel, engsel, kaca",
+    komponen: [
+      { jenis: "Bahan", uraian: "Kusen Aluminium Openback", satuan: "m1", koefisien: 7, harga: 180100 },
+      { jenis: "Bahan", uraian: "Daun Pintu Aluminium", satuan: "m1", koefisien: 18, harga: 240100 },
+      { jenis: "Bahan", uraian: "Engsel", satuan: "set", koefisien: 4, harga: 50000 },
+      { jenis: "Bahan", uraian: "Rel Pintu", satuan: "set", koefisien: 1, harga: 750000 },
+      { jenis: "Bahan", uraian: "Kaca", satuan: "m1", koefisien: 5.28, harga: 329450 },
+      { jenis: "Bahan", uraian: "Transportasi/Mobilisasi", satuan: "ls", koefisien: 1, harga: 150000 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.35 },
+      { jenis: "Upah", uraian: "Tukang Aluminium", satuan: "OH", koefisien: 0.5 }
+    ] },
+  { kode: "TPL-NS-09", kategori: "Klien: Nusantara Sakti", uraian: "Partisi Gypsum t:9mm Rangka Hollow (1 sisi)", satuan: "m2", overhead: 10,
+    referensi: "Analisa CLM41 NSS Property 2024 — gypsum board 120x240x9mm + hollow 4/4 zincromate",
+    komponen: [
+      { jenis: "Bahan", uraian: "Hollow 4/4 Zincromate", satuan: "batang", koefisien: 1, harga: 20000 },
+      { jenis: "Bahan", uraian: "Gypsum Board 120x240x9 mm", satuan: "lembar", koefisien: 0.694, harga: 65000 },
+      { jenis: "Bahan", uraian: "Paku Gypsum", satuan: "kg", koefisien: 0.06, harga: 159500 },
+      { jenis: "Bahan", uraian: "Ramset/Dynabolt", satuan: "bh", koefisien: 2, harga: 500 },
+      { jenis: "Bahan", uraian: "Cotton Plaster", satuan: "bh", koefisien: 0.05, harga: 20000 },
+      { jenis: "Bahan", uraian: "Compound", satuan: "sak", koefisien: 0.005, harga: 95000 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.15 },
+      { jenis: "Upah", uraian: "Tukang Gypsum", satuan: "OH", koefisien: 0.5 },
+      { jenis: "Upah", uraian: "Mandor", satuan: "OH", koefisien: 0.008 }
+    ] },
+  { kode: "TPL-NS-10", kategori: "Klien: Nusantara Sakti", uraian: "Pengecatan Waterbased Interior (Decolith/setara)", satuan: "m2", overhead: 10,
+    referensi: "Analisa CLM41 NSS Property 2024 — plamur + cat dasar eco gypsum + cat penutup decolith",
+    komponen: [
+      { jenis: "Bahan", uraian: "Plamur", satuan: "kg", koefisien: 0.1, harga: 15000 },
+      { jenis: "Bahan", uraian: "Cat Dasar Eco Gypsum", satuan: "kg", koefisien: 0.1, harga: 34600 },
+      { jenis: "Bahan", uraian: "Cat Penutup Decolith", satuan: "kg", koefisien: 0.2, harga: 27000 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.02 },
+      { jenis: "Upah", uraian: "Tukang Cat", satuan: "OH", koefisien: 0.063 },
+      { jenis: "Upah", uraian: "Kepala Tukang", satuan: "OH", koefisien: 0.006 },
+      { jenis: "Upah", uraian: "Mandor", satuan: "OH", koefisien: 0.003 }
+    ] },
+  { kode: "TPL-NS-11", kategori: "Klien: Nusantara Sakti", uraian: "Instalasi Titik Lampu (NYM 2x1,5 mm2 + Conduit 20mm)", satuan: "titik", overhead: 10,
+    referensi: "Analisa UBL41 NSS Property 2025 — kabel, conduit, T-dus, clem per titik nyala",
+    komponen: [
+      { jenis: "Bahan", uraian: "Kabel NYM 2x1,5 mm2", satuan: "m1", koefisien: 9.5, harga: 9250 },
+      { jenis: "Bahan", uraian: "Pipa Conduit 20 mm", satuan: "batang", koefisien: 3.167, harga: 10000 },
+      { jenis: "Bahan", uraian: "T-Dus", satuan: "bh", koefisien: 3, harga: 3000 },
+      { jenis: "Bahan", uraian: "Clem Kabel", satuan: "bh", koefisien: 10, harga: 500 },
+      { jenis: "Bahan", uraian: "L-Bow & Las Dop", satuan: "set", koefisien: 1, harga: 5000 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.15 },
+      { jenis: "Upah", uraian: "Tukang Listrik", satuan: "OH", koefisien: 0.2 }
+    ] },
+
+  // --- Klien: NSC Finance (signage & fasad NSC) ---
+  { kode: "TPL-NSC-01", kategori: "Klien: NSC Finance", uraian: "Papan Reklame NSC — MMT German 510gsm (cetak + pasang di rangka)", satuan: "m2", overhead: 10,
+    referensi: "BOQ SLW41 (papan NSC 3x1) & reklame RAB Nusantara Sakti 2025 — rangka dihitung terpisah",
+    komponen: [
+      { jenis: "Bahan", uraian: "MMT German 510gsm Cetak", satuan: "m2", koefisien: 1.05, harga: 100000 },
+      { jenis: "Bahan", uraian: "Rivet, Roping & Aksesoris Pasang", satuan: "ls", koefisien: 1, harga: 5000 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.1 },
+      { jenis: "Upah", uraian: "Tukang Pasang", satuan: "OH", koefisien: 0.1 }
+    ] },
+  { kode: "TPL-NSC-02", kategori: "Klien: NSC Finance", uraian: "Fasad Tampak Depan NSC uk. 5x1 m (rangka + banner komplit terpasang)", satuan: "unit", overhead: 10,
+    referensi: "Analisa reklame RAB Nusantara Sakti 2025 — rangka hollow, siku, plat seng, banner jerman, lis aluminium",
+    komponen: [
+      { jenis: "Bahan", uraian: "Rangka Hollow Blacksteel 40x40x2,3 mm", satuan: "m1", koefisien: 15, harga: 27250 },
+      { jenis: "Bahan", uraian: "Besi Siku", satuan: "m1", koefisien: 20, harga: 27250 },
+      { jenis: "Bahan", uraian: "Plat Seng", satuan: "m1", koefisien: 5, harga: 40000 },
+      { jenis: "Bahan", uraian: "Banner MMT German Cetak", satuan: "m2", koefisien: 6.24, harga: 100000 },
+      { jenis: "Bahan", uraian: "Lis Aluminium", satuan: "m1", koefisien: 12, harga: 12000 },
+      { jenis: "Bahan", uraian: "Transportasi/Mobilisasi", satuan: "ls", koefisien: 1, harga: 150000 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 1 },
+      { jenis: "Upah", uraian: "Tukang Las", satuan: "OH", koefisien: 1 }
+    ] },
+  { kode: "TPL-NSC-03", kategori: "Klien: NSC Finance", uraian: "Box Sign NSC uk. 2x1 m (rangka + banner komplit terpasang)", satuan: "unit", overhead: 10,
+    referensi: "Analisa reklame RAB Nusantara Sakti 2025 — box 2x1: rangka hollow, plat seng, banner jerman, lis aluminium",
+    komponen: [
+      { jenis: "Bahan", uraian: "Rangka Hollow Blacksteel 40x40x2,3 mm", satuan: "m1", koefisien: 15, harga: 27250 },
+      { jenis: "Bahan", uraian: "Plat Seng", satuan: "m1", koefisien: 4, harga: 40000 },
+      { jenis: "Bahan", uraian: "Banner MMT German Cetak", satuan: "m2", koefisien: 4, harga: 100000 },
+      { jenis: "Bahan", uraian: "Lis Aluminium", satuan: "m1", koefisien: 12, harga: 12000 },
+      { jenis: "Bahan", uraian: "Transportasi/Mobilisasi", satuan: "ls", koefisien: 1, harga: 150000 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 0.5 },
+      { jenis: "Upah", uraian: "Tukang Las", satuan: "OH", koefisien: 0.5 }
+    ] },
+  { kode: "TPL-NSC-04", kategori: "Klien: NSC Finance", uraian: "Tiang F Reklame Pipa 8\" + Pondasi Cor (per tiang terpasang)", satuan: "unit", overhead: 10,
+    referensi: "Analisa reklame RAB Nusantara Sakti & UBL41 2025 — pipa 8\" 12,5m + siku + cor pondasi",
+    komponen: [
+      { jenis: "Bahan", uraian: "Pipa Blacksteel 8\"", satuan: "m1", koefisien: 12.5, harga: 527200 },
+      { jenis: "Bahan", uraian: "Besi Siku Penguat", satuan: "batang", koefisien: 4, harga: 75000 },
+      { jenis: "Bahan", uraian: "Cor Pondasi (beton + besi tulangan)", satuan: "ls", koefisien: 1, harga: 704200 },
+      { jenis: "Bahan", uraian: "Transportasi/Mobilisasi", satuan: "ls", koefisien: 1, harga: 150000 },
+      { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 1.5 },
+      { jenis: "Upah", uraian: "Tukang Las", satuan: "OH", koefisien: 1.5 },
+      { jenis: "Upah", uraian: "Mandor", satuan: "OH", koefisien: 0.15 }
     ] }
 ];
 
