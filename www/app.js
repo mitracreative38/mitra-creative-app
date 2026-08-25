@@ -227,6 +227,7 @@ async function hydrateSensitiveFields(data) {
           sumberSlipId: t.sumber_slip_id || "", sumberBelanjaId: t.sumber_belanja_id || "",
           sumberSewaId: t.sumber_sewa_id || "",
           sumberUtangId: t.sumber_utang_id || "",
+          sumberInvoiceId: t.sumber_invoice_id || "",
           tipe: t.tipe, status: t.status, tanggal: t.tanggal, jumlah: t.jumlah,
           keterangan: t.keterangan || "", kategori: t.kategori || "", extra: t.extra || "", catatan: t.catatan || "",
           lampiranPath: t.lampiran_path || ""
@@ -1460,6 +1461,7 @@ function kasUsahaTxnToRow(t) {
     sumber_belanja_id: t.sumberBelanjaId || null,
     sumber_sewa_id: t.sumberSewaId || null,
     sumber_utang_id: t.sumberUtangId || null,
+    sumber_invoice_id: t.sumberInvoiceId || null,
     tipe: t.tipe || "",
     status: t.status || "lunas",
     tanggal: t.tanggal || null,
@@ -4039,13 +4041,48 @@ function proyekTahapanMacet(p, today) {
   const hari = daysBetweenIso(acuan, today);
   return hari > 14 ? { label: next.label, hari } : null;
 }
+// Integrasi: tahap yang kejadiannya SUDAH tercatat di modul lain ikut
+// tercentang otomatis (dengan tanggal hari itu), supaya checklist tidak
+// perlu diisi ulang tangan. Centang hanya ditambahkan, tidak pernah
+// dicabut otomatis -- dan tahap yang pernah di-UNCHECK manual oleh
+// pengguna (manualOverride) dibiarkan, supaya koreksi manusia menang.
+function syncTahapanOtomatis(p) {
+  ensureTahapanProyek(p);
+  const calc = projectCalc(p);
+  const adaDok = j => (p.dokumen || []).some(d => (d.jenis || "").toUpperCase().includes(j));
+  const pwTerkait = p.sumberPenawaranId ? (state.penawaran || []).find(x => x.id === p.sumberPenawaranId) : null;
+  const rules = {
+    "Penawaran Terkirim": !!(pwTerkait && ["terkirim", "disetujui"].includes(pwTerkait.status)),
+    "SPK/Kontrak Diterima": adaDok("SPK"),
+    "DP (Uang Muka) Cair": calc.terminDiterima > 0,
+    "Pelaksanaan Pekerjaan": (p.progressRealisasi || []).length > 0 || (p.laporanHarian || []).length > 0,
+    "Opname/Progres Akhir": (p.progressRealisasi || []).some(pr => (pr.persen || 0) >= 100) || (p.bap || []).some(b => (b.persen || 0) >= 100),
+    "BAST Ditandatangani": adaDok("BAST") || (p.qc || []).some(q => q.jenis === "lapangan" && q.acc && q.acc.status === "disetujui"),
+    "Penagihan (Invoice)": (p.invoices || []).length > 0,
+    "Pelunasan": (p.nilaiKontrak || 0) > 0 && calc.terminDiterima >= p.nilaiKontrak
+  };
+  let berubah = false;
+  p.tahapan.forEach(t => {
+    if (!t.selesai && !t.manualOverride && rules[t.label]) {
+      t.selesai = true;
+      t.otomatis = true;
+      if (!t.tanggal) t.tanggal = hariIniIso();
+      berubah = true;
+    }
+  });
+  return berubah;
+}
 function renderTahapanProyek(p, today) {
   ensureTahapanProyek(p);
+  if (!p.arsip && syncTahapanOtomatis(p)) {
+    saveState();
+    mirrorProyekUpsert(p);
+  }
   const macet = proyekTahapanMacet(p, today);
   document.querySelector("#pd_tahapanTable tbody").innerHTML = p.tahapan.map((t, idx) => `
     <tr>
       <td><input type="checkbox" class="thp-selesai" data-idx="${idx}" ${t.selesai ? "checked" : ""}></td>
-      <td class="${t.selesai ? "" : "muted"}">${escapeHtml(t.label)}${macet && macet.label === t.label ? ` <span class="bad">⚠️ macet ${macet.hari} hari</span>` : ""}</td>
+      <td class="${t.selesai ? "" : "muted"}">${escapeHtml(t.label)}${t.selesai && t.otomatis ? ' <small class="muted">(otomatis)</small>' : ""}${macet && macet.label === t.label ? ` <span class="bad">⚠️ macet ${macet.hari} hari</span>` : ""}</td>
       <td><input type="date" class="thp-tanggal" data-idx="${idx}" value="${t.tanggal || ""}" ${t.selesai ? "" : "disabled"}></td>
     </tr>
   `).join("");
@@ -4060,6 +4097,10 @@ document.querySelector("#pd_tahapanTable tbody").addEventListener("change", e =>
     t.selesai = e.target.checked;
     if (t.selesai && !t.tanggal) t.tanggal = hariIniIso();
     if (!t.selesai) t.tanggal = "";
+    // Uncheck manual = keputusan manusia -- tandai supaya sinkronisasi
+    // otomatis tidak mencentangnya kembali; centang manual membukanya lagi.
+    t.manualOverride = !t.selesai;
+    if (t.selesai) delete t.otomatis;
   } else if (e.target.classList.contains("thp-tanggal")) {
     t.tanggal = e.target.value;
   }
@@ -4144,12 +4185,46 @@ document.querySelector("#pd_invoiceTable tbody").addEventListener("change", e =>
   if (!p) return;
   const inv = (p.invoices || []).find(i => i.id === e.target.dataset.id);
   if (!inv) return;
+  const statusLama = inv.status;
   inv.status = e.target.value;
   if (inv.status === "dibayar" && !inv.tanggalBayar) inv.tanggalBayar = hariIniIso();
   if (inv.status !== "dibayar") inv.tanggalBayar = "";
+  // Integrasi keuangan: invoice "Dibayar" = uang benar-benar masuk --
+  // otomatis tercatat sebagai Kas Masuk bertaut proyek & invoice, sehingga
+  // langsung muncul di Termin proyek, Laba Rugi, Neraca, dan KPI tanpa
+  // input ulang. Dibatalkan lagi kalau statusnya dikembalikan.
+  const txnTertaut = state.kasUsaha.transactions.find(t => t.sumberInvoiceId === inv.id);
+  if ((inv.status === "dibayar" && !txnTertaut && guardPeriodeTerkunci(inv.tanggalBayar)) ||
+      (statusLama === "dibayar" && inv.status !== "dibayar" && txnTertaut && guardPeriodeTerkunci(txnTertaut.tanggal))) {
+    inv.status = statusLama;
+    inv.tanggalBayar = statusLama === "dibayar" ? (txnTertaut ? txnTertaut.tanggal : inv.tanggalBayar) : "";
+    renderInvoiceProyek(p);
+    return;
+  }
+  if (inv.status === "dibayar" && !txnTertaut) {
+    const txn = {
+      id: uid(),
+      sumberInvoiceId: inv.id,
+      proyekId: p.id,
+      tipe: "Masuk",
+      status: "lunas",
+      tanggal: inv.tanggalBayar,
+      jumlah: inv.jumlah || 0,
+      kategori: "Pendapatan Jasa",
+      keterangan: `Pembayaran Invoice ${inv.nomor} — ${p.nama}`,
+      extra: p.klien || "",
+      catatan: "Otomatis dari invoice Dibayar"
+    };
+    state.kasUsaha.transactions.push(txn);
+    mirrorKasUsahaUpsert(txn, null);
+  } else if (statusLama === "dibayar" && inv.status !== "dibayar" && txnTertaut) {
+    state.kasUsaha.transactions = state.kasUsaha.transactions.filter(t => t.id !== txnTertaut.id);
+    mirrorKasUsahaDelete(txnTertaut.id, txnTertaut);
+    alert(`Kas Masuk ${rupiah(txnTertaut.jumlah)} dari Invoice ${inv.nomor} ikut dihapus (status bukan "Dibayar" lagi).`);
+  }
   saveState();
   mirrorProyekUpsert(p);
-  renderInvoiceProyek(p);
+  renderAll();
 });
 document.querySelector("#pd_invoiceTable tbody").addEventListener("click", e => {
   const p = state.proyek.find(x => x.id === currentProyekId);
@@ -4333,6 +4408,7 @@ function renderBapProyek(p) {
       <td>
         <div class="row-actions">
           <button class="icon-btn" data-print-bap="${b.id}" title="Cetak BAP">🖨️</button>
+          <button class="icon-btn" data-invoice-bap="${b.id}" title="Buat Invoice dari BAP ini (nilai terisi otomatis)">📄</button>
           <button class="icon-btn" data-delete-bap="${b.id}" title="Hapus">🗑️</button>
         </div>
       </td>
@@ -4408,7 +4484,23 @@ document.querySelector("#pd_bapTable tbody").addEventListener("click", e => {
   const p = state.proyek.find(x => x.id === currentProyekId);
   if (!p) return;
   const printBtn = e.target.closest("[data-print-bap]");
+  const invBtn = e.target.closest("[data-invoice-bap]");
   const delBtn = e.target.closest("[data-delete-bap]");
+  if (invBtn) {
+    // Integrasi: nilai tagihan dihitung dari progres BAP dikurangi total
+    // invoice yang sudah pernah dibuat -- tinggal periksa lalu klik
+    // "Buat & Cetak Invoice", tidak perlu menghitung/mengetik ulang.
+    const b = (p.bap || []).find(x => x.id === invBtn.dataset.invoiceBap);
+    if (!b) return;
+    const sudahDitagih = (p.invoices || []).reduce((s, i) => s + (i.jumlah || 0), 0);
+    const nilaiProgres = Math.round((p.nilaiKontrak || 0) * (b.persen || 0) / 100);
+    const sisa = Math.max(0, nilaiProgres - sudahDitagih);
+    document.getElementById("inv_tanggal").value = hariIniIso();
+    document.getElementById("inv_keterangan").value = `Penagihan progres ${b.persen || 0}% sesuai ${b.nomor}`;
+    document.getElementById("inv_jumlah").value = formatNumberInput(sisa);
+    alert(`Form invoice terisi otomatis dari ${b.nomor}:\nProgres ${b.persen || 0}% dari kontrak = ${rupiah(nilaiProgres)}\nSudah ditagih sebelumnya = ${rupiah(sudahDitagih)}\nTagihan kali ini = ${rupiah(sisa)}\n\nPeriksa lalu klik "Buat & Cetak Invoice".`);
+    return;
+  }
   if (printBtn) {
     const b = (p.bap || []).find(x => x.id === printBtn.dataset.printBap);
     if (b) {
