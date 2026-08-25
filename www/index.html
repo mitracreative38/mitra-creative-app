@@ -557,6 +557,17 @@
           </div>
           <p class="muted" id="tb_kunciStatus" style="font-size:12.5px; margin-top:8px;"></p>
         </div>
+        <div class="panel" id="tb_alokasiPanel">
+          <h3>Alokasi Laba Bulan Ini</h3>
+          <p class="muted" style="font-size:12.5px;">Bagi laba bersih bulan terpilih dengan rumus tetap — dijalankan setiap tutup buku supaya perusahaan punya dana darurat, terus berkembang, pajak aman, tim sejahtera, dan keluarga tetap terjaga. Ubah persentasenya sesuai kebutuhan (total maksimal 100%).</p>
+          <div class="table-wrap">
+            <table class="tbl" id="tb_alokasiTable">
+              <thead><tr><th>Pos Alokasi</th><th style="width:110px;">Persen (%)</th><th class="num">Jumlah (Rp)</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p class="muted" id="tb_alokasiInfo" style="font-size:12.5px; margin-top:8px;"></p>
+        </div>
       </div>
     </section>
 
@@ -2464,6 +2475,18 @@
         <p class="muted">Transaksi Keluar di Kas Perusahaan dengan jumlah di atas batas ini otomatis berstatus "Menunggu Persetujuan" dan tidak mengurangi saldo sampai disetujui. Isi 0 untuk mematikan fitur ini.</p>
         <label class="field-label">Batas Nominal Perlu Persetujuan (Rp)</label>
         <input type="text" inputmode="numeric" id="settingsApprovalThreshold" class="text-input" style="width:100%">
+      </div>
+
+      <div class="panel narrow" id="settingsGajiOwnerPanel">
+        <h3>Gaji Owner Otomatis</h3>
+        <p class="muted">Pisahkan uang perusahaan &amp; keluarga: aplikasi otomatis mencatat transaksi Kas Keluar "Gaji Owner" sekali sebulan pada tanggal yang dipilih. Kebutuhan keluarga diambil dari gaji ini, bukan dari kas perusahaan langsung.</p>
+        <label style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+          <input type="checkbox" id="sgo_aktif"> Aktifkan gaji Owner otomatis
+        </label>
+        <label class="field-label">Jumlah Gaji per Bulan (Rp)</label>
+        <input type="text" inputmode="numeric" id="sgo_jumlah" class="text-input" style="width:100%; margin-bottom:12px;" placeholder="0">
+        <label class="field-label">Tanggal Pencatatan Tiap Bulan (1–28)</label>
+        <input type="number" id="sgo_tanggal" class="text-input" style="width:100%" min="1" max="28" step="1" value="1">
       </div>
 
       <div class="panel narrow" id="settingsKpiTargetPanel">

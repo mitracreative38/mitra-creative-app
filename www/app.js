@@ -71,6 +71,8 @@ function withDefaults(s) {
   if (!s.utangUsaha) s.utangUsaha = [];
   if (!s.kasOpname) s.kasOpname = [];
   if (!s.asetTetap) s.asetTetap = [];
+  if (!s.gajiOwner) s.gajiOwner = {};
+  if (!s.alokasiLaba) s.alokasiLaba = {};
   if (!s.anggaranBiaya) s.anggaranBiaya = {};
   if (typeof s.periodeTerkunci !== "string") s.periodeTerkunci = "";
   if (typeof s.approvalThreshold !== "number") s.approvalThreshold = 0;
@@ -1410,6 +1412,8 @@ function companyProfileToRow() {
     invoice_counter: state.invoiceCounter || 0,
     anggaran_biaya: state.anggaranBiaya || {},
     periode_terkunci: state.periodeTerkunci || "",
+    gaji_owner: state.gajiOwner || {},
+    alokasi_laba: state.alokasiLaba || {},
     updated_at: new Date().toISOString()
   };
 }
@@ -1789,6 +1793,8 @@ async function buildStateFromRelational(companyId) {
     invoiceCounter: (profileRow && profileRow.invoice_counter) || 0,
     anggaranBiaya: (profileRow && profileRow.anggaran_biaya) || {},
     periodeTerkunci: (profileRow && profileRow.periode_terkunci) || "",
+    gajiOwner: (profileRow && profileRow.gaji_owner) || {},
+    alokasiLaba: (profileRow && profileRow.alokasi_laba) || {},
     klien: klienRows.map(rowToKlien),
     ahsp: ahspRows.map(rowToAhsp),
     proyekRab: rabRows.map(rowToRab),
@@ -2297,6 +2303,98 @@ function renderTutupBuku() {
   const isOwner = currentTeamRole === "owner";
   document.getElementById("tb_kunciBtn").style.display = isOwner ? "inline-block" : "none";
   document.getElementById("tb_bukaKunciBtn").style.display = isOwner && state.periodeTerkunci ? "inline-block" : "none";
+  renderAlokasiLaba(t.lr.labaBersih);
+}
+// ----- Alokasi Laba (rumus tetap pembagian laba bersih tiap tutup buku) -----
+const ALOKASI_LABA_POS = [
+  { key: "darurat", label: "Dana darurat perusahaan (target 3–6× biaya bulanan)" },
+  { key: "pengembangan", label: "Pengembangan usaha (aset produktif, modal proyek)" },
+  { key: "pajak", label: "Pajak & kewajiban (disisihkan di muka)" },
+  { key: "tim", label: "Bonus / kesejahteraan tim" },
+  { key: "keluarga", label: "Keluarga / tabungan pribadi Owner" }
+];
+const ALOKASI_LABA_DEFAULT = { darurat: 20, pengembangan: 30, pajak: 15, tim: 10, keluarga: 25 };
+function persenAlokasi(key) {
+  const v = (state.alokasiLaba || {})[key];
+  return typeof v === "number" ? v : ALOKASI_LABA_DEFAULT[key];
+}
+function renderAlokasiLaba(labaBersih) {
+  const tbody = document.querySelector("#tb_alokasiTable tbody");
+  if (!tbody) return;
+  const adaLaba = labaBersih > 0;
+  tbody.innerHTML = ALOKASI_LABA_POS.map(pos => {
+    const p = persenAlokasi(pos.key);
+    return `
+    <tr>
+      <td>${pos.label}</td>
+      <td><input type="number" min="0" max="100" step="1" value="${p}" data-alokasi-key="${pos.key}" style="width:80px;"> %</td>
+      <td class="num"><strong>${adaLaba ? rupiah(Math.round(labaBersih * p / 100)) : "-"}</strong></td>
+    </tr>`;
+  }).join("");
+  updateAlokasiAngka(labaBersih);
+}
+// Memperbarui kolom Rupiah + baris info TANPA membangun ulang tabel --
+// dipanggil juga saat persen diketik supaya fokus input tidak hilang.
+function updateAlokasiAngka(labaBersih) {
+  const adaLaba = labaBersih > 0;
+  document.querySelectorAll("#tb_alokasiTable [data-alokasi-key]").forEach(inp => {
+    const p = persenAlokasi(inp.dataset.alokasiKey);
+    const cell = inp.closest("tr").querySelector("td.num strong");
+    if (cell) cell.textContent = adaLaba ? rupiah(Math.round(labaBersih * p / 100)) : "-";
+  });
+  const totalPersen = ALOKASI_LABA_POS.reduce((s, pos) => s + persenAlokasi(pos.key), 0);
+  const info = document.getElementById("tb_alokasiInfo");
+  if (!adaLaba) {
+    info.textContent = "Belum ada laba untuk dialokasikan bulan ini — fokus dulu menekan biaya & menagih piutang.";
+  } else if (totalPersen > 100) {
+    info.textContent = `⚠️ Total persentase ${totalPersen}% MELEBIHI 100% — kurangi salah satu pos.`;
+  } else {
+    const sisa = 100 - totalPersen;
+    info.textContent = `Total dialokasikan ${totalPersen}% dari laba ${rupiah(labaBersih)}` +
+      (sisa > 0 ? ` — sisa ${sisa}% (${rupiah(Math.round(labaBersih * sisa / 100))}) belum dialokasikan.` : ".");
+  }
+}
+document.querySelector("#tb_alokasiTable tbody").addEventListener("input", e => {
+  const input = e.target.closest("[data-alokasi-key]");
+  if (!input) return;
+  const v = Math.max(0, Math.min(100, Number(input.value) || 0));
+  state.alokasiLaba[input.dataset.alokasiKey] = v;
+  saveState();
+  mirrorCompanyProfileUpsert();
+  updateAlokasiAngka(computeTutupBuku(tbBulanTerpilih()).lr.labaBersih);
+});
+// ----- Gaji Owner otomatis bulanan -----
+// Sekali sebulan (pada/atau setelah tanggal yang diatur di Pengaturan),
+// otomatis catat transaksi Kas Keluar "Gaji Owner". Penanda periode
+// disimpan di field catatan supaya tidak pernah dobel walau dicek
+// berkali-kali. Hanya berjalan di sesi Owner (Admin tidak melihat semua
+// transaksi kas, jadi tidak boleh jadi pembuatnya).
+function prosesGajiOwnerOtomatis() {
+  const g = state.gajiOwner || {};
+  if (currentTeamRole !== "owner") return false;
+  if (!g.aktif || !(g.jumlah > 0)) return false;
+  const today = hariIniIso();
+  const periode = today.slice(0, 7);
+  const tanggalCatat = Math.min(28, Math.max(1, g.tanggal || 1));
+  if (Number(today.slice(8, 10)) < tanggalCatat) return false;
+  const marker = `auto-gaji-owner:${periode}`;
+  if (state.kasUsaha.transactions.some(t => t.catatan === marker)) return false;
+  const tanggalTxn = `${periode}-${String(tanggalCatat).padStart(2, "0")}`;
+  if (state.periodeTerkunci && tanggalTxn.slice(0, 7) <= state.periodeTerkunci) return false;
+  const txn = {
+    id: uid(),
+    tipe: "Keluar",
+    status: "lunas",
+    tanggal: tanggalTxn,
+    jumlah: g.jumlah,
+    kategori: "Biaya Operasional",
+    keterangan: "Gaji Owner (otomatis bulanan)",
+    catatan: marker
+  };
+  state.kasUsaha.transactions.push(txn);
+  saveState();
+  mirrorKasUsahaUpsert(txn, null);
+  return true;
 }
 document.getElementById("tb_bulan").addEventListener("change", renderTutupBuku);
 document.getElementById("tb_kunciBtn").addEventListener("click", () => {
@@ -2409,6 +2507,9 @@ function renderKalender() {
     const items = (events[iso] || []).slice();
     // Gajian mingguan tiap Sabtu (siklus penggajian Owner).
     if (hari === 6) items.push({ icon: "💰", label: "Gajian mingguan", page: "karyawan" });
+    // Ritual keuangan awal bulan: Opname Kas + Tutup Buku bulan lalu +
+    // evaluasi Laba Rugi/KPI + alokasi laba.
+    if (tgl === 1) items.unshift({ icon: "📘", label: "Ritual awal bulan: Opname Kas + Tutup Buku + Alokasi Laba", page: "laporan" });
     const shown = items.slice(0, 3).map(ev => `
       <button class="kal-event ${ev.merah ? "kal-merah" : ""}" data-goto-page="${ev.page}" title="${escapeHtml(ev.label)}">${ev.icon} ${escapeHtml(ev.label)}</button>
     `).join("");
@@ -10768,6 +10869,7 @@ window.addEventListener("afterprint", () => {
 });
 
 function renderAll() {
+  prosesGajiOwnerOtomatis();
   renderDashboard();
   renderKasBook("kasUsaha");
   renderKasBook("kasPribadi");
@@ -10829,6 +10931,11 @@ function renderAll() {
   if (document.activeElement !== mrMarkupInput) mrMarkupInput.value = state.mataResolusiMarkupPercent ?? 5;
   const targetOmzetInput = document.getElementById("settingsTargetOmzet");
   if (document.activeElement !== targetOmzetInput) targetOmzetInput.value = formatNumberInput(state.targetOmzetBulanan || 0);
+  document.getElementById("sgo_aktif").checked = (state.gajiOwner || {}).aktif === true;
+  const sgoJumlahInput = document.getElementById("sgo_jumlah");
+  if (document.activeElement !== sgoJumlahInput) sgoJumlahInput.value = formatNumberInput((state.gajiOwner || {}).jumlah || 0);
+  const sgoTanggalInput = document.getElementById("sgo_tanggal");
+  if (document.activeElement !== sgoTanggalInput) sgoTanggalInput.value = (state.gajiOwner || {}).tanggal || 1;
   const targetLabaInput = document.getElementById("settingsTargetLaba");
   if (document.activeElement !== targetLabaInput) targetLabaInput.value = formatNumberInput(state.targetLababersihBulanan || 0);
   const jamMulaiInput = document.getElementById("settingsJamKerjaMulai");
@@ -10870,7 +10977,7 @@ function applyRoleAccess() {
     const el = document.getElementById(id);
     if (el) el.style.display = currentTeamRole === "owner" ? "" : "none";
   });
-  ["settingsApprovalPanel", "settingsDataPanel"].forEach(id => {
+  ["settingsApprovalPanel", "settingsDataPanel", "settingsGajiOwnerPanel", "tb_alokasiPanel"].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = currentTeamRole === "owner" ? "" : "none";
   });
@@ -11908,6 +12015,20 @@ document.getElementById("settingsOwnerJabatan").addEventListener("input", e => {
 document.getElementById("settingsRekening").addEventListener("input", e => { state.rekening = e.target.value; saveState(); mirrorCompanyProfileUpsert(); });
 attachNumberFormatting(document.getElementById("settingsApprovalThreshold"));
 document.getElementById("settingsApprovalThreshold").addEventListener("input", e => { state.approvalThreshold = parseNumberInput(e.target.value); saveState(); mirrorCompanyProfileUpsert(); });
+function simpanGajiOwnerSetting() {
+  state.gajiOwner = {
+    aktif: document.getElementById("sgo_aktif").checked,
+    jumlah: parseNumberInput(document.getElementById("sgo_jumlah").value),
+    tanggal: Math.min(28, Math.max(1, parseInt(document.getElementById("sgo_tanggal").value, 10) || 1))
+  };
+  saveState();
+  mirrorCompanyProfileUpsert();
+  if (prosesGajiOwnerOtomatis()) renderAll();
+}
+attachNumberFormatting(document.getElementById("sgo_jumlah"));
+document.getElementById("sgo_aktif").addEventListener("change", simpanGajiOwnerSetting);
+document.getElementById("sgo_jumlah").addEventListener("input", simpanGajiOwnerSetting);
+document.getElementById("sgo_tanggal").addEventListener("change", simpanGajiOwnerSetting);
 attachNumberFormatting(document.getElementById("settingsTargetOmzet"));
 document.getElementById("settingsTargetOmzet").addEventListener("input", e => { state.targetOmzetBulanan = parseNumberInput(e.target.value); saveState(); mirrorCompanyProfileUpsert(); });
 document.getElementById("settingsJamKerjaMulai").addEventListener("change", e => { state.jamKerjaMulai = e.target.value || "08:00"; saveState(); mirrorCompanyProfileUpsert(); });
