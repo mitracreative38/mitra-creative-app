@@ -967,7 +967,7 @@
           </div>
           <div class="table-wrap">
             <table class="tbl" id="lkr_tindakLanjutTable">
-              <thead><tr><th>Uraian</th><th>Rencana</th><th>Status</th><th>Catatan</th><th></th></tr></thead>
+              <thead><tr><th>Item &amp; Ukuran</th><th>Rencana</th><th class="num">Vol × Harga</th><th>Foto/Video</th><th>Status</th><th>Catatan</th><th></th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -1705,7 +1705,7 @@
           <div class="table-wrap">
             <table class="tbl" id="pj_susulanTable">
               <thead><tr>
-                <th>Tanggal</th><th>Uraian</th><th>Sumber</th><th class="num">Perkiraan Nilai</th><th>Status</th><th>Catatan</th><th></th>
+                <th>Tanggal</th><th>Uraian</th><th>Sumber</th><th class="num">Volume</th><th class="num">Perkiraan Nilai</th><th>Status</th><th>Catatan</th><th></th>
               </tr></thead>
               <tbody></tbody>
             </table>
@@ -3840,12 +3840,24 @@
           </select>
         </div>
         <div class="field full">
+          <label>Ambil dari AHSP (opsional — uraian, satuan &amp; harga terisi otomatis)</label>
+          <select id="ps_ahspPick"><option value="">— Isi manual —</option></select>
+        </div>
+        <div class="field full">
           <label>Uraian Pekerjaan Susulan</label>
           <input type="text" id="ps_uraian" required placeholder="mis. Tambah pasang lampu sorot di area parkir">
         </div>
         <div class="field">
-          <label>Perkiraan Nilai (Rp, opsional)</label>
-          <input type="text" inputmode="numeric" id="ps_nilai" placeholder="0">
+          <label>Volume</label>
+          <input type="number" id="ps_volume" step="any" min="0" placeholder="0">
+        </div>
+        <div class="field">
+          <label>Satuan</label>
+          <input type="text" id="ps_satuan" list="satuanList2" placeholder="mis. m2 / unit / ls">
+        </div>
+        <div class="field">
+          <label>Harga Satuan (Rp)</label>
+          <input type="text" inputmode="numeric" id="ps_hargaSatuan" placeholder="0">
         </div>
         <div class="field">
           <label>Status</label>
@@ -3880,8 +3892,36 @@
       <input type="hidden" id="tl_id">
       <div class="form-grid">
         <div class="field full">
-          <label>Uraian (hasil survey / yang perlu ditindaklanjuti)</label>
-          <input type="text" id="tl_uraian" required placeholder="mis. Papan nama depan perlu diganti, ukuran 3x1 m">
+          <label>Ambil dari AHSP (opsional — uraian, satuan &amp; harga terisi otomatis)</label>
+          <select id="tl_ahspPick"><option value="">— Isi manual —</option></select>
+        </div>
+        <div class="field full">
+          <label>Item / Uraian (hasil survey)</label>
+          <input type="text" id="tl_uraian" required placeholder="mis. Papan nama depan perlu diganti">
+        </div>
+        <div class="field">
+          <label>Panjang (m, opsional)</label>
+          <input type="number" id="tl_p" step="any" min="0" placeholder="0">
+        </div>
+        <div class="field">
+          <label>Lebar (m, opsional)</label>
+          <input type="number" id="tl_l" step="any" min="0" placeholder="0">
+        </div>
+        <div class="field">
+          <label>Tinggi (m, opsional)</label>
+          <input type="number" id="tl_t" step="any" min="0" placeholder="0">
+        </div>
+        <div class="field">
+          <label>Volume (otomatis dari ukuran, bisa diubah)</label>
+          <input type="number" id="tl_volume" step="any" min="0" placeholder="0">
+        </div>
+        <div class="field">
+          <label>Satuan</label>
+          <input type="text" id="tl_satuan" list="satuanList2" placeholder="m1/m2/m3 otomatis">
+        </div>
+        <div class="field">
+          <label>Harga Satuan (Rp, opsional)</label>
+          <input type="text" inputmode="numeric" id="tl_harga" placeholder="0">
         </div>
         <div class="field">
           <label>Rencana</label>
@@ -3901,13 +3941,25 @@
           </select>
         </div>
         <div class="field full">
+          <label>Foto Lapangan (opsional, ber-watermark otomatis)</label>
+          <input type="file" id="tl_foto" accept="image/*" multiple>
+        </div>
+        <div class="field full">
+          <label>Video (opsional, maks 50 MB — butuh login cloud)</label>
+          <input type="file" id="tl_video" accept="video/*">
+        </div>
+        <div class="field full" id="tl_mediaField" style="display:none;">
+          <label>Foto/Video Tersimpan</label>
+          <div id="tl_mediaList" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
+        </div>
+        <div class="field full">
           <label>Catatan (bisa diperbarui kapan saja)</label>
-          <textarea id="tl_catatan" rows="3" placeholder="ukuran, spesifikasi, kesepakatan harga kasar, dll."></textarea>
+          <textarea id="tl_catatan" rows="3" placeholder="spesifikasi, kesepakatan harga kasar, dll."></textarea>
         </div>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn-ghost" data-close-modal>Batal</button>
-        <button type="submit" class="btn-primary">Simpan</button>
+        <button type="submit" class="btn-primary" id="tl_submitBtn">Simpan</button>
       </div>
     </form>
   </div>
