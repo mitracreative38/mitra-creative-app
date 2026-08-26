@@ -12335,7 +12335,10 @@ function renderAll() {
 const ROLE_PAGE_ACCESS = {
   owner: null,
   admin: ["dashboard", "kalender", "sop", "klien", "kasUsaha", "laporan", "kpi", "proyek", "laporanKerja", "qc", "sewaAset", "asetTetap", "karyawan", "lokasi", "stok", "pemasok", "ahsp", "rab", "penawaran", "pengaturan"],
-  marketing: ["sop", "klien", "ahsp", "rab", "penawaran", "pengaturan"]
+  // Marketing dapat Laporan Kerja untuk survey lapangan (babat alas) --
+  // boleh buat & perbarui, tapi TIDAK boleh hapus (guard anti-fraud di
+  // masing-masing handler hapus, pola yang sama dengan data Klien).
+  marketing: ["sop", "klien", "laporanKerja", "ahsp", "rab", "penawaran", "pengaturan"]
 };
 
 // ===== SOP Perusahaan: pedoman kerja per peran (data di SOP_PERUSAHAAN) =====
@@ -14559,6 +14562,7 @@ document.getElementById("tindakLanjutForm").addEventListener("submit", async e =
 document.getElementById("tl_mediaList").addEventListener("click", e => {
   const delBtn = e.target.closest("[data-del-tlmedia]");
   if (!delBtn) return;
+  if (currentTeamRole === "marketing") { alert("Role Marketing tidak dapat menghapus foto/video. Hubungi Owner."); return; }
   const l = state.laporanKerja.find(x => x.id === currentLaporanKerjaId);
   const item = l ? (l.tindakLanjut || []).find(x => x.id === document.getElementById("tl_id").value) : null;
   if (!item) return;
@@ -14605,6 +14609,7 @@ document.getElementById("lkr_tindakLanjutTable").addEventListener("click", e => 
     const item = (l.tindakLanjut || []).find(x => x.id === editBtn.dataset.editTindaklanjut);
     if (item) openTindakLanjutModal(item);
   } else if (delBtn) {
+    if (currentTeamRole === "marketing") { alert("Role Marketing tidak dapat menghapus tindak lanjut. Hubungi Owner."); return; }
     const item = (l.tindakLanjut || []).find(x => x.id === delBtn.dataset.deleteTindaklanjut);
     if (item && confirm(`Hapus tindak lanjut "${item.uraian}"?`)) {
       l.tindakLanjut = (l.tindakLanjut || []).filter(x => x.id !== item.id);
@@ -14681,6 +14686,7 @@ document.querySelector("#lkr_table tbody").addEventListener("click", e => {
   if (row) { currentLaporanKerjaId = row.dataset.openLaporan; renderLaporanKerja(); }
 });
 document.getElementById("lkr_deleteBtn").addEventListener("click", () => {
+  if (currentTeamRole === "marketing") { alert("Role Marketing tidak dapat menghapus laporan kerja. Hubungi Owner."); return; }
   const l = state.laporanKerja.find(x => x.id === currentLaporanKerjaId);
   if (!l) return;
   if (!confirm(`Hapus laporan "${l.judul}" beserta ${laporanKerjaFotoCount(l)} foto buktinya? Tindakan ini tidak bisa dibatalkan.`)) return;
@@ -14764,6 +14770,7 @@ document.getElementById("lkr_titikTable").addEventListener("click", e => {
   }
   const del = e.target.closest("[data-delete-titik]");
   if (del) {
+    if (currentTeamRole === "marketing") { alert("Role Marketing tidak dapat menghapus titik/foto laporan. Hubungi Owner."); return; }
     const l = state.laporanKerja.find(x => x.id === currentLaporanKerjaId);
     if (!l) return;
     const t = l.titik.find(x => x.id === del.dataset.deleteTitik);
