@@ -96,10 +96,14 @@ function withDefaults(s) {
 // localStorage. Dipakai persistLocalState() sebagai pemulihan otomatis
 // saat kuota localStorage penuh (lihat catatan di sana).
 function stripArsipedLaporanKerjaThumbs(s) {
+  const stripFoto = f => f.path ? { path: f.path, waktu: f.waktu || "", koordinat: f.koordinat || "" } : f;
   return Object.assign({}, s, {
     laporanKerja: (s.laporanKerja || []).map(l => Object.assign({}, l, {
       titik: (l.titik || []).map(t => Object.assign({}, t, {
-        foto: (t.foto || []).map(f => f.path ? { path: f.path, waktu: f.waktu || "", koordinat: f.koordinat || "" } : f)
+        foto: (t.foto || []).map(stripFoto)
+      })),
+      tindakLanjut: (l.tindakLanjut || []).map(tl => Object.assign({}, tl, {
+        foto: (tl.foto || []).map(stripFoto)
       }))
     }))
   });
@@ -5462,19 +5466,44 @@ function statusTindakLanjutBadge(status) {
   const s = STATUS_TINDAK_LANJUT[status] || STATUS_TINDAK_LANJUT.rencana;
   return `<span class="badge-margin ${s.badge}">${s.label}</span>`;
 }
+// Picker AHSP yang sama dengan modal item RAB/Penawaran -- supaya harga
+// TIDAK diketik manual dua kali: pilih item AHSP, uraian/satuan/harga
+// langsung terisi dari analisa yang sudah ada (integrasi lintas menu).
+function isiAhspPickerOptions(selectEl, selectedId) {
+  const sorted = state.ahsp.slice().sort((a, b) =>
+    (a.kategori || "").localeCompare(b.kategori || "") || (a.uraian || "").localeCompare(b.uraian || ""));
+  selectEl.innerHTML = '<option value="">— Isi manual —</option>' + sorted.map(a =>
+    `<option value="${a.id}">${escapeHtml(a.kategori || "")} — ${escapeHtml(a.uraian)} (${rupiah(ahspHarga(a))}/${escapeHtml(a.satuan)})</option>`
+  ).join("");
+  selectEl.value = selectedId || "";
+}
+function nilaiTindakLanjut(item) {
+  const hitung = (item.volume || 0) * (item.hargaSatuan || 0);
+  return hitung || item.nilai || 0;
+}
 const pekerjaanSusulanModal = document.getElementById("pekerjaanSusulanModal");
 function openPekerjaanSusulanModal(existing) {
   document.getElementById("ps_id").value = existing ? existing.id : "";
   document.getElementById("pekerjaanSusulanModalTitle").textContent = existing ? "Edit Pekerjaan Susulan" : "Catat Pekerjaan Susulan";
   document.getElementById("ps_tanggal").value = existing ? existing.tanggal : hariIniIso();
   document.getElementById("ps_sumber").value = existing ? (existing.sumber || "Permintaan Klien") : "Permintaan Klien";
+  isiAhspPickerOptions(document.getElementById("ps_ahspPick"), existing ? existing.ahspId : "");
   document.getElementById("ps_uraian").value = existing ? (existing.uraian || "") : "";
-  document.getElementById("ps_nilai").value = existing ? formatNumberInput(existing.nilai || 0) : "";
+  document.getElementById("ps_volume").value = existing ? (existing.volume || "") : "";
+  document.getElementById("ps_satuan").value = existing ? (existing.satuan || "") : "";
+  document.getElementById("ps_hargaSatuan").value = existing ? formatNumberInput(existing.hargaSatuan || existing.nilai || 0) : "";
   document.getElementById("ps_status").value = existing ? (existing.status || "rencana") : "rencana";
   document.getElementById("ps_catatan").value = existing ? (existing.catatan || "") : "";
   pekerjaanSusulanModal.classList.add("open");
 }
-attachNumberFormatting(document.getElementById("ps_nilai"));
+attachNumberFormatting(document.getElementById("ps_hargaSatuan"));
+document.getElementById("ps_ahspPick").addEventListener("change", () => {
+  const a = state.ahsp.find(x => x.id === document.getElementById("ps_ahspPick").value);
+  if (!a) return;
+  document.getElementById("ps_uraian").value = a.uraian;
+  document.getElementById("ps_satuan").value = a.satuan;
+  document.getElementById("ps_hargaSatuan").value = formatNumberInput(ahspHarga(a));
+});
 document.getElementById("ps_addBtn").addEventListener("click", () => openPekerjaanSusulanModal(null));
 document.getElementById("pekerjaanSusulanForm").addEventListener("submit", e => {
   e.preventDefault();
@@ -5488,7 +5517,10 @@ document.getElementById("pekerjaanSusulanForm").addEventListener("submit", e => 
     tanggal: document.getElementById("ps_tanggal").value,
     sumber: document.getElementById("ps_sumber").value,
     uraian: document.getElementById("ps_uraian").value.trim(),
-    nilai: parseNumberInput(document.getElementById("ps_nilai").value),
+    ahspId: document.getElementById("ps_ahspPick").value || "",
+    volume: parseFloat(document.getElementById("ps_volume").value) || 0,
+    satuan: document.getElementById("ps_satuan").value.trim(),
+    hargaSatuan: parseNumberInput(document.getElementById("ps_hargaSatuan").value),
     status: document.getElementById("ps_status").value,
     catatan: document.getElementById("ps_catatan").value.trim(),
     penawaranId: existing ? (existing.penawaranId || "") : ""
@@ -5523,7 +5555,7 @@ document.getElementById("pj_susulanTable").addEventListener("click", e => {
     if (!item) return;
     const pw = buatPenawaranDariTindakLanjut({
       kepada: p.klien || "", klienId: p.klienId || "",
-      perihal: item.uraian, nilai: item.nilai || 0
+      perihal: item.uraian, item
     });
     item.status = "penawaran";
     item.penawaranId = pw.id;
@@ -5533,15 +5565,23 @@ document.getElementById("pj_susulanTable").addEventListener("click", e => {
   }
 });
 // Dipakai BAIK oleh Pekerjaan Susulan proyek MAUPUN Tindak Lanjut survey di
-// Laporan Kerja -- membuat draft Penawaran berisi 1 item dari catatan itu,
-// jadi tinggal dilengkapi detailnya di editor Penawaran.
-function buatPenawaranDariTindakLanjut({ kepada, klienId, perihal, nilai }) {
+// Laporan Kerja -- membuat draft Penawaran berisi 1 item LENGKAP (uraian,
+// satuan, volume, harga satuan, tetap tertaut ahspId-nya) dari catatan itu,
+// jadi tidak perlu isi ulang manual di editor Penawaran.
+function buatPenawaranDariTindakLanjut({ kepada, klienId, perihal, item }) {
   const pw = {
     id: uid(), nomor: nextPenawaranNomor(), tanggal: hariIniIso(),
     kepada: kepada || "", klienId: klienId || "", alamatKlien: "", perihal: perihal || "",
     kategori: KATEGORI_PEKERJAAN[0], status: "draft",
     diskon: 0, ppn: 11, pph: 0.5, biayaLain: 0,
-    items: [{ id: uid(), uraian: perihal || "", satuan: "ls", volume: 1, hargaSatuan: nilai || 0 }],
+    items: [{
+      id: uid(),
+      uraian: (item && item.uraian) || perihal || "",
+      satuan: (item && item.satuan) || "ls",
+      volume: (item && item.volume) || 1,
+      hargaSatuan: (item && (item.hargaSatuan || item.nilai)) || 0,
+      ahspId: (item && item.ahspId) || ""
+    }],
     syarat: defaultSyarat(), penutup: defaultPenutup(),
     ttdNama: state.ownerNama, ttdJabatan: state.ownerJabatan
   };
@@ -5558,7 +5598,8 @@ function renderPekerjaanSusulan(p) {
       <td>${formatTanggal(item.tanggal)}</td>
       <td>${escapeHtml(item.uraian)}</td>
       <td>${escapeHtml(item.sumber || "-")}</td>
-      <td class="num">${item.nilai ? rupiah(item.nilai) : "-"}</td>
+      <td class="num">${item.volume ? `${item.volume} ${escapeHtml(item.satuan || "")}` : "-"}</td>
+      <td class="num">${nilaiTindakLanjut(item) ? rupiah(nilaiTindakLanjut(item)) : "-"}</td>
       <td>${statusTindakLanjutBadge(item.status)}</td>
       <td>${escapeHtml(item.catatan || "-")}</td>
       <td><div class="row-actions">
@@ -5567,7 +5608,7 @@ function renderPekerjaanSusulan(p) {
         <button class="icon-btn" data-delete-susulan="${item.id}" title="Hapus">🗑️</button>
       </div></td>
     </tr>
-  `).join("") : '<tr class="empty-row"><td colspan="7">Belum ada catatan pekerjaan susulan. Catat di sini setiap ada pekerjaan tambahan yang muncul belakangan supaya tidak terlewat.</td></tr>';
+  `).join("") : '<tr class="empty-row"><td colspan="8">Belum ada catatan pekerjaan susulan. Catat di sini setiap ada pekerjaan tambahan yang muncul belakangan supaya tidak terlewat.</td></tr>';
 }
 
 // ===== Klien (CRM/Pipeline) =====
@@ -14341,12 +14382,29 @@ function renderLaporanKerjaDetail() {
   }
   renderTindakLanjutLaporan(l);
 }
+function ukuranTindakLanjutText(item) {
+  const dims = [item.p, item.l, item.t].filter(v => v > 0);
+  if (!dims.length) return "";
+  return dims.map(v => `${v}`).join(" × ") + " m";
+}
 function renderTindakLanjutLaporan(l) {
   if (!l.tindakLanjut) l.tindakLanjut = [];
-  document.querySelector("#lkr_tindakLanjutTable tbody").innerHTML = l.tindakLanjut.length ? l.tindakLanjut.map(item => `
+  document.querySelector("#lkr_tindakLanjutTable tbody").innerHTML = l.tindakLanjut.length ? l.tindakLanjut.map(item => {
+    const ukuran = ukuranTindakLanjutText(item);
+    const nilai = nilaiTindakLanjut(item);
+    const fotoHtml = (item.foto || []).map((f, i) => f.thumb
+      ? `<img src="${f.thumb}" alt="foto" data-tlfoto="${item.id}:${i}" style="width:48px;height:36px;object-fit:cover;border-radius:5px;cursor:pointer;border:1px solid var(--border);">`
+      : `<button type="button" class="icon-btn" data-tlfoto="${item.id}:${i}" title="Foto tersimpan di cloud" style="width:48px;height:36px;border-radius:5px;">📎</button>`
+    ).join("");
+    const videoHtml = (item.video || []).map((v, i) =>
+      `<button type="button" class="icon-btn" data-tlvideo="${item.id}:${i}" title="Putar video: ${escapeHtml(v.nama || "video")}">🎬</button>`
+    ).join("");
+    return `
     <tr>
-      <td>${escapeHtml(item.uraian)}</td>
+      <td>${escapeHtml(item.uraian)}${ukuran ? `<br><span class="muted" style="font-size:12px;">P×L×T: ${escapeHtml(ukuran)}</span>` : ""}</td>
       <td>${escapeHtml(item.rencana || "-")}</td>
+      <td class="num">${item.volume ? `${item.volume} ${escapeHtml(item.satuan || "")}` : "-"}${nilai ? `<br><strong>${rupiah(nilai)}</strong>` : ""}</td>
+      <td><div style="display:flex; gap:4px; flex-wrap:wrap; align-items:center;">${fotoHtml}${videoHtml}${!fotoHtml && !videoHtml ? '<span class="muted" style="font-size:12px;">-</span>' : ""}</div></td>
       <td>${statusTindakLanjutBadge(item.status)}</td>
       <td>${escapeHtml(item.catatan || "-")}</td>
       <td><div class="row-actions">
@@ -14355,7 +14413,8 @@ function renderTindakLanjutLaporan(l) {
         <button class="icon-btn" data-delete-tindaklanjut="${item.id}" title="Hapus">🗑️</button>
       </div></td>
     </tr>
-  `).join("") : '<tr class="empty-row"><td colspan="5">Belum ada rencana tindak lanjut. Setelah survey, catat di sini apa saja yang mau dibuatkan penawaran atau dikerjakan langsung.</td></tr>';
+  `;
+  }).join("") : '<tr class="empty-row"><td colspan="7">Belum ada rencana tindak lanjut. Setelah survey, catat di sini item + ukuran + foto, lalu tentukan mana yang dibuatkan penawaran atau dikerjakan langsung.</td></tr>';
 }
 function renderLaporanKerja() {
   if (!document.getElementById("page-laporanKerja")) return;
@@ -14366,17 +14425,81 @@ function renderLaporanKerja() {
 
 // ----- Rencana Tindak Lanjut survey/laporan kerja -----
 const tindakLanjutModal = document.getElementById("tindakLanjutModal");
+function renderTlMediaList(item) {
+  const field = document.getElementById("tl_mediaField");
+  const list = document.getElementById("tl_mediaList");
+  const punyaMedia = item && ((item.foto || []).length || (item.video || []).length);
+  field.style.display = punyaMedia ? "block" : "none";
+  if (!punyaMedia) { list.innerHTML = ""; return; }
+  list.innerHTML =
+    (item.foto || []).map((f, i) => `
+      <span style="position:relative; display:inline-block;">
+        ${f.thumb
+          ? `<img src="${f.thumb}" alt="foto" style="width:64px;height:48px;object-fit:cover;border-radius:6px;border:1px solid var(--border);">`
+          : `<span class="icon-btn" style="width:64px;height:48px;display:inline-flex;align-items:center;justify-content:center;">📎</span>`}
+        <button type="button" class="icon-btn" data-del-tlmedia="foto:${i}" title="Hapus foto ini" style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;font-size:11px;">✕</button>
+      </span>`).join("") +
+    (item.video || []).map((v, i) => `
+      <span style="position:relative; display:inline-block;">
+        <span class="icon-btn" style="height:48px;display:inline-flex;align-items:center;gap:4px;padding:0 10px;">🎬 ${escapeHtml((v.nama || "video").slice(0, 18))}</span>
+        <button type="button" class="icon-btn" data-del-tlmedia="video:${i}" title="Hapus video ini" style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;font-size:11px;">✕</button>
+      </span>`).join("");
+}
 function openTindakLanjutModal(existing) {
   document.getElementById("tl_id").value = existing ? existing.id : "";
   document.getElementById("tindakLanjutModalTitle").textContent = existing ? "Edit Tindak Lanjut" : "Tambah Rencana Tindak Lanjut";
+  isiAhspPickerOptions(document.getElementById("tl_ahspPick"), existing ? existing.ahspId : "");
   document.getElementById("tl_uraian").value = existing ? (existing.uraian || "") : "";
+  document.getElementById("tl_p").value = existing ? (existing.p || "") : "";
+  document.getElementById("tl_l").value = existing ? (existing.l || "") : "";
+  document.getElementById("tl_t").value = existing ? (existing.t || "") : "";
+  document.getElementById("tl_volume").value = existing ? (existing.volume || "") : "";
+  document.getElementById("tl_satuan").value = existing ? (existing.satuan || "") : "";
+  document.getElementById("tl_harga").value = existing ? formatNumberInput(existing.hargaSatuan || 0) : "";
   document.getElementById("tl_rencana").value = existing ? (existing.rencana || "Dibuat Penawaran") : "Dibuat Penawaran";
   document.getElementById("tl_status").value = existing ? (existing.status || "rencana") : "rencana";
   document.getElementById("tl_catatan").value = existing ? (existing.catatan || "") : "";
+  document.getElementById("tl_foto").value = "";
+  document.getElementById("tl_video").value = "";
+  renderTlMediaList(existing);
   tindakLanjutModal.classList.add("open");
 }
+attachNumberFormatting(document.getElementById("tl_harga"));
+document.getElementById("tl_ahspPick").addEventListener("change", () => {
+  const a = state.ahsp.find(x => x.id === document.getElementById("tl_ahspPick").value);
+  if (!a) return;
+  document.getElementById("tl_uraian").value = a.uraian;
+  document.getElementById("tl_satuan").value = a.satuan;
+  document.getElementById("tl_harga").value = formatNumberInput(ahspHarga(a));
+});
+// Volume otomatis dari ukuran: P saja -> m1; P x L -> m2; P x L x T -> m3.
+// Satuan cuma diisi otomatis kalau belum diisi manual/AHSP, dan hasil
+// hitung selalu bisa ditimpa manual di field Volume.
+["tl_p", "tl_l", "tl_t"].forEach(idEl => {
+  document.getElementById(idEl).addEventListener("input", () => {
+    const p = parseFloat(document.getElementById("tl_p").value) || 0;
+    const lb = parseFloat(document.getElementById("tl_l").value) || 0;
+    const t = parseFloat(document.getElementById("tl_t").value) || 0;
+    if (p <= 0) return;
+    let vol = p, satuan = "m1";
+    if (lb > 0) { vol = p * lb; satuan = "m2"; }
+    if (lb > 0 && t > 0) { vol = p * lb * t; satuan = "m3"; }
+    document.getElementById("tl_volume").value = Math.round(vol * 1000) / 1000;
+    const satuanEl = document.getElementById("tl_satuan");
+    if (!satuanEl.value || ["m1", "m2", "m3"].includes(satuanEl.value)) satuanEl.value = satuan;
+  });
+});
+async function simpanVideoLaporan(laporanId, file) {
+  if (!sb || !targetCompanyId) throw new Error("Video butuh login cloud (Pengaturan > Sinkronisasi Cloud) karena disimpan langsung ke penyimpanan cloud.");
+  if (file.size > 50 * 1024 * 1024) throw new Error(`Video "${file.name}" melebihi 50 MB. Perkecil/potong dulu videonya.`);
+  const ext = (file.name.split(".").pop() || "mp4").toLowerCase().replace(/[^a-z0-9]/g, "") || "mp4";
+  const path = `${targetCompanyId}/laporan/${laporanId}/video_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.${ext}`;
+  const { error } = await sb.storage.from("lampiran").upload(path, file, { contentType: file.type || "video/mp4" });
+  if (error) throw new Error("Gagal mengunggah video: " + error.message);
+  return { path, nama: file.name || "video" };
+}
 document.getElementById("lkr_addTindakLanjutBtn").addEventListener("click", () => openTindakLanjutModal(null));
-document.getElementById("tindakLanjutForm").addEventListener("submit", e => {
+document.getElementById("tindakLanjutForm").addEventListener("submit", async e => {
   e.preventDefault();
   const l = state.laporanKerja.find(x => x.id === currentLaporanKerjaId);
   if (!l) { closeModals(); return; }
@@ -14386,25 +14509,98 @@ document.getElementById("tindakLanjutForm").addEventListener("submit", e => {
   const item = {
     id: id || uid(),
     uraian: document.getElementById("tl_uraian").value.trim(),
+    ahspId: document.getElementById("tl_ahspPick").value || "",
+    p: parseFloat(document.getElementById("tl_p").value) || 0,
+    l: parseFloat(document.getElementById("tl_l").value) || 0,
+    t: parseFloat(document.getElementById("tl_t").value) || 0,
+    volume: parseFloat(document.getElementById("tl_volume").value) || 0,
+    satuan: document.getElementById("tl_satuan").value.trim(),
+    hargaSatuan: parseNumberInput(document.getElementById("tl_harga").value),
     rencana: document.getElementById("tl_rencana").value,
     status: document.getElementById("tl_status").value,
     catatan: document.getElementById("tl_catatan").value.trim(),
-    penawaranId: existing ? (existing.penawaranId || "") : ""
+    penawaranId: existing ? (existing.penawaranId || "") : "",
+    foto: existing ? (existing.foto || []) : [],
+    video: existing ? (existing.video || []) : []
   };
   if (!item.uraian) { alert("Isi uraian tindak lanjut terlebih dahulu."); return; }
+
+  const fotoFiles = [...(document.getElementById("tl_foto").files || [])].slice(0, 10);
+  const videoFile = (document.getElementById("tl_video").files || [])[0] || null;
+  const btn = document.getElementById("tl_submitBtn");
+  btn.disabled = true;
+  btn.textContent = (fotoFiles.length || videoFile) ? "Mengunggah..." : "Menyimpan...";
+  try {
+    if (fotoFiles.length) {
+      const koordinat = await koordinatSaatIni();
+      for (const file of fotoFiles) {
+        const f = await prosesFotoLaporan(file, item.uraian, koordinat);
+        item.foto.push(await simpanFotoLaporan(l.id, f));
+      }
+    }
+    if (videoFile) {
+      item.video.push(await simpanVideoLaporan(l.id, videoFile));
+    }
+  } catch (err) {
+    alert(err.message);
+    btn.disabled = false;
+    btn.textContent = "Simpan";
+    return;
+  }
   const idx = l.tindakLanjut.findIndex(x => x.id === id);
   if (idx >= 0) l.tindakLanjut[idx] = item; else l.tindakLanjut.push(item);
   saveState();
   mirrorLaporanKerjaUpsert(l, l);
   renderLaporanKerja();
+  btn.disabled = false;
+  btn.textContent = "Simpan";
   closeModals();
+});
+document.getElementById("tl_mediaList").addEventListener("click", e => {
+  const delBtn = e.target.closest("[data-del-tlmedia]");
+  if (!delBtn) return;
+  const l = state.laporanKerja.find(x => x.id === currentLaporanKerjaId);
+  const item = l ? (l.tindakLanjut || []).find(x => x.id === document.getElementById("tl_id").value) : null;
+  if (!item) return;
+  const [jenis, idxStr] = delBtn.dataset.delTlmedia.split(":");
+  const idx = parseInt(idxStr, 10);
+  if (!confirm(jenis === "foto" ? "Hapus foto ini dari tindak lanjut?" : "Hapus video ini dari tindak lanjut?")) return;
+  if (jenis === "foto") item.foto.splice(idx, 1); else item.video.splice(idx, 1);
+  saveState();
+  mirrorLaporanKerjaUpsert(l, l);
+  renderTlMediaList(item);
+  renderLaporanKerja();
 });
 document.getElementById("lkr_tindakLanjutTable").addEventListener("click", e => {
   const editBtn = e.target.closest("[data-edit-tindaklanjut]");
   const delBtn = e.target.closest("[data-delete-tindaklanjut]");
   const pwBtn = e.target.closest("[data-pw-tindaklanjut]");
+  const fotoEl = e.target.closest("[data-tlfoto]");
+  const videoEl = e.target.closest("[data-tlvideo]");
   const l = state.laporanKerja.find(x => x.id === currentLaporanKerjaId);
   if (!l) return;
+  if (fotoEl) {
+    const [itemId, idxStr] = fotoEl.dataset.tlfoto.split(":");
+    const item = (l.tindakLanjut || []).find(x => x.id === itemId);
+    const f = item && (item.foto || [])[parseInt(idxStr, 10)];
+    if (!f) return;
+    if (f.path && sb) { openLampiran(f.path); return; }
+    if (f.thumb) {
+      document.getElementById("lkFoto_img").src = f.thumb;
+      document.getElementById("lkFoto_ket").textContent = item.uraian || "";
+      document.getElementById("lkFotoModal").classList.add("open");
+    }
+    return;
+  }
+  if (videoEl) {
+    const [itemId, idxStr] = videoEl.dataset.tlvideo.split(":");
+    const item = (l.tindakLanjut || []).find(x => x.id === itemId);
+    const v = item && (item.video || [])[parseInt(idxStr, 10)];
+    if (!v) return;
+    if (sb) openLampiran(v.path);
+    else alert("Video tersimpan di cloud -- login cloud dulu (Pengaturan > Sinkronisasi Cloud) untuk memutarnya.");
+    return;
+  }
   if (editBtn) {
     const item = (l.tindakLanjut || []).find(x => x.id === editBtn.dataset.editTindaklanjut);
     if (item) openTindakLanjutModal(item);
@@ -14422,7 +14618,7 @@ document.getElementById("lkr_tindakLanjutTable").addEventListener("click", e => 
     const klien = l.klienId ? state.klien.find(k => k.id === l.klienId) : null;
     const pw = buatPenawaranDariTindakLanjut({
       kepada: klien ? klien.nama : (l.judul || ""), klienId: l.klienId || "",
-      perihal: item.uraian, nilai: 0
+      perihal: item.uraian, item
     });
     item.status = "penawaran";
     item.penawaranId = pw.id;
