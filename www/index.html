@@ -960,6 +960,18 @@
             </table>
           </div>
         </div>
+        <div class="panel">
+          <div class="toolbar">
+            <div class="muted" style="flex:1">📋 Rencana Tindak Lanjut — daftar hasil survey/laporan ini: mana yang mau dibuatkan penawaran, mana yang dikerjakan langsung</div>
+            <button class="btn-primary" id="lkr_addTindakLanjutBtn">+ Tambah Tindak Lanjut</button>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="lkr_tindakLanjutTable">
+              <thead><tr><th>Uraian</th><th>Rencana</th><th>Status</th><th>Catatan</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -1679,6 +1691,21 @@
             <table class="tbl" id="pj_perubahanTable">
               <thead><tr>
                 <th>No.</th><th>Tanggal</th><th>Uraian</th><th class="num">Nilai Perubahan</th><th class="num">Dampak Jadwal</th><th>Status</th><th></th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="toolbar">
+            <div class="muted" style="flex:1">📝 Catatan Pekerjaan Susulan — pekerjaan tambahan yang muncul belakangan (permintaan klien/temuan lapangan); catat dulu, tindak lanjuti kapan saja: buat penawarannya atau langsung dikerjakan</div>
+            <button class="btn-primary" id="ps_addBtn">+ Catat Pekerjaan Susulan</button>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="pj_susulanTable">
+              <thead><tr>
+                <th>Tanggal</th><th>Uraian</th><th>Sumber</th><th class="num">Perkiraan Nilai</th><th>Status</th><th>Catatan</th><th></th>
               </tr></thead>
               <tbody></tbody>
             </table>
@@ -3782,6 +3809,102 @@
         </div>
       </div>
       <p class="muted" style="font-size:12px;">Saat status "Disetujui", Nilai Perubahan otomatis ditambahkan/dikurangkan ke Nilai Kontrak proyek ini.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: pekerjaan susulan (catatan pekerjaan tambahan proyek) -->
+<div class="modal-backdrop" id="pekerjaanSusulanModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="pekerjaanSusulanModalTitle">Catat Pekerjaan Susulan</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <form id="pekerjaanSusulanForm">
+      <input type="hidden" id="ps_id">
+      <div class="form-grid">
+        <div class="field">
+          <label>Tanggal</label>
+          <input type="date" id="ps_tanggal">
+        </div>
+        <div class="field">
+          <label>Sumber</label>
+          <select id="ps_sumber">
+            <option value="Permintaan Klien">Permintaan Klien</option>
+            <option value="Temuan Lapangan">Temuan Lapangan</option>
+            <option value="Usulan Internal">Usulan Internal</option>
+          </select>
+        </div>
+        <div class="field full">
+          <label>Uraian Pekerjaan Susulan</label>
+          <input type="text" id="ps_uraian" required placeholder="mis. Tambah pasang lampu sorot di area parkir">
+        </div>
+        <div class="field">
+          <label>Perkiraan Nilai (Rp, opsional)</label>
+          <input type="text" inputmode="numeric" id="ps_nilai" placeholder="0">
+        </div>
+        <div class="field">
+          <label>Status</label>
+          <select id="ps_status">
+            <option value="rencana">Rencana (belum ditindaklanjuti)</option>
+            <option value="penawaran">Sudah Dibuat Penawaran</option>
+            <option value="dikerjakan">Sedang Dikerjakan</option>
+            <option value="selesai">Selesai</option>
+          </select>
+        </div>
+        <div class="field full">
+          <label>Catatan (bisa diperbarui kapan saja)</label>
+          <textarea id="ps_catatan" rows="3" placeholder="perkembangan terakhir, kesepakatan dengan klien, dll."></textarea>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: tindak lanjut survey/laporan kerja -->
+<div class="modal-backdrop" id="tindakLanjutModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="tindakLanjutModalTitle">Tambah Rencana Tindak Lanjut</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <form id="tindakLanjutForm">
+      <input type="hidden" id="tl_id">
+      <div class="form-grid">
+        <div class="field full">
+          <label>Uraian (hasil survey / yang perlu ditindaklanjuti)</label>
+          <input type="text" id="tl_uraian" required placeholder="mis. Papan nama depan perlu diganti, ukuran 3x1 m">
+        </div>
+        <div class="field">
+          <label>Rencana</label>
+          <select id="tl_rencana">
+            <option value="Dibuat Penawaran">Dibuat Penawaran</option>
+            <option value="Dikerjakan Langsung">Dikerjakan Langsung</option>
+            <option value="Perlu Cek Ulang">Perlu Cek Ulang</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Status</label>
+          <select id="tl_status">
+            <option value="rencana">Rencana (belum ditindaklanjuti)</option>
+            <option value="penawaran">Sudah Dibuat Penawaran</option>
+            <option value="dikerjakan">Sedang Dikerjakan</option>
+            <option value="selesai">Selesai</option>
+          </select>
+        </div>
+        <div class="field full">
+          <label>Catatan (bisa diperbarui kapan saja)</label>
+          <textarea id="tl_catatan" rows="3" placeholder="ukuran, spesifikasi, kesepakatan harga kasar, dll."></textarea>
+        </div>
+      </div>
       <div class="modal-actions">
         <button type="button" class="btn-ghost" data-close-modal>Batal</button>
         <button type="submit" class="btn-primary">Simpan</button>

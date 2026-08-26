@@ -929,6 +929,7 @@ function proyekToRow(p) {
     jadwal_pekerjaan: p.jadwalPekerjaan || [],
     laporan_harian: p.laporanHarian || [],
     perubahan_pekerjaan: p.perubahanPekerjaan || [],
+    pekerjaan_tambahan: p.pekerjaanTambahan || [],
     tahapan: p.tahapan || [],
     invoices: p.invoices || [],
     bap: p.bap || [],
@@ -1448,6 +1449,7 @@ function laporanKerjaToRow(l) {
     petugas: l.petugas || "",
     catatan: l.catatan || "",
     titik: l.titik || [],
+    tindak_lanjut: l.tindakLanjut || [],
     dibuat_oleh: l.dibuatOleh || "",
     dibuat_tanggal: l.dibuatTanggal || null,
     updated_at: new Date().toISOString()
@@ -1760,6 +1762,7 @@ function rowToProyek(r) {
     progressRealisasi: r.progress_realisasi || [], dokumen: r.dokumen || [],
     jadwalPekerjaan: r.jadwal_pekerjaan || [], laporanHarian: r.laporan_harian || [],
     perubahanPekerjaan: r.perubahan_pekerjaan || [],
+    pekerjaanTambahan: r.pekerjaan_tambahan || [],
     qc: r.qc || [],
     tahapan: r.tahapan || [], invoices: r.invoices || [], bap: r.bap || [],
     arsip: r.arsip === true
@@ -1838,6 +1841,7 @@ function rowToLaporanKerja(r) {
     klienId: r.klien_id || "", proyekId: r.proyek_id || "", karyawanId: r.karyawan_id || "",
     petugas: r.petugas || "", catatan: r.catatan || "",
     titik: Array.isArray(r.titik) ? r.titik : [],
+    tindakLanjut: Array.isArray(r.tindak_lanjut) ? r.tindak_lanjut : [],
     dibuatOleh: r.dibuat_oleh || "", dibuatTanggal: r.dibuat_tanggal || ""
   };
 }
@@ -3977,6 +3981,10 @@ function renderDashboard() {
     ? (state.kasOpname || []).slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""))[0]
     : null;
   const opnameSelisih = opnameTerakhir && opnameTerakhir.selisih !== 0;
+  const susulanBelumTindak = state.proyek.filter(p => !p.arsip)
+    .reduce((s, p) => s + (p.pekerjaanTambahan || []).filter(x => x.status === "rencana").length, 0);
+  const surveyBelumTindak = (state.laporanKerja || [])
+    .reduce((s, l) => s + (l.tindakLanjut || []).filter(x => x.status === "rencana").length, 0);
 
   const alerts = [
     pendingTxns.length ? { icon: "⏳", label: "Kas Perusahaan menunggu persetujuan", value: `${pendingTxns.length} transaksi · ${rupiah(ku.menungguPersetujuan)}`, page: "kasUsaha" } : null,
@@ -3991,7 +3999,9 @@ function renderDashboard() {
     qcPerluPerhatianCount() ? { icon: "🧪", label: "Inspeksi QC dengan temuan perlu perbaikan", value: `${qcPerluPerhatianCount()} inspeksi`, page: "qc" } : null,
     utangSegera ? { icon: "💳", label: "Utang usaha jatuh tempo (lewat atau ≤ 7 hari lagi)", value: `${utangSegera} utang`, page: "kasUsaha" } : null,
     anggaranLewat ? { icon: "📛", label: "Anggaran biaya bulan ini TERLAMPAUI", value: `${anggaranLewat} kategori`, page: "kasUsaha" } : null,
-    opnameSelisih ? { icon: "🧮", label: `Opname kas terakhir (${formatTanggal(opnameTerakhir.tanggal)}) ada selisih`, value: rupiah(opnameTerakhir.selisih), page: "kasUsaha" } : null
+    opnameSelisih ? { icon: "🧮", label: `Opname kas terakhir (${formatTanggal(opnameTerakhir.tanggal)}) ada selisih`, value: rupiah(opnameTerakhir.selisih), page: "kasUsaha" } : null,
+    susulanBelumTindak ? { icon: "📝", label: "Pekerjaan susulan belum ditindaklanjuti (belum dibuat penawaran/dikerjakan)", value: `${susulanBelumTindak} catatan`, page: "proyek" } : null,
+    surveyBelumTindak ? { icon: "📋", label: "Hasil survey/laporan kerja belum ditindaklanjuti", value: `${surveyBelumTindak} item`, page: "laporanKerja" } : null
   ].filter(Boolean);
 
   document.getElementById("dash_alertPanel").style.display = alerts.length ? "block" : "none";
@@ -4386,6 +4396,7 @@ function renderProyekDetail() {
   renderJadwalPekerjaan(p, today);
   renderLaporanHarian(p);
   renderPerubahanPekerjaan(p);
+  renderPekerjaanSusulan(p);
   renderTahapanProyek(p, today);
   renderInvoiceProyek(p);
   renderBapProyek(p);
@@ -5432,6 +5443,131 @@ function renderPerubahanPekerjaan(p) {
       <td><div class="row-actions"><button class="icon-btn" data-edit-perubahan="${item.id}" title="Edit">✏️</button><button class="icon-btn" data-delete-perubahan="${item.id}" title="Hapus">🗑️</button></div></td>
     </tr>
   `).join("") : '<tr class="empty-row"><td colspan="7">Belum ada perubahan pekerjaan / adendum</td></tr>';
+}
+
+// ===== Catatan Pekerjaan Susulan (pekerjaan tambahan yang muncul belakangan) =====
+// Beda dari "Perubahan Pekerjaan (Adendum)" di atas: adendum itu perubahan
+// kontrak formal yang langsung menggeser Nilai Kontrak, sedangkan Pekerjaan
+// Susulan ini adalah CATATAN operasional -- pekerjaan tambahan yang muncul
+// belakangan (permintaan klien/temuan lapangan), dicatat dulu supaya tidak
+// lupa, lalu ditindaklanjuti kapan saja: dibuat penawarannya (tombol 📄)
+// atau langsung dikerjakan. Status-nya selalu bisa diperbarui.
+const STATUS_TINDAK_LANJUT = {
+  rencana: { label: "Rencana", badge: "warning" },
+  penawaran: { label: "Sudah Dibuat Penawaran", badge: "good" },
+  dikerjakan: { label: "Sedang Dikerjakan", badge: "good" },
+  selesai: { label: "Selesai", badge: "good" }
+};
+function statusTindakLanjutBadge(status) {
+  const s = STATUS_TINDAK_LANJUT[status] || STATUS_TINDAK_LANJUT.rencana;
+  return `<span class="badge-margin ${s.badge}">${s.label}</span>`;
+}
+const pekerjaanSusulanModal = document.getElementById("pekerjaanSusulanModal");
+function openPekerjaanSusulanModal(existing) {
+  document.getElementById("ps_id").value = existing ? existing.id : "";
+  document.getElementById("pekerjaanSusulanModalTitle").textContent = existing ? "Edit Pekerjaan Susulan" : "Catat Pekerjaan Susulan";
+  document.getElementById("ps_tanggal").value = existing ? existing.tanggal : hariIniIso();
+  document.getElementById("ps_sumber").value = existing ? (existing.sumber || "Permintaan Klien") : "Permintaan Klien";
+  document.getElementById("ps_uraian").value = existing ? (existing.uraian || "") : "";
+  document.getElementById("ps_nilai").value = existing ? formatNumberInput(existing.nilai || 0) : "";
+  document.getElementById("ps_status").value = existing ? (existing.status || "rencana") : "rencana";
+  document.getElementById("ps_catatan").value = existing ? (existing.catatan || "") : "";
+  pekerjaanSusulanModal.classList.add("open");
+}
+attachNumberFormatting(document.getElementById("ps_nilai"));
+document.getElementById("ps_addBtn").addEventListener("click", () => openPekerjaanSusulanModal(null));
+document.getElementById("pekerjaanSusulanForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) { closeModals(); return; }
+  if (!p.pekerjaanTambahan) p.pekerjaanTambahan = [];
+  const id = document.getElementById("ps_id").value;
+  const existing = p.pekerjaanTambahan.find(x => x.id === id);
+  const item = {
+    id: id || uid(),
+    tanggal: document.getElementById("ps_tanggal").value,
+    sumber: document.getElementById("ps_sumber").value,
+    uraian: document.getElementById("ps_uraian").value.trim(),
+    nilai: parseNumberInput(document.getElementById("ps_nilai").value),
+    status: document.getElementById("ps_status").value,
+    catatan: document.getElementById("ps_catatan").value.trim(),
+    penawaranId: existing ? (existing.penawaranId || "") : ""
+  };
+  if (!item.uraian) { alert("Isi uraian pekerjaan susulan terlebih dahulu."); return; }
+  const idx = p.pekerjaanTambahan.findIndex(x => x.id === id);
+  if (idx >= 0) p.pekerjaanTambahan[idx] = item; else p.pekerjaanTambahan.push(item);
+  saveState();
+  mirrorProyekUpsert(p);
+  renderProyekDetail();
+  closeModals();
+});
+document.getElementById("pj_susulanTable").addEventListener("click", e => {
+  const editBtn = e.target.closest("[data-edit-susulan]");
+  const delBtn = e.target.closest("[data-delete-susulan]");
+  const pwBtn = e.target.closest("[data-pw-susulan]");
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) return;
+  if (editBtn) {
+    const item = (p.pekerjaanTambahan || []).find(x => x.id === editBtn.dataset.editSusulan);
+    if (item) openPekerjaanSusulanModal(item);
+  } else if (delBtn) {
+    const item = (p.pekerjaanTambahan || []).find(x => x.id === delBtn.dataset.deleteSusulan);
+    if (item && confirm(`Hapus catatan pekerjaan susulan "${item.uraian}"?`)) {
+      p.pekerjaanTambahan = (p.pekerjaanTambahan || []).filter(x => x.id !== item.id);
+      saveState();
+      mirrorProyekUpsert(p);
+      renderProyekDetail();
+    }
+  } else if (pwBtn) {
+    const item = (p.pekerjaanTambahan || []).find(x => x.id === pwBtn.dataset.pwSusulan);
+    if (!item) return;
+    const pw = buatPenawaranDariTindakLanjut({
+      kepada: p.klien || "", klienId: p.klienId || "",
+      perihal: item.uraian, nilai: item.nilai || 0
+    });
+    item.status = "penawaran";
+    item.penawaranId = pw.id;
+    saveState();
+    mirrorProyekUpsert(p);
+    goToDoc("pw", pw.id);
+  }
+});
+// Dipakai BAIK oleh Pekerjaan Susulan proyek MAUPUN Tindak Lanjut survey di
+// Laporan Kerja -- membuat draft Penawaran berisi 1 item dari catatan itu,
+// jadi tinggal dilengkapi detailnya di editor Penawaran.
+function buatPenawaranDariTindakLanjut({ kepada, klienId, perihal, nilai }) {
+  const pw = {
+    id: uid(), nomor: nextPenawaranNomor(), tanggal: hariIniIso(),
+    kepada: kepada || "", klienId: klienId || "", alamatKlien: "", perihal: perihal || "",
+    kategori: KATEGORI_PEKERJAAN[0], status: "draft",
+    diskon: 0, ppn: 11, pph: 0.5, biayaLain: 0,
+    items: [{ id: uid(), uraian: perihal || "", satuan: "ls", volume: 1, hargaSatuan: nilai || 0 }],
+    syarat: defaultSyarat(), penutup: defaultPenutup(),
+    ttdNama: state.ownerNama, ttdJabatan: state.ownerJabatan
+  };
+  state.penawaran.push(pw);
+  saveState();
+  mirrorPenawaranUpsert(pw, true);
+  return pw;
+}
+function renderPekerjaanSusulan(p) {
+  if (!p.pekerjaanTambahan) p.pekerjaanTambahan = [];
+  const rows = p.pekerjaanTambahan.slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
+  document.querySelector("#pj_susulanTable tbody").innerHTML = rows.length ? rows.map(item => `
+    <tr>
+      <td>${formatTanggal(item.tanggal)}</td>
+      <td>${escapeHtml(item.uraian)}</td>
+      <td>${escapeHtml(item.sumber || "-")}</td>
+      <td class="num">${item.nilai ? rupiah(item.nilai) : "-"}</td>
+      <td>${statusTindakLanjutBadge(item.status)}</td>
+      <td>${escapeHtml(item.catatan || "-")}</td>
+      <td><div class="row-actions">
+        ${item.status === "rencana" ? `<button class="icon-btn" data-pw-susulan="${item.id}" title="Buat Penawaran dari pekerjaan susulan ini">📄</button>` : ""}
+        <button class="icon-btn" data-edit-susulan="${item.id}" title="Edit / perbarui catatan">✏️</button>
+        <button class="icon-btn" data-delete-susulan="${item.id}" title="Hapus">🗑️</button>
+      </div></td>
+    </tr>
+  `).join("") : '<tr class="empty-row"><td colspan="7">Belum ada catatan pekerjaan susulan. Catat di sini setiap ada pekerjaan tambahan yang muncul belakangan supaya tidak terlewat.</td></tr>';
 }
 
 // ===== Klien (CRM/Pipeline) =====
@@ -14203,6 +14339,23 @@ function renderLaporanKerjaDetail() {
       </tr>
     `).join("");
   }
+  renderTindakLanjutLaporan(l);
+}
+function renderTindakLanjutLaporan(l) {
+  if (!l.tindakLanjut) l.tindakLanjut = [];
+  document.querySelector("#lkr_tindakLanjutTable tbody").innerHTML = l.tindakLanjut.length ? l.tindakLanjut.map(item => `
+    <tr>
+      <td>${escapeHtml(item.uraian)}</td>
+      <td>${escapeHtml(item.rencana || "-")}</td>
+      <td>${statusTindakLanjutBadge(item.status)}</td>
+      <td>${escapeHtml(item.catatan || "-")}</td>
+      <td><div class="row-actions">
+        ${item.status === "rencana" && item.rencana === "Dibuat Penawaran" ? `<button class="icon-btn" data-pw-tindaklanjut="${item.id}" title="Buat Penawaran dari hasil survey ini">📄</button>` : ""}
+        <button class="icon-btn" data-edit-tindaklanjut="${item.id}" title="Edit / perbarui catatan">✏️</button>
+        <button class="icon-btn" data-delete-tindaklanjut="${item.id}" title="Hapus">🗑️</button>
+      </div></td>
+    </tr>
+  `).join("") : '<tr class="empty-row"><td colspan="5">Belum ada rencana tindak lanjut. Setelah survey, catat di sini apa saja yang mau dibuatkan penawaran atau dikerjakan langsung.</td></tr>';
 }
 function renderLaporanKerja() {
   if (!document.getElementById("page-laporanKerja")) return;
@@ -14210,6 +14363,74 @@ function renderLaporanKerja() {
   document.getElementById("lkr_detailView").style.display = currentLaporanKerjaId ? "block" : "none";
   if (currentLaporanKerjaId) renderLaporanKerjaDetail(); else renderLaporanKerjaList();
 }
+
+// ----- Rencana Tindak Lanjut survey/laporan kerja -----
+const tindakLanjutModal = document.getElementById("tindakLanjutModal");
+function openTindakLanjutModal(existing) {
+  document.getElementById("tl_id").value = existing ? existing.id : "";
+  document.getElementById("tindakLanjutModalTitle").textContent = existing ? "Edit Tindak Lanjut" : "Tambah Rencana Tindak Lanjut";
+  document.getElementById("tl_uraian").value = existing ? (existing.uraian || "") : "";
+  document.getElementById("tl_rencana").value = existing ? (existing.rencana || "Dibuat Penawaran") : "Dibuat Penawaran";
+  document.getElementById("tl_status").value = existing ? (existing.status || "rencana") : "rencana";
+  document.getElementById("tl_catatan").value = existing ? (existing.catatan || "") : "";
+  tindakLanjutModal.classList.add("open");
+}
+document.getElementById("lkr_addTindakLanjutBtn").addEventListener("click", () => openTindakLanjutModal(null));
+document.getElementById("tindakLanjutForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const l = state.laporanKerja.find(x => x.id === currentLaporanKerjaId);
+  if (!l) { closeModals(); return; }
+  if (!l.tindakLanjut) l.tindakLanjut = [];
+  const id = document.getElementById("tl_id").value;
+  const existing = l.tindakLanjut.find(x => x.id === id);
+  const item = {
+    id: id || uid(),
+    uraian: document.getElementById("tl_uraian").value.trim(),
+    rencana: document.getElementById("tl_rencana").value,
+    status: document.getElementById("tl_status").value,
+    catatan: document.getElementById("tl_catatan").value.trim(),
+    penawaranId: existing ? (existing.penawaranId || "") : ""
+  };
+  if (!item.uraian) { alert("Isi uraian tindak lanjut terlebih dahulu."); return; }
+  const idx = l.tindakLanjut.findIndex(x => x.id === id);
+  if (idx >= 0) l.tindakLanjut[idx] = item; else l.tindakLanjut.push(item);
+  saveState();
+  mirrorLaporanKerjaUpsert(l, l);
+  renderLaporanKerja();
+  closeModals();
+});
+document.getElementById("lkr_tindakLanjutTable").addEventListener("click", e => {
+  const editBtn = e.target.closest("[data-edit-tindaklanjut]");
+  const delBtn = e.target.closest("[data-delete-tindaklanjut]");
+  const pwBtn = e.target.closest("[data-pw-tindaklanjut]");
+  const l = state.laporanKerja.find(x => x.id === currentLaporanKerjaId);
+  if (!l) return;
+  if (editBtn) {
+    const item = (l.tindakLanjut || []).find(x => x.id === editBtn.dataset.editTindaklanjut);
+    if (item) openTindakLanjutModal(item);
+  } else if (delBtn) {
+    const item = (l.tindakLanjut || []).find(x => x.id === delBtn.dataset.deleteTindaklanjut);
+    if (item && confirm(`Hapus tindak lanjut "${item.uraian}"?`)) {
+      l.tindakLanjut = (l.tindakLanjut || []).filter(x => x.id !== item.id);
+      saveState();
+      mirrorLaporanKerjaUpsert(l, l);
+      renderLaporanKerja();
+    }
+  } else if (pwBtn) {
+    const item = (l.tindakLanjut || []).find(x => x.id === pwBtn.dataset.pwTindaklanjut);
+    if (!item) return;
+    const klien = l.klienId ? state.klien.find(k => k.id === l.klienId) : null;
+    const pw = buatPenawaranDariTindakLanjut({
+      kepada: klien ? klien.nama : (l.judul || ""), klienId: l.klienId || "",
+      perihal: item.uraian, nilai: 0
+    });
+    item.status = "penawaran";
+    item.penawaranId = pw.id;
+    saveState();
+    mirrorLaporanKerjaUpsert(l, l);
+    goToDoc("pw", pw.id);
+  }
+});
 
 // --- Modal buat/edit laporan ---
 function openLaporanKerjaModal(l) {
