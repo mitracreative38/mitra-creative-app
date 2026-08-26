@@ -1149,6 +1149,16 @@ SEED_DATA.ownerJabatan = OWNER_INFO.jabatan;
 
 // ===== Stok Material & Alat =====
 const KATEGORI_STOK = ["Material", "Alat"];
+// Golongan = penggolongan tambahan untuk memudahkan pengawasan (terpisah dari
+// Kategori Material/Alat yang dipakai integrasi AHSP -- jangan gabung/ganti).
+const GOLONGAN_STOK = [
+  "Bahan Baku",
+  "Consumable Produksi",
+  "Consumable Lapangan",
+  "Suku Cadang / Sparepart",
+  "Alat / Perkakas",
+  "Lainnya"
+];
 const SATUAN_STOK = ["pcs", "unit", "kg", "m1", "m2", "m3", "liter", "batang", "lembar", "dus", "roll", "set", "sak"];
 SEED_DATA.stok = [];
 
