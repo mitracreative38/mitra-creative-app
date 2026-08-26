@@ -11,6 +11,10 @@ const STORAGE_KEY = "mitraCreative_keuangan_v1";
 const APP_VERSION = window.__APP_VERSION__ || "dev";
 const PAGES_BASE_URL = "https://mitracreative38.github.io/mitra-creative-app/";
 const IS_NATIVE_APP = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+// iOS Safari (dan SEMUA browser di iPhone/iPad -- Chrome/Firefox di iOS
+// wajib pakai mesin WebKit yang sama) mengabaikan atribut "download" pada
+// tautan blob: -- lihat downloadPdfFromServer()/downloadFile() di bawah.
+const IS_IOS = /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
 function loadState() {
   const raw = localStorage.getItem(STORAGE_KEY);
@@ -85,8 +89,47 @@ function withDefaults(s) {
   if (typeof s.radiusProyekMeter !== "number") s.radiusProyekMeter = 500;
   return s;
 }
+// Buang thumbnail foto Laporan Kerja yang SUDAH terarsip ke cloud (punya
+// path) dari sebuah snapshot state -- foto tetap aman/bisa dibuka lewat
+// tombol 📎, cuma tidak ikut disimpan dobel sebagai teks base64 di
+// localStorage. Dipakai persistLocalState() sebagai pemulihan otomatis
+// saat kuota localStorage penuh (lihat catatan di sana).
+function stripArsipedLaporanKerjaThumbs(s) {
+  return Object.assign({}, s, {
+    laporanKerja: (s.laporanKerja || []).map(l => Object.assign({}, l, {
+      titik: (l.titik || []).map(t => Object.assign({}, t, {
+        foto: (t.foto || []).map(f => f.path ? { path: f.path, waktu: f.waktu || "", koordinat: f.koordinat || "" } : f)
+      }))
+    }))
+  });
+}
+// localStorage.setItem melempar exception (QuotaExceededError) begitu
+// penyimpanan HP penuh -- umum terjadi di Safari iPhone (mode Private
+// Browsing membatasi kuota jadi 0, atau kuota normal ~5MB kelewat gara2
+// makin banyak foto Laporan Kerja tersimpan sebagai teks base64). TANPA
+// try/catch ini, exception itu menghentikan SEMUA kode setelah
+// saveState() di titik manapun ia dipanggil -- termasuk renderAll()/
+// closeModals() pada handler submit form -- sehingga data terlihat
+// "tidak mau tersimpan" tanpa satu pun pesan error ke pengguna. Di sini
+// dicoba dipulihkan otomatis (buang thumbnail foto yang sudah aman di
+// cloud) sebelum akhirnya mengalah dan memberi tahu pengguna dengan jelas.
+function persistLocalState() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    return true;
+  } catch (err) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(stripArsipedLaporanKerjaThumbs(state)));
+      setSyncStatus("Penyimpanan HP ini hampir penuh -- sebagian thumbnail foto lama (yang sudah aman di cloud) dibuang otomatis supaya data terbaru tetap tersimpan.");
+      return true;
+    } catch (err2) {
+      alert("Penyimpanan HP ini penuh sehingga perubahan TIDAK tersimpan. Di iPhone: matikan Mode Pribadi/Private Browsing kalau sedang aktif, atau kosongkan sebagian penyimpanan HP, lalu coba lagi. (" + err.message + ")");
+      return false;
+    }
+  }
+}
 function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  persistLocalState();
   // Fase 0.4: subscribeRealtime() sekarang mendengarkan SEMUA tabel
   // relasional, yang masing-masing ditulis SEGERA oleh mirrorXUpsert
   // (tidak didebounce seperti pushStateToCloud ke blob) -- tanpa ini,
@@ -373,7 +416,7 @@ function subscribeRealtime(companyId) {
       realtimeReloadTimer = setTimeout(async () => {
         try {
           state = await buildStateFromRelational(companyId);
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+          persistLocalState();
           renderAll();
           setSyncStatus(`Diperbarui otomatis dari perangkat lain, ${new Date().toLocaleTimeString("id-ID")}`);
         } catch (e) { /* best-effort -- biarkan state apa adanya kalau gagal */ }
@@ -1957,7 +2000,7 @@ async function handlePostLoginSync(user) {
       !cloudState.stok.length && !cloudState.gudang.length && !cloudState.pemasok.length;
     if (cloudKosong) {
       state = await hydrateSensitiveFields(state);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      persistLocalState();
       await mirrorAllToRelational();
       // pushStateToCloud() dipanggil eksplisit juga di sini (bukan cuma
       // lewat scheduleCloudPush() yang dipicu saveState() nanti) supaya
@@ -1980,7 +2023,7 @@ async function handlePostLoginSync(user) {
       // tabel relasional.
       state = await hydrateSensitiveFields(state);
     }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    persistLocalState();
     renderAll();
     if (pakaiCloud) {
       setSyncStatus("Data dari cloud berhasil dimuat ke perangkat ini.");
@@ -11818,6 +11861,14 @@ async function downloadPdfFromServer(btn, path, filename) {
   const originalLabel = btn.textContent;
   btn.disabled = true;
   btn.textContent = "Membuat PDF...";
+  // Safari iOS mengabaikan atribut "download" untuk URL blob: -- <a
+  // download> yang diklik lewat kode malah menavigasi TAB INI SENDIRI ke
+  // alamat blob:... (aplikasi terlihat "hilang"/rusak), bukan menyimpan
+  // file. Solusinya: buka tab baru KOSONG sekarang juga, masih di dalam
+  // sesi klik pengguna yang asli supaya tidak diblokir sebagai pop-up --
+  // baru diisi PDF-nya setelah siap. Dari situ pengguna tinggal pakai
+  // tombol Bagikan di penampil PDF bawaan untuk menyimpan/mencetak.
+  const preOpened = IS_IOS ? window.open("", "_blank") : null;
   try {
     const { data: { session } } = await sb.auth.getSession();
     if (!session) throw new Error("Sesi login sudah habis, silakan login ulang.");
@@ -11830,14 +11881,20 @@ async function downloadPdfFromServer(btn, path, filename) {
     }
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${filename.replace(/[\\/]/g, "-")}.pdf`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    if (preOpened) {
+      preOpened.location.href = url;
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } else {
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${filename.replace(/[\\/]/g, "-")}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
   } catch (err) {
+    if (preOpened) preOpened.close();
     alert("Gagal membuat PDF: " + err.message);
   } finally {
     btn.disabled = false;
@@ -13053,6 +13110,16 @@ function csvEscape(v) {
 function downloadFile(filename, content, mime) {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
+  if (IS_IOS) {
+    // Sama seperti downloadPdfFromServer() -- Safari iOS mengabaikan
+    // atribut "download" untuk blob:, jadi buka di tab baru supaya
+    // pengguna bisa menyimpannya lewat tombol Bagikan. Fungsi ini murni
+    // sinkron (tanpa await sebelum sini) jadi window.open tidak
+    // diblokir sebagai pop-up -- tidak perlu trik buka-tab-kosong-dulu.
+    window.open(url, "_blank");
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    return;
+  }
   const a = document.createElement("a");
   a.href = url; a.download = filename;
   document.body.appendChild(a); a.click(); a.remove();
@@ -13467,7 +13534,7 @@ document.getElementById("importJsonInput").addEventListener("change", e => {
       });
       saveState();
       state = await hydrateSensitiveFields(state);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      persistLocalState();
       renderAll();
       alert("Data berhasil diimpor.");
     } catch (err) {
@@ -13994,7 +14061,14 @@ function renderLaporanKerjaDetail() {
         <td>${t.waktu ? new Date(t.waktu).toLocaleString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "-"}</td>
         <td>
           <div style="display:flex; gap:6px; flex-wrap:wrap;">
-            ${(t.foto || []).map((f, i) => `<img src="${f.thumb || ""}" alt="foto" data-lihat-foto="${t.id}:${i}" style="width:72px;height:54px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid var(--border);">`).join("") || '<span class="muted" style="font-size:12px;">tanpa foto</span>'}
+            ${(t.foto || []).map((f, i) => f.thumb
+              ? `<img src="${f.thumb}" alt="foto" data-lihat-foto="${t.id}:${i}" style="width:72px;height:54px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid var(--border);">`
+              // Thumbnail sudah dibuang otomatis dari HP ini (penyimpanan
+              // penuh, lihat persistLocalState()) tapi foto asli tetap
+              // aman di cloud -- src="" pada <img> berisiko memuat ulang
+              // halaman ini sendiri, jadi dipakai tombol biasa saja.
+              : `<button type="button" class="icon-btn" data-lihat-foto="${t.id}:${i}" title="Foto tersimpan di cloud, klik untuk membuka" style="width:72px;height:54px;border-radius:6px;">📎</button>`
+            ).join("") || '<span class="muted" style="font-size:12px;">tanpa foto</span>'}
           </div>
         </td>
         <td class="num">${(t.foto || []).length}</td>
