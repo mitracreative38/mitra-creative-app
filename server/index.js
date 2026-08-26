@@ -225,9 +225,9 @@ app.post("/api/payment/create", async (req, res) => {
     const { data: { user } } = await sbUser.auth.getUser();
     if (!user) return res.status(401).json({ error: "Sesi tidak valid, silakan login ulang." });
 
-    const { jenis, proyekId, penawaranId, jumlah, deskripsi, companyId } = req.body || {};
-    if (!["termin_proyek", "dp_penawaran"].includes(jenis)) {
-      return res.status(400).json({ error: "jenis harus 'termin_proyek' atau 'dp_penawaran'." });
+    const { jenis, proyekId, penawaranId, jumlah, deskripsi, kategori, companyId } = req.body || {};
+    if (!["termin_proyek", "dp_penawaran", "kas_umum"].includes(jenis)) {
+      return res.status(400).json({ error: "jenis harus 'termin_proyek', 'dp_penawaran', atau 'kas_umum'." });
     }
     if (!companyId) return res.status(400).json({ error: "companyId wajib diisi." });
     if (!Number(jumlah) || Number(jumlah) <= 0) return res.status(400).json({ error: "Jumlah harus lebih dari 0." });
@@ -242,6 +242,7 @@ app.post("/api/payment/create", async (req, res) => {
       jenis,
       deskripsi: String(deskripsi).trim(),
       jumlah: Number(jumlah),
+      kategori: jenis === "kas_umum" ? (String(kategori || "").trim() || "Pendapatan Jasa") : null,
       status: "pending",
       created_by: user.id
     };

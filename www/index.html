@@ -960,6 +960,18 @@
             </table>
           </div>
         </div>
+        <div class="panel">
+          <div class="toolbar">
+            <div class="muted" style="flex:1">📋 Rencana Tindak Lanjut — daftar hasil survey/laporan ini: mana yang mau dibuatkan penawaran, mana yang dikerjakan langsung</div>
+            <button class="btn-primary" id="lkr_addTindakLanjutBtn">+ Tambah Tindak Lanjut</button>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="lkr_tindakLanjutTable">
+              <thead><tr><th>Uraian</th><th>Rencana</th><th>Status</th><th>Catatan</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -1185,6 +1197,20 @@
               <th>Tanggal</th><th>Keterangan</th><th>Kategori</th><th>Klien/Proyek</th>
               <th>Tipe</th><th>Status</th><th class="num">Jumlah</th><th></th>
             </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel" id="ku_paymentPanel">
+        <div class="toolbar" style="justify-content:space-between;">
+          <h3 style="margin:0;">🔗 Tagihan Pembayaran Online (Transfer Otomatis)</h3>
+          <button class="btn-primary" id="ku_paymentLinkBtn">+ Buat Tagihan Pembayaran</button>
+        </div>
+        <p class="muted" style="font-size:12px; margin:-4px 0 10px;">Buat link pembayaran (transfer/VA/e-wallet via Xendit) untuk klien mana pun -- begitu dibayar, otomatis tercatat sebagai Kas Masuk dan Owner dikirimi notifikasi WhatsApp.</p>
+        <div class="table-wrap">
+          <table class="tbl" id="ku_paymentTable">
+            <thead><tr><th>Tanggal</th><th>Deskripsi</th><th class="num">Jumlah</th><th>Status</th><th></th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
@@ -1670,6 +1696,21 @@
             </table>
           </div>
         </div>
+
+        <div class="panel">
+          <div class="toolbar">
+            <div class="muted" style="flex:1">📝 Catatan Pekerjaan Susulan — pekerjaan tambahan yang muncul belakangan (permintaan klien/temuan lapangan); catat dulu, tindak lanjuti kapan saja: buat penawarannya atau langsung dikerjakan</div>
+            <button class="btn-primary" id="ps_addBtn">+ Catat Pekerjaan Susulan</button>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="pj_susulanTable">
+              <thead><tr>
+                <th>Tanggal</th><th>Uraian</th><th>Sumber</th><th class="num">Perkiraan Nilai</th><th>Status</th><th>Catatan</th><th></th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -2008,6 +2049,14 @@
             <div class="stat-value" id="stok_infoQty">0</div>
             <div class="stat-meta" id="stok_infoStatus">-</div>
           </div>
+        </div>
+
+        <div class="panel narrow" id="stok_linkHargaPanel" style="display:none;">
+          <div class="summary-row">
+            <span>Referensi Harga</span>
+            <strong><a href="#" id="stok_linkHargaAnchor" target="_blank" rel="noopener">🔗 Buka link produk</a></strong>
+          </div>
+          <p class="muted" style="font-size:12px; margin:6px 0 0;" id="stok_linkHargaInfo"></p>
         </div>
 
         <div class="panel narrow">
@@ -3768,6 +3817,102 @@
   </div>
 </div>
 
+<!-- Modal: pekerjaan susulan (catatan pekerjaan tambahan proyek) -->
+<div class="modal-backdrop" id="pekerjaanSusulanModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="pekerjaanSusulanModalTitle">Catat Pekerjaan Susulan</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <form id="pekerjaanSusulanForm">
+      <input type="hidden" id="ps_id">
+      <div class="form-grid">
+        <div class="field">
+          <label>Tanggal</label>
+          <input type="date" id="ps_tanggal">
+        </div>
+        <div class="field">
+          <label>Sumber</label>
+          <select id="ps_sumber">
+            <option value="Permintaan Klien">Permintaan Klien</option>
+            <option value="Temuan Lapangan">Temuan Lapangan</option>
+            <option value="Usulan Internal">Usulan Internal</option>
+          </select>
+        </div>
+        <div class="field full">
+          <label>Uraian Pekerjaan Susulan</label>
+          <input type="text" id="ps_uraian" required placeholder="mis. Tambah pasang lampu sorot di area parkir">
+        </div>
+        <div class="field">
+          <label>Perkiraan Nilai (Rp, opsional)</label>
+          <input type="text" inputmode="numeric" id="ps_nilai" placeholder="0">
+        </div>
+        <div class="field">
+          <label>Status</label>
+          <select id="ps_status">
+            <option value="rencana">Rencana (belum ditindaklanjuti)</option>
+            <option value="penawaran">Sudah Dibuat Penawaran</option>
+            <option value="dikerjakan">Sedang Dikerjakan</option>
+            <option value="selesai">Selesai</option>
+          </select>
+        </div>
+        <div class="field full">
+          <label>Catatan (bisa diperbarui kapan saja)</label>
+          <textarea id="ps_catatan" rows="3" placeholder="perkembangan terakhir, kesepakatan dengan klien, dll."></textarea>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: tindak lanjut survey/laporan kerja -->
+<div class="modal-backdrop" id="tindakLanjutModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="tindakLanjutModalTitle">Tambah Rencana Tindak Lanjut</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <form id="tindakLanjutForm">
+      <input type="hidden" id="tl_id">
+      <div class="form-grid">
+        <div class="field full">
+          <label>Uraian (hasil survey / yang perlu ditindaklanjuti)</label>
+          <input type="text" id="tl_uraian" required placeholder="mis. Papan nama depan perlu diganti, ukuran 3x1 m">
+        </div>
+        <div class="field">
+          <label>Rencana</label>
+          <select id="tl_rencana">
+            <option value="Dibuat Penawaran">Dibuat Penawaran</option>
+            <option value="Dikerjakan Langsung">Dikerjakan Langsung</option>
+            <option value="Perlu Cek Ulang">Perlu Cek Ulang</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Status</label>
+          <select id="tl_status">
+            <option value="rencana">Rencana (belum ditindaklanjuti)</option>
+            <option value="penawaran">Sudah Dibuat Penawaran</option>
+            <option value="dikerjakan">Sedang Dikerjakan</option>
+            <option value="selesai">Selesai</option>
+          </select>
+        </div>
+        <div class="field full">
+          <label>Catatan (bisa diperbarui kapan saja)</label>
+          <textarea id="tl_catatan" rows="3" placeholder="ukuran, spesifikasi, kesepakatan harga kasar, dll."></textarea>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- Modal: klien -->
 <div class="modal-backdrop" id="klienModal">
   <div class="modal">
@@ -4212,6 +4357,11 @@
           <label>Harga Satuan (Rp)</label>
           <input type="text" inputmode="numeric" id="sb_hargaSatuan" placeholder="0">
         </div>
+        <div class="field full">
+          <label>Link Referensi Harga (opsional)</label>
+          <input type="url" id="sb_linkHarga" placeholder="mis. https://www.tokopedia.com/toko/produk-semen">
+          <p class="muted" style="font-size:11.5px; margin:4px 0 0;">Tempel link produk dari Tokopedia/Shopee/dll sebagai referensi -- harga tidak diambil otomatis, tapi Anda akan diingatkan untuk cek ulang berkala.</p>
+        </div>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn-ghost" data-close-modal>Batal</button>
@@ -4522,6 +4672,10 @@
       <div class="form-grid">
         <div class="field full"><label>Deskripsi</label><input type="text" id="pl_deskripsi" placeholder="mis. Termin 2 - Proyek A"></div>
         <div class="field full"><label>Jumlah (Rp)</label><input type="text" inputmode="numeric" id="pl_jumlah" placeholder="0"></div>
+        <div class="field full" id="pl_kategoriField" style="display:none;">
+          <label>Kategori Kas</label>
+          <input type="text" id="pl_kategori" list="kategoriList" placeholder="mis. Pendapatan Jasa">
+        </div>
       </div>
       <p class="muted" id="pl_error" style="display:none; color:#c0392b;"></p>
       <div class="modal-actions">
