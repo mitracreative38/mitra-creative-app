@@ -65,6 +65,7 @@ function withDefaults(s) {
   if (!s.ownerNama) s.ownerNama = OWNER_INFO.nama;
   if (!s.ownerJabatan) s.ownerJabatan = OWNER_INFO.jabatan;
   if (!s.stok) s.stok = [];
+  s.stok.forEach(item => { if (!item.golongan) item.golongan = "Lainnya"; });
   if (!s.karyawan) s.karyawan = [];
   if (!s.klien) s.klien = [];
   if (!s.pemasok) s.pemasok = [];
@@ -468,7 +469,7 @@ const ACTIVITY_DIFF_FIELDS = {
   // dilacak di sini (murni jejak GPS, bukan data yang perlu diaudit).
   absensi: ["hadir", "jamLembur", "uangMakan", "bon"],
   karyawanGaji: ["gajiPokok", "tunjangan", "potongan", "periode"],
-  stok: ["nama", "stokMinimum", "hargaSatuan"],
+  stok: ["nama", "golongan", "stokMinimum", "hargaSatuan"],
   gudang: ["nama", "alamat"],
   pemasok: ["nama", "telepon", "kategori"],
   asetSewa: ["nama", "jenis", "lokasi", "hargaSewa", "satuanSewa", "aktif"],
@@ -1103,6 +1104,7 @@ function stokToRow(s) {
     company_id: targetCompanyId,
     nama: s.nama || "",
     kategori: s.kategori || "",
+    golongan: s.golongan || "Lainnya",
     satuan: s.satuan || "",
     stok_awal: s.stokAwal || 0,
     stok_minimum: s.stokMinimum || 0,
@@ -1774,7 +1776,7 @@ function rowToKaryawan(r) {
 }
 function rowToStok(r) {
   return {
-    id: r.id, nama: r.nama || "", kategori: r.kategori || "", satuan: r.satuan || "",
+    id: r.id, nama: r.nama || "", kategori: r.kategori || "", golongan: r.golongan || "Lainnya", satuan: r.satuan || "",
     stokAwal: r.stok_awal || 0, stokMinimum: r.stok_minimum || 0, hargaSatuan: r.harga_satuan || 0,
     transactions: r.transactions || []
   };
@@ -6881,6 +6883,13 @@ function stokStatusLabel(status) {
   return status === "aman" ? "Aman" : status === "hampir" ? "Hampir Habis" : "Habis";
 }
 
+document.getElementById("stok_filterGolongan").innerHTML =
+  '<option value="">Semua Golongan</option>' + GOLONGAN_STOK.map(g => `<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`).join("");
+function golonganUrutan(g) {
+  const idx = GOLONGAN_STOK.indexOf(g);
+  return idx === -1 ? GOLONGAN_STOK.length : idx;
+}
+let stokKolapsGolongan = new Set();
 let currentStokId = null;
 function renderStokPendingApproval() {
   const panel = document.getElementById("stok_pendingPanel");
@@ -6929,14 +6938,7 @@ function renderStokList() {
   document.getElementById("stok_totalHampir").textContent = items.filter(s => s.status === "hampir").length;
   document.getElementById("stok_totalHabis").textContent = items.filter(s => s.status === "habis").length;
 
-  const search = (document.getElementById("stok_search").value || "").toLowerCase();
-  const filterKategori = document.getElementById("stok_filterKategori").value;
-  const filterStatus = document.getElementById("stok_filterStatus").value;
-
-  let rows = items.slice().sort((a, b) => a.nama.localeCompare(b.nama));
-  if (search) rows = rows.filter(s => s.nama.toLowerCase().includes(search));
-  if (filterKategori) rows = rows.filter(s => s.kategori === filterKategori);
-  if (filterStatus) rows = rows.filter(s => s.status === filterStatus);
+  const rows = filteredStokItems();
 
   const tbody = document.querySelector("#stok_table tbody");
   tbody.innerHTML = "";
@@ -6944,27 +6946,61 @@ function renderStokList() {
     tbody.innerHTML = '<tr class="empty-row"><td colspan="9">Belum ada barang. Klik + Tambah Barang untuk mulai mencatat stok.</td></tr>';
     return;
   }
+
+  const byGolongan = {};
   rows.forEach(s => {
-    const tr = document.createElement("tr");
-    if (s.status === "hampir") tr.classList.add("stok-row-hampir");
-    if (s.status === "habis") tr.classList.add("stok-row-habis");
-    tr.innerHTML = `
-      <td><a href="#" class="stok-link" data-open-stok="${s.id}">${escapeHtml(s.nama)}</a></td>
-      <td>${escapeHtml(s.kategori)}</td>
-      <td>${escapeHtml(s.satuan)}</td>
-      <td class="num">${s.qty}</td>
-      <td class="num">${s.stokMinimum || 0}</td>
-      <td class="num">${rupiah(s.hargaSatuan)}</td>
-      <td class="num">${rupiah(s.nilai)}</td>
-      <td><span class="badge-stok ${s.status}">${stokStatusLabel(s.status)}</span></td>
-      <td>
-        <div class="row-actions">
-          <button class="icon-btn" data-edit-stok="${s.id}" title="Edit">✏️</button>
-          <button class="icon-btn" data-delete-stok="${s.id}" title="Hapus">🗑️</button>
+    const g = s.golongan || "Lainnya";
+    if (!byGolongan[g]) byGolongan[g] = [];
+    byGolongan[g].push(s);
+  });
+  const golonganNames = Object.keys(byGolongan).sort((a, b) => golonganUrutan(a) - golonganUrutan(b) || a.localeCompare(b));
+
+  golonganNames.forEach(golongan => {
+    const groupItems = byGolongan[golongan];
+    const collapsed = stokKolapsGolongan.has(golongan);
+    const hampirHabis = groupItems.filter(s => s.status !== "aman").length;
+    const headerTr = document.createElement("tr");
+    headerTr.className = "stok-golongan-row";
+    headerTr.innerHTML = `
+      <td colspan="9">
+        <div class="stok-golongan-toggle" data-toggle-golongan="${escapeHtml(golongan)}">
+          <span>${collapsed ? "▸" : "▾"}</span>
+          <strong>${escapeHtml(golongan)}</strong>
+          <span class="muted">(${groupItems.length} barang${hampirHabis ? `, ${hampirHabis} perlu perhatian` : ""})</span>
         </div>
       </td>
     `;
-    tbody.appendChild(tr);
+    tbody.appendChild(headerTr);
+    if (collapsed) return;
+    groupItems.forEach(s => {
+      const tr = document.createElement("tr");
+      if (s.status === "hampir") tr.classList.add("stok-row-hampir");
+      if (s.status === "habis") tr.classList.add("stok-row-habis");
+      tr.innerHTML = `
+        <td><a href="#" class="stok-link" data-open-stok="${s.id}">${escapeHtml(s.nama)}</a></td>
+        <td>${escapeHtml(s.kategori)}</td>
+        <td>${escapeHtml(s.satuan)}</td>
+        <td class="num">${s.qty}</td>
+        <td class="num">${s.stokMinimum || 0}</td>
+        <td class="num">${rupiah(s.hargaSatuan)}</td>
+        <td class="num">${rupiah(s.nilai)}</td>
+        <td><span class="badge-stok ${s.status}">${stokStatusLabel(s.status)}</span></td>
+        <td>
+          <div class="row-actions">
+            <button class="icon-btn" data-edit-stok="${s.id}" title="Edit">✏️</button>
+            <button class="icon-btn" data-delete-stok="${s.id}" title="Hapus">🗑️</button>
+          </div>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  });
+  tbody.querySelectorAll("[data-toggle-golongan]").forEach(el => {
+    el.addEventListener("click", () => {
+      const g = el.dataset.toggleGolongan;
+      if (stokKolapsGolongan.has(g)) stokKolapsGolongan.delete(g); else stokKolapsGolongan.add(g);
+      renderStokList();
+    });
   });
 }
 function showStokList() {
@@ -6985,7 +7021,7 @@ function renderStokRiwayat() {
   const qty = stokQty(item);
   const status = stokStatus(item);
   document.getElementById("stok_riwayatNama").textContent = `Riwayat Stok: ${item.nama}`;
-  document.getElementById("stok_infoKategori").textContent = item.kategori;
+  document.getElementById("stok_infoKategori").textContent = `${item.kategori} · ${item.golongan || "Lainnya"}`;
   document.getElementById("stok_infoSatuan").textContent = item.satuan;
   const hargaInput = document.getElementById("stok_infoHarga");
   if (document.activeElement !== hargaInput) hargaInput.value = formatNumberInput(item.hargaSatuan || 0);
@@ -7029,33 +7065,50 @@ function renderStokRiwayat() {
 
 document.getElementById("stok_search").addEventListener("input", renderStokList);
 document.getElementById("stok_filterKategori").addEventListener("change", renderStokList);
+document.getElementById("stok_filterGolongan").addEventListener("change", renderStokList);
 document.getElementById("stok_filterStatus").addEventListener("change", renderStokList);
 document.getElementById("stok_backBtn").addEventListener("click", showStokList);
 function filteredStokItems() {
   const items = state.stok.map(s => ({ ...s, qty: stokQty(s), nilai: stokValue(s), status: stokStatus(s) }));
   const search = (document.getElementById("stok_search").value || "").toLowerCase();
   const filterKategori = document.getElementById("stok_filterKategori").value;
+  const filterGolongan = document.getElementById("stok_filterGolongan").value;
   const filterStatus = document.getElementById("stok_filterStatus").value;
-  let rows = items.slice().sort((a, b) => a.nama.localeCompare(b.nama));
+  let rows = items.slice().sort((a, b) =>
+    golonganUrutan(a.golongan) - golonganUrutan(b.golongan) || a.nama.localeCompare(b.nama));
   if (search) rows = rows.filter(s => s.nama.toLowerCase().includes(search));
   if (filterKategori) rows = rows.filter(s => s.kategori === filterKategori);
+  if (filterGolongan) rows = rows.filter(s => s.golongan === filterGolongan);
   if (filterStatus) rows = rows.filter(s => s.status === filterStatus);
   return rows;
 }
 function buildStokListPrintHtml() {
   const rows = filteredStokItems();
-  const bodyRows = rows.length ? rows.map(s => `
-    <tr>
-      <td>${escapeHtml(s.nama)}</td>
-      <td>${escapeHtml(s.kategori)}</td>
-      <td class="c">${escapeHtml(s.satuan)}</td>
-      <td class="r">${s.qty}</td>
-      <td class="r">${s.stokMinimum || 0}</td>
-      <td class="r">${rupiah(s.hargaSatuan)}</td>
-      <td class="r">${rupiah(s.nilai)}</td>
-      <td class="c">${stokStatusLabel(s.status)}</td>
-    </tr>
-  `).join("") : `<tr><td colspan="8" class="c">Tidak ada barang</td></tr>`;
+  let bodyRows = "";
+  if (!rows.length) {
+    bodyRows = `<tr><td colspan="8" class="c">Tidak ada barang</td></tr>`;
+  } else {
+    let lastGolongan = null;
+    rows.forEach(s => {
+      const g = s.golongan || "Lainnya";
+      if (g !== lastGolongan) {
+        bodyRows += `<tr><td colspan="8" style="font-weight:600; background:#f2f2f2;">${escapeHtml(g)}</td></tr>`;
+        lastGolongan = g;
+      }
+      bodyRows += `
+        <tr>
+          <td>${escapeHtml(s.nama)}</td>
+          <td>${escapeHtml(s.kategori)}</td>
+          <td class="c">${escapeHtml(s.satuan)}</td>
+          <td class="r">${s.qty}</td>
+          <td class="r">${s.stokMinimum || 0}</td>
+          <td class="r">${rupiah(s.hargaSatuan)}</td>
+          <td class="r">${rupiah(s.nilai)}</td>
+          <td class="c">${stokStatusLabel(s.status)}</td>
+        </tr>
+      `;
+    });
+  }
   return `
     <div class="letterhead">
       <div class="letterhead-logo">${LOGO_SVG}</div>
@@ -7081,9 +7134,9 @@ document.getElementById("stok_printBtn").addEventListener("click", () => {
 });
 document.getElementById("stok_exportCsv").addEventListener("click", () => {
   const rows = filteredStokItems();
-  const lines = [["Nama Barang", "Kategori", "Satuan", "Qty", "Stok Minimum", "Harga Satuan", "Nilai", "Status"].join(",")];
+  const lines = [["Nama Barang", "Kategori", "Golongan", "Satuan", "Qty", "Stok Minimum", "Harga Satuan", "Nilai", "Status"].join(",")];
   rows.forEach(s => {
-    lines.push([s.nama, s.kategori, s.satuan, s.qty, s.stokMinimum || 0, s.hargaSatuan, s.nilai, stokStatusLabel(s.status)].map(csvEscape).join(","));
+    lines.push([s.nama, s.kategori, s.golongan || "Lainnya", s.satuan, s.qty, s.stokMinimum || 0, s.hargaSatuan, s.nilai, stokStatusLabel(s.status)].map(csvEscape).join(","));
   });
   downloadFile(`stok_${hariIniIso()}.csv`, lines.join("\n"), "text/csv");
 });
@@ -7114,6 +7167,8 @@ function openStokModal(existing) {
   document.getElementById("satuanStokList").innerHTML = SATUAN_STOK.map(s => `<option value="${escapeHtml(s)}">`).join("");
   document.getElementById("sb_nama").value = existing ? existing.nama : "";
   document.getElementById("sb_kategori").value = existing ? existing.kategori : "Material";
+  document.getElementById("sb_golongan").innerHTML = GOLONGAN_STOK.map(g => `<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`).join("");
+  document.getElementById("sb_golongan").value = existing ? (existing.golongan || "Lainnya") : "Lainnya";
   document.getElementById("sb_satuan").value = existing ? existing.satuan : "";
   document.getElementById("sb_stokAwal").value = existing ? formatNumberInput(existing.stokAwal || 0) : "";
   document.getElementById("sb_stokMinimum").value = existing ? formatNumberInput(existing.stokMinimum || 0) : "";
@@ -7131,6 +7186,7 @@ document.getElementById("stokForm").addEventListener("submit", e => {
     id: id || uid(),
     nama: document.getElementById("sb_nama").value.trim(),
     kategori: document.getElementById("sb_kategori").value,
+    golongan: document.getElementById("sb_golongan").value || "Lainnya",
     satuan: document.getElementById("sb_satuan").value.trim(),
     stokAwal: parseNumberInput(document.getElementById("sb_stokAwal").value),
     stokMinimum: parseNumberInput(document.getElementById("sb_stokMinimum").value),
