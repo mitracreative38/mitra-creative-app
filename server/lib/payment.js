@@ -1,5 +1,7 @@
 // Payment Gateway (Xendit) -- Fase 1.1: link pembayaran online untuk Termin
-// Pembayaran Proyek & DP Penawaran yang disetujui.
+// Pembayaran Proyek & DP Penawaran yang disetujui. Diperluas: jenis
+// "kas_umum" untuk tagihan Kas Perusahaan umum (bukan cuma proyek/
+// penawaran tertentu) -- lihat markPaymentPaid().
 //
 // XENDIT_SECRET_KEY dipakai membuat & mengecek Invoice (Basic Auth, key
 // sebagai username, password kosong -- standar API Xendit).
@@ -10,6 +12,8 @@
 //
 // Gagal-lembut kalau XENDIT_SECRET_KEY belum diisi (mengembalikan
 // {skipped: true}), konsisten dengan pola server/lib/notifications.js.
+const { sendWhatsApp } = require("./notifications");
+
 const XENDIT_SECRET_KEY = process.env.XENDIT_SECRET_KEY;
 const XENDIT_CALLBACK_TOKEN = process.env.XENDIT_CALLBACK_TOKEN;
 const XENDIT_API_BASE = "https://api.xendit.co";
@@ -68,18 +72,23 @@ function verifyCallbackToken(headerToken) {
 async function markPaymentPaid(supabaseAdmin, payment, xenditInvoiceId) {
   if (payment.status === "paid") return { alreadyProcessed: true };
 
+  const EXTRA_LABEL = {
+    termin_proyek: "Termin (Payment Gateway)",
+    dp_penawaran: "DP Penawaran (Payment Gateway)",
+    kas_umum: "Tagihan Kas Perusahaan (Payment Gateway)"
+  };
   const kasTxn = {
     id: `xnd-${payment.id}`,
     company_id: payment.company_id,
     tanggal: new Date().toISOString().slice(0, 10),
     keterangan: payment.deskripsi,
-    kategori: "Pendapatan Jasa",
+    kategori: payment.kategori || "Pendapatan Jasa",
     proyek_id: payment.proyek_id || null,
     tipe: "Masuk",
     status: "lunas",
     jumlah: payment.jumlah,
     created_by: payment.company_id,
-    extra: payment.jenis === "termin_proyek" ? "Termin (Payment Gateway)" : "DP Penawaran (Payment Gateway)",
+    extra: EXTRA_LABEL[payment.jenis] || "Payment Gateway",
     catatan: `Dibayar otomatis via Xendit -- invoice ${xenditInvoiceId || payment.xendit_invoice_id || ""}`
   };
   const { error: kasErr } = await supabaseAdmin.from("kas_usaha_transaksi").insert(kasTxn);
@@ -89,6 +98,21 @@ async function markPaymentPaid(supabaseAdmin, payment, xenditInvoiceId) {
     .update({ status: "paid", paid_at: new Date().toISOString(), kas_transaksi_id: kasTxn.id, updated_at: new Date().toISOString() })
     .eq("id", payment.id);
   if (payErr) throw payErr;
+
+  // Notifikasi WA ke Owner (bukan tim, konsisten dengan pola privasi Kas
+  // Perusahaan yang sudah ada -- lihat Fase D di riwayat proyek: Kas
+  // Perusahaan sensitif, hanya Owner yang otomatis diberi tahu di sini)
+  // supaya pembayaran online "ketahuan" begitu masuk, bukan cuma tercatat
+  // diam-diam menunggu dicek manual. Gagal kirim WA tidak boleh
+  // menggagalkan pencatatan Kas yang sudah berhasil di atas.
+  supabaseAdmin.from("company_profile").select("telepon").eq("company_id", payment.company_id).maybeSingle()
+    .then(({ data: profile }) => {
+      if (profile && profile.telepon) {
+        return sendWhatsApp(profile.telepon,
+          `💰 Pembayaran diterima!\n${payment.deskripsi}\nJumlah: Rp${Number(payment.jumlah || 0).toLocaleString("id-ID")}\nOtomatis tercatat sebagai Kas Masuk di aplikasi.`);
+      }
+    })
+    .catch(err => console.error("[payment] gagal kirim notifikasi WA:", err.message));
 
   // Fire-and-forget: kegagalan mencatat log tidak boleh menggagalkan
   // pencatatan Kas yang sudah berhasil di atas.

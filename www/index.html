@@ -1190,6 +1190,20 @@
         </div>
       </div>
 
+      <div class="panel" id="ku_paymentPanel">
+        <div class="toolbar" style="justify-content:space-between;">
+          <h3 style="margin:0;">🔗 Tagihan Pembayaran Online (Transfer Otomatis)</h3>
+          <button class="btn-primary" id="ku_paymentLinkBtn">+ Buat Tagihan Pembayaran</button>
+        </div>
+        <p class="muted" style="font-size:12px; margin:-4px 0 10px;">Buat link pembayaran (transfer/VA/e-wallet via Xendit) untuk klien mana pun -- begitu dibayar, otomatis tercatat sebagai Kas Masuk dan Owner dikirimi notifikasi WhatsApp.</p>
+        <div class="table-wrap">
+          <table class="tbl" id="ku_paymentTable">
+            <thead><tr><th>Tanggal</th><th>Deskripsi</th><th class="num">Jumlah</th><th>Status</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
       <div class="panel" id="ku_utangPanel">
         <div class="toolbar" style="justify-content:space-between;">
           <h3 style="margin:0;">Utang Usaha (Belanja Tempo)</h3>
@@ -2008,6 +2022,14 @@
             <div class="stat-value" id="stok_infoQty">0</div>
             <div class="stat-meta" id="stok_infoStatus">-</div>
           </div>
+        </div>
+
+        <div class="panel narrow" id="stok_linkHargaPanel" style="display:none;">
+          <div class="summary-row">
+            <span>Referensi Harga</span>
+            <strong><a href="#" id="stok_linkHargaAnchor" target="_blank" rel="noopener">🔗 Buka link produk</a></strong>
+          </div>
+          <p class="muted" style="font-size:12px; margin:6px 0 0;" id="stok_linkHargaInfo"></p>
         </div>
 
         <div class="panel narrow">
@@ -4212,6 +4234,11 @@
           <label>Harga Satuan (Rp)</label>
           <input type="text" inputmode="numeric" id="sb_hargaSatuan" placeholder="0">
         </div>
+        <div class="field full">
+          <label>Link Referensi Harga (opsional)</label>
+          <input type="url" id="sb_linkHarga" placeholder="mis. https://www.tokopedia.com/toko/produk-semen">
+          <p class="muted" style="font-size:11.5px; margin:4px 0 0;">Tempel link produk dari Tokopedia/Shopee/dll sebagai referensi -- harga tidak diambil otomatis, tapi Anda akan diingatkan untuk cek ulang berkala.</p>
+        </div>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn-ghost" data-close-modal>Batal</button>
@@ -4522,6 +4549,10 @@
       <div class="form-grid">
         <div class="field full"><label>Deskripsi</label><input type="text" id="pl_deskripsi" placeholder="mis. Termin 2 - Proyek A"></div>
         <div class="field full"><label>Jumlah (Rp)</label><input type="text" inputmode="numeric" id="pl_jumlah" placeholder="0"></div>
+        <div class="field full" id="pl_kategoriField" style="display:none;">
+          <label>Kategori Kas</label>
+          <input type="text" id="pl_kategori" list="kategoriList" placeholder="mis. Pendapatan Jasa">
+        </div>
       </div>
       <p class="muted" id="pl_error" style="display:none; color:#c0392b;"></p>
       <div class="modal-actions">

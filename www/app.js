@@ -1109,6 +1109,8 @@ function stokToRow(s) {
     stok_awal: s.stokAwal || 0,
     stok_minimum: s.stokMinimum || 0,
     harga_satuan: s.hargaSatuan || 0,
+    link_referensi_harga: s.linkReferensiHarga || "",
+    harga_updated_at: s.hargaSatuanUpdatedAt || null,
     transactions: s.transactions || [],
     updated_at: new Date().toISOString()
   };
@@ -1778,6 +1780,7 @@ function rowToStok(r) {
   return {
     id: r.id, nama: r.nama || "", kategori: r.kategori || "", golongan: r.golongan || "Lainnya", satuan: r.satuan || "",
     stokAwal: r.stok_awal || 0, stokMinimum: r.stok_minimum || 0, hargaSatuan: r.harga_satuan || 0,
+    linkReferensiHarga: r.link_referensi_harga || "", hargaSatuanUpdatedAt: r.harga_updated_at || null,
     transactions: r.transactions || []
   };
 }
@@ -6882,6 +6885,21 @@ function stokStatus(item) {
 function stokStatusLabel(status) {
   return status === "aman" ? "Aman" : status === "hampir" ? "Hampir Habis" : "Habis";
 }
+// Pengingat cek ulang harga: cuma dianggap "kadaluarsa" kalau barang PUNYA
+// link referensi (ada yang bisa dicek) DAN sudah pernah dicatat tanggal
+// update-nya -- barang lama tanpa link/tanggal (belum pernah pakai fitur
+// ini) sengaja TIDAK dianggap kadaluarsa supaya tidak membanjiri daftar
+// dengan reminder yang tidak actionable.
+const HARGA_STALE_HARI = 30;
+function hargaStaleHari(item) {
+  if (!item.hargaSatuanUpdatedAt) return null;
+  const hariLalu = Math.floor((Date.now() - new Date(item.hargaSatuanUpdatedAt).getTime()) / 86400000);
+  return hariLalu;
+}
+function hargaPerluDicekUlang(item) {
+  const hari = hargaStaleHari(item);
+  return !!item.linkReferensiHarga && hari !== null && hari >= HARGA_STALE_HARI;
+}
 
 document.getElementById("stok_filterGolongan").innerHTML =
   '<option value="">Semua Golongan</option>' + GOLONGAN_STOK.map(g => `<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`).join("");
@@ -6982,7 +7000,7 @@ function renderStokList() {
         <td>${escapeHtml(s.satuan)}</td>
         <td class="num">${s.qty}</td>
         <td class="num">${s.stokMinimum || 0}</td>
-        <td class="num">${rupiah(s.hargaSatuan)}</td>
+        <td class="num">${rupiah(s.hargaSatuan)}${s.linkReferensiHarga ? ` <a href="${escapeHtml(s.linkReferensiHarga)}" target="_blank" rel="noopener" title="Buka link referensi harga">🔗</a>` : ""}${hargaPerluDicekUlang(s) ? ` <span title="Sudah ${hargaStaleHari(s)} hari sejak harga terakhir dicek">⏰</span>` : ""}</td>
         <td class="num">${rupiah(s.nilai)}</td>
         <td><span class="badge-stok ${s.status}">${stokStatusLabel(s.status)}</span></td>
         <td>
@@ -7030,6 +7048,20 @@ function renderStokRiwayat() {
   document.getElementById("stok_infoQty").textContent = `${qty} ${item.satuan}`;
   document.getElementById("stok_infoQty").className = "stat-value " + (status === "habis" ? "bad" : status === "hampir" ? "warn" : "good");
   document.getElementById("stok_infoStatus").textContent = stokStatusLabel(status);
+
+  const linkPanel = document.getElementById("stok_linkHargaPanel");
+  if (item.linkReferensiHarga) {
+    linkPanel.style.display = "block";
+    document.getElementById("stok_linkHargaAnchor").href = item.linkReferensiHarga;
+    const hari = hargaStaleHari(item);
+    document.getElementById("stok_linkHargaInfo").textContent = hari === null
+      ? "Belum ada catatan tanggal update harga."
+      : hargaPerluDicekUlang(item)
+        ? `⏰ Sudah ${hari} hari sejak harga terakhir diperbarui -- saatnya cek ulang.`
+        : `Harga terakhir diperbarui ${hari} hari lalu.`;
+  } else {
+    linkPanel.style.display = "none";
+  }
 
   const byGudang = stokQtyByGudang(item);
   document.getElementById("stok_gudangRows").innerHTML = Object.keys(byGudang).length
@@ -7134,9 +7166,9 @@ document.getElementById("stok_printBtn").addEventListener("click", () => {
 });
 document.getElementById("stok_exportCsv").addEventListener("click", () => {
   const rows = filteredStokItems();
-  const lines = [["Nama Barang", "Kategori", "Golongan", "Satuan", "Qty", "Stok Minimum", "Harga Satuan", "Nilai", "Status"].join(",")];
+  const lines = [["Nama Barang", "Kategori", "Golongan", "Satuan", "Qty", "Stok Minimum", "Harga Satuan", "Nilai", "Status", "Link Referensi Harga"].join(",")];
   rows.forEach(s => {
-    lines.push([s.nama, s.kategori, s.golongan || "Lainnya", s.satuan, s.qty, s.stokMinimum || 0, s.hargaSatuan, s.nilai, stokStatusLabel(s.status)].map(csvEscape).join(","));
+    lines.push([s.nama, s.kategori, s.golongan || "Lainnya", s.satuan, s.qty, s.stokMinimum || 0, s.hargaSatuan, s.nilai, stokStatusLabel(s.status), s.linkReferensiHarga || ""].map(csvEscape).join(","));
   });
   downloadFile(`stok_${hariIniIso()}.csv`, lines.join("\n"), "text/csv");
 });
@@ -7173,6 +7205,7 @@ function openStokModal(existing) {
   document.getElementById("sb_stokAwal").value = existing ? formatNumberInput(existing.stokAwal || 0) : "";
   document.getElementById("sb_stokMinimum").value = existing ? formatNumberInput(existing.stokMinimum || 0) : "";
   document.getElementById("sb_hargaSatuan").value = existing ? formatNumberInput(existing.hargaSatuan || 0) : "";
+  document.getElementById("sb_linkHarga").value = existing ? (existing.linkReferensiHarga || "") : "";
   stokModal.classList.add("open");
 }
 ["sb_stokAwal", "sb_stokMinimum", "sb_hargaSatuan"].forEach(id => attachNumberFormatting(document.getElementById(id)));
@@ -7191,8 +7224,16 @@ document.getElementById("stokForm").addEventListener("submit", e => {
     stokAwal: parseNumberInput(document.getElementById("sb_stokAwal").value),
     stokMinimum: parseNumberInput(document.getElementById("sb_stokMinimum").value),
     hargaSatuan: parseNumberInput(document.getElementById("sb_hargaSatuan").value),
+    linkReferensiHarga: document.getElementById("sb_linkHarga").value.trim(),
     transactions: existing ? existing.transactions : []
   };
+  // Catat kapan harga terakhir diubah -- dasar pengingat "cek ulang harga"
+  // (hargaPerluDicekUlang). Barang baru atau harga yang benar-benar
+  // berubah dianggap "baru saja dicek"; kalau harga tidak berubah,
+  // tanggal lama dipertahankan (bukan reset tiap kali Simpan ditekan).
+  item.hargaSatuanUpdatedAt = (!existing || existing.hargaSatuan !== item.hargaSatuan)
+    ? new Date().toISOString()
+    : (existing.hargaSatuanUpdatedAt || null);
   if (idx >= 0) state.stok[idx] = item; else state.stok.push(item);
   saveState();
   mirrorStokUpsert(item, existing);
@@ -12242,6 +12283,7 @@ document.querySelectorAll(".nav-item").forEach(btn => {
     showPage(btn.dataset.page);
     if (btn.dataset.page === "aktivitas") renderActivityLog(true);
     if (btn.dataset.page === "lokasi") renderLokasiPekerja();
+    if (btn.dataset.page === "kasUsaha") renderPaymentLinksForKasUmum();
   });
 });
 document.getElementById("mobileToggle").addEventListener("click", () => {
@@ -12605,14 +12647,14 @@ document.getElementById("pd_terminTable").addEventListener("click", e => {
 // menampilkan status terkini.
 let plContext = null; // { jenis, proyekId, penawaranId, waNomor, paymentUrl }
 
-async function createPaymentLink(jenis, proyekId, penawaranId, jumlah, deskripsi) {
+async function createPaymentLink(jenis, proyekId, penawaranId, jumlah, deskripsi, kategori) {
   if (!sb || !currentSyncUser) throw new Error("Fitur ini butuh login cloud (Pengaturan > Sinkronisasi Cloud) supaya server bisa membuat link dengan aman.");
   const { data: { session } } = await sb.auth.getSession();
   if (!session) throw new Error("Sesi login sudah habis, silakan login ulang.");
   const res = await fetch(`${PDF_SERVER_URL}/api/payment/create`, {
     method: "POST",
     headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ jenis, proyekId, penawaranId, jumlah, deskripsi, companyId: targetCompanyId })
+    body: JSON.stringify({ jenis, proyekId, penawaranId, jumlah, deskripsi, kategori, companyId: targetCompanyId })
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `Server membalas status ${res.status}`);
@@ -12624,6 +12666,13 @@ function openPaymentLinkModal({ jenis, proyekId, penawaranId, defaultDeskripsi, 
   document.getElementById("pl_title").textContent = "Buat Link Pembayaran";
   document.getElementById("pl_deskripsi").value = defaultDeskripsi || "";
   document.getElementById("pl_jumlah").value = defaultJumlah ? Number(defaultJumlah).toLocaleString("id-ID") : "";
+  const kategoriField = document.getElementById("pl_kategoriField");
+  if (jenis === "kas_umum") {
+    kategoriField.style.display = "block";
+    document.getElementById("pl_kategori").value = "Pendapatan Jasa";
+  } else {
+    kategoriField.style.display = "none";
+  }
   document.getElementById("pl_error").style.display = "none";
   document.getElementById("pl_formSection").style.display = "block";
   document.getElementById("pl_resultSection").style.display = "none";
@@ -12669,13 +12718,15 @@ document.getElementById("pl_createBtn").addEventListener("click", async () => {
   btn.disabled = true;
   btn.textContent = "Membuat Link...";
   try {
-    const result = await createPaymentLink(plContext.jenis, plContext.proyekId, plContext.penawaranId, jumlah, deskripsi);
+    const kategori = plContext.jenis === "kas_umum" ? document.getElementById("pl_kategori").value.trim() : undefined;
+    const result = await createPaymentLink(plContext.jenis, plContext.proyekId, plContext.penawaranId, jumlah, deskripsi, kategori);
     plContext.paymentUrl = result.paymentUrl;
     document.getElementById("pl_resultUrl").value = result.paymentUrl;
     document.getElementById("pl_formSection").style.display = "none";
     document.getElementById("pl_resultSection").style.display = "block";
     if (plContext.proyekId && currentProyekId === plContext.proyekId) renderPaymentLinksForProyek(currentProyekId);
     if (plContext.penawaranId && currentPwId === plContext.penawaranId) renderPaymentLinksForPenawaran(currentPwId);
+    if (plContext.jenis === "kas_umum") renderPaymentLinksForKasUmum();
   } catch (err) {
     errEl.textContent = "Gagal membuat link: " + err.message;
     errEl.style.display = "block";
@@ -12736,6 +12787,26 @@ async function renderPaymentLinksForPenawaran(penawaranId) {
     tbody.innerHTML = `<tr class="empty-row"><td colspan="5">Gagal memuat: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
+async function renderPaymentLinksForKasUmum() {
+  const tbody = document.querySelector("#ku_paymentTable tbody");
+  if (!tbody) return;
+  if (!sb || !targetCompanyId) { tbody.innerHTML = '<tr class="empty-row"><td colspan="5">Login cloud untuk melihat status link pembayaran</td></tr>'; return; }
+  try {
+    const { data, error } = await sb.from("payment_transactions").select("*").eq("company_id", targetCompanyId).eq("jenis", "kas_umum").order("created_at", { ascending: false });
+    if (error) throw error;
+    tbody.innerHTML = paymentRowsHtml(data);
+  } catch (err) {
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="5">Gagal memuat: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+document.getElementById("ku_paymentLinkBtn").addEventListener("click", () => {
+  openPaymentLinkModal({ jenis: "kas_umum", proyekId: null, penawaranId: null, defaultDeskripsi: "", defaultJumlah: null, waNomor: "" });
+});
+document.getElementById("ku_paymentTable").addEventListener("click", e => {
+  const btn = e.target.closest("[data-copy-payment-url]");
+  if (!btn) return;
+  copyToClipboard(btn.dataset.copyPaymentUrl).then(ok => alert(ok ? "Link disalin ke clipboard." : "Gagal menyalin, silakan salin manual."));
+});
 document.getElementById("pd_paymentTable").addEventListener("click", e => {
   const btn = e.target.closest("[data-copy-payment-url]");
   if (!btn) return;
