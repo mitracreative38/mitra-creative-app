@@ -779,6 +779,7 @@ function rabToRow(r) {
     revisi_dari_id: r.revisiDariId || null,
     revisi_ke: r.revisiKe || 0,
     items: r.items || [],
+    skema_pembayaran: r.skemaPembayaran || [],
     total: rabTotals(r).total,
     updated_at: new Date().toISOString()
   };
@@ -854,6 +855,7 @@ function penawaranToRow(p) {
     markup_percent: p.markupPercent ?? null,
     source_penawaran_id: p.sourcePenawaranId || null,
     items: p.items || [],
+    skema_pembayaran: p.skemaPembayaran || [],
     total: penawaranTotals(p).total,
     updated_at: new Date().toISOString()
   };
@@ -936,6 +938,8 @@ function proyekToRow(p) {
     pekerjaan_tambahan: p.pekerjaanTambahan || [],
     tahapan: p.tahapan || [],
     invoices: p.invoices || [],
+    skema_pembayaran: p.skemaPembayaran || [],
+    rencana_termin: p.rencanaTermin || [],
     bap: p.bap || [],
     qc: p.qc || [],
     arsip: p.arsip === true,
@@ -1738,7 +1742,7 @@ function rowToRab(r) {
     nama: r.nama_proyek || "", lokasi: r.lokasi || "", kategori: r.kategori || "",
     tanggal: r.tanggal || "", ppn: r.ppn || 0, pph: r.pph || 0, biayaLain: r.biaya_lain || 0,
     proyekId: r.proyek_id || "", revisiDariId: r.revisi_dari_id || "", revisiKe: r.revisi_ke || 0,
-    items: r.items || []
+    items: r.items || [], skemaPembayaran: r.skema_pembayaran || []
   };
 }
 function rowToPenawaran(r) {
@@ -1749,7 +1753,7 @@ function rowToPenawaran(r) {
     pph: r.pph || 0, biayaLain: r.biaya_lain || 0, syarat: r.syarat || "", penutup: r.penutup || "", ttdNama: r.ttd_nama || "",
     ttdJabatan: r.ttd_jabatan || "", proyekId: r.proyek_id || "", revisiDariId: r.revisi_dari_id || "",
     revisiKe: r.revisi_ke || 0, brand: r.brand || "mitra", markupPercent: r.markup_percent ?? null,
-    sourcePenawaranId: r.source_penawaran_id || "", items: r.items || []
+    sourcePenawaranId: r.source_penawaran_id || "", items: r.items || [], skemaPembayaran: r.skema_pembayaran || []
   };
 }
 function rowToProyek(r) {
@@ -1769,6 +1773,7 @@ function rowToProyek(r) {
     pekerjaanTambahan: r.pekerjaan_tambahan || [],
     qc: r.qc || [],
     tahapan: r.tahapan || [], invoices: r.invoices || [], bap: r.bap || [],
+    skemaPembayaran: r.skema_pembayaran || [], rencanaTermin: r.rencana_termin || [],
     arsip: r.arsip === true
   };
 }
@@ -3989,6 +3994,8 @@ function renderDashboard() {
     .reduce((s, p) => s + (p.pekerjaanTambahan || []).filter(x => x.status === "rencana").length, 0);
   const surveyBelumTindak = (state.laporanKerja || [])
     .reduce((s, l) => s + (l.tindakLanjut || []).filter(x => x.status === "rencana").length, 0);
+  const terminSiapTagih = state.proyek.filter(p => !p.arsip)
+    .reduce((s, p) => s + (p.rencanaTermin || []).filter(r => !r.invoiceId && rencanaTerminStatusInfo(p, r).bisaInvoice).length, 0);
 
   const alerts = [
     pendingTxns.length ? { icon: "⏳", label: "Kas Perusahaan menunggu persetujuan", value: `${pendingTxns.length} transaksi · ${rupiah(ku.menungguPersetujuan)}`, page: "kasUsaha" } : null,
@@ -4005,7 +4012,8 @@ function renderDashboard() {
     anggaranLewat ? { icon: "📛", label: "Anggaran biaya bulan ini TERLAMPAUI", value: `${anggaranLewat} kategori`, page: "kasUsaha" } : null,
     opnameSelisih ? { icon: "🧮", label: `Opname kas terakhir (${formatTanggal(opnameTerakhir.tanggal)}) ada selisih`, value: rupiah(opnameTerakhir.selisih), page: "kasUsaha" } : null,
     susulanBelumTindak ? { icon: "📝", label: "Pekerjaan susulan belum ditindaklanjuti (belum dibuat penawaran/dikerjakan)", value: `${susulanBelumTindak} catatan`, page: "proyek" } : null,
-    surveyBelumTindak ? { icon: "📋", label: "Hasil survey/laporan kerja belum ditindaklanjuti", value: `${surveyBelumTindak} item`, page: "laporanKerja" } : null
+    surveyBelumTindak ? { icon: "📋", label: "Hasil survey/laporan kerja belum ditindaklanjuti", value: `${surveyBelumTindak} item`, page: "laporanKerja" } : null,
+    terminSiapTagih ? { icon: "🧾", label: "Termin/retensi siap ditagih dari Rencana Termin", value: `${terminSiapTagih} termin`, page: "proyek" } : null
   ].filter(Boolean);
 
   document.getElementById("dash_alertPanel").style.display = alerts.length ? "block" : "none";
@@ -4402,6 +4410,7 @@ function renderProyekDetail() {
   renderPerubahanPekerjaan(p);
   renderPekerjaanSusulan(p);
   renderTahapanProyek(p, today);
+  renderRencanaTermin(p);
   renderInvoiceProyek(p);
   renderBapProyek(p);
   renderBiayaLainProyek(p);
@@ -4633,6 +4642,97 @@ function cetakDokProyek(jenis, builder) {
 }
 document.getElementById("pd_cetakSpkBtn").addEventListener("click", () => cetakDokProyek("SPK", buildSpkPrintHtml));
 document.getElementById("pd_cetakBastBtn").addEventListener("click", () => cetakDokProyek("BAST", buildBastPrintHtml));
+// ----- Rencana Termin Pembayaran (materialisasi dari Skema Pembayaran) -----
+function proyekBastTanggal(p) {
+  const dok = (p.dokumen || []).find(d => (d.jenis || "").toUpperCase().includes("BAST"));
+  if (dok && dok.tanggalTerbit) return dok.tanggalTerbit;
+  const tahap = (p.tahapan || []).find(t => t.label === "BAST Ditandatangani" && t.selesai && t.tanggal);
+  return tahap ? tahap.tanggal : "";
+}
+// Status tiap baris rencana termin diturunkan langsung dari invoice yang
+// tertaut (kalau ada) + kesiapan retensi -- tidak disimpan ganda supaya
+// tidak pernah selisih dengan status invoice yang sesungguhnya.
+function rencanaTerminStatusInfo(p, row) {
+  const inv = row.invoiceId ? (p.invoices || []).find(i => i.id === row.invoiceId) : null;
+  if (inv) {
+    if (inv.status === "dibayar") return { label: "✅ Lunas", cls: "", bisaInvoice: false };
+    return { label: `Sudah Invoice (${inv.status === "terkirim" ? "Terkirim" : "Draft"})`, cls: "", bisaInvoice: false };
+  }
+  if (row.tipe === "retensi") {
+    const bast = proyekBastTanggal(p);
+    if (!bast) return { label: "Menunggu BAST", cls: "muted", bisaInvoice: false };
+    const cairMulai = addDaysIso(bast, row.cairHariSetelahBast || 0);
+    if (hariIniIso() < cairMulai) return { label: `Cair mulai ${formatTanggal(cairMulai)}`, cls: "muted", bisaInvoice: false };
+    return { label: "Siap Dicairkan", cls: "bad", bisaInvoice: true };
+  }
+  return { label: "Belum Ditagih", cls: "bad", bisaInvoice: true };
+}
+function renderRencanaTermin(p) {
+  const rows = p.rencanaTermin || [];
+  const tbody = document.querySelector("#pd_rencanaTerminTable tbody");
+  const emptyEl = document.getElementById("pd_rencanaTerminEmpty");
+  if (!tbody) return;
+  if (!rows.length) {
+    tbody.innerHTML = "";
+    if (emptyEl) emptyEl.style.display = "block";
+    return;
+  }
+  if (emptyEl) emptyEl.style.display = "none";
+  tbody.innerHTML = rows.map(r => {
+    const info = rencanaTerminStatusInfo(p, r);
+    return `<tr>
+      <td>${escapeHtml(r.label)}${r.tipe === "retensi" ? ' <small class="muted">(retensi)</small>' : ""}</td>
+      <td class="num">${r.persen}%</td>
+      <td class="num">${rupiah(r.nilai)}</td>
+      <td>${escapeHtml(r.syarat || "-")}</td>
+      <td class="${info.cls}">${info.label}</td>
+      <td>${info.bisaInvoice ? `<button type="button" class="btn-ghost" data-buat-invoice-termin="${r.id}">🧾 Buat Invoice</button>` : ""}</td>
+    </tr>`;
+  }).join("");
+}
+document.getElementById("pd_rencanaTerminTable").addEventListener("click", e => {
+  const btn = e.target.closest("[data-buat-invoice-termin]");
+  if (!btn) return;
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p || proyekArsipGuard(p)) return;
+  const row = (p.rencanaTermin || []).find(r => r.id === btn.dataset.buatInvoiceTermin);
+  if (!row) return;
+  if (!(row.nilai > 0)) { alert("Nilai termin ini masih Rp 0 — periksa nilai kontrak proyek atau persen skema pembayarannya."); return; }
+  if (!p.invoices) p.invoices = [];
+  const inv = { id: uid(), nomor: nextInvoiceNomor(), tanggal: hariIniIso(), keterangan: `${row.label} — ${p.nama}`, jumlah: row.nilai, status: "draft", tanggalBayar: "" };
+  p.invoices.push(inv);
+  row.invoiceId = inv.id;
+  row.status = "sudah_invoice";
+  saveState();
+  mirrorProyekUpsert(p);
+  renderInvoiceProyek(p);
+  renderRencanaTermin(p);
+  printInvoice(p, inv);
+});
+document.getElementById("pd_skemaPembayaranBtn").addEventListener("click", () => {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p || proyekArsipGuard(p)) return;
+  SKEMA_STATE.pt = (p.skemaPembayaran && p.skemaPembayaran.length ? p.skemaPembayaran : p.rencanaTermin || [])
+    .map(r => ({ id: r.id || uid(), label: r.label, persen: r.persen, syarat: r.syarat, tipe: r.tipe, cairHariSetelahBast: r.cairHariSetelahBast }));
+  renderSkemaEditor("pt");
+  document.getElementById("skemaPembayaranModal").classList.add("open");
+});
+wireSkemaEditor("pt", () => {}); // simpan cuma lewat tombol Simpan, bukan tiap ketik
+document.getElementById("pt_skemaSimpanBtn").addEventListener("click", () => {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) { closeModals(); return; }
+  const rows = SKEMA_STATE.pt;
+  const total = skemaPembayaranTotal(rows);
+  if (rows.length && Math.abs(total - 100) > 0.01) { alert(`Total persen termin harus 100% (saat ini ${total}%).`); return; }
+  const sudahAdaInvoice = (p.rencanaTermin || []).some(r => r.invoiceId);
+  if (sudahAdaInvoice && !confirm('Beberapa termin lama sudah pernah dibuat invoice-nya. Invoice yang sudah ada TIDAK terhapus (tetap di riwayat Invoice), tapi rencana termin akan diganti total dengan skema baru ini. Lanjutkan?')) return;
+  p.skemaPembayaran = rows;
+  p.rencanaTermin = materializeRencanaTermin(rows, p.nilaiKontrak);
+  saveState();
+  mirrorProyekUpsert(p);
+  closeModals();
+  renderRencanaTermin(p);
+});
 function renderInvoiceProyek(p) {
   if (!p.invoices) p.invoices = [];
   const rows = p.invoices.slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
@@ -9454,6 +9554,155 @@ function defaultSyarat() {
 function defaultPenutup() {
   return "Demikian penawaran harga ini kami sampaikan. Besar harapan kami dapat bekerja sama dengan Bapak/Ibu. Atas perhatian dan kerja samanya kami ucapkan terima kasih.";
 }
+// ===== Skema Pembayaran (DP/Termin/Retensi) =====
+// Dulu syarat pembayaran cuma kalimat bebas di "Syarat & Ketentuan", dan
+// setiap kali menagih (invoice/termin) Owner ketik ulang tanggal & jumlah
+// dari nol. Sekarang skema (persen tiap termin, syarat pencairan, retensi)
+// ditentukan SEKALI di Penawaran/RAB saat nego, lalu otomatis
+// "dimaterialisasi" jadi Rencana Termin di Proyek ketika ACC
+// (createProyekFromDoc) -- tinggal klik "Buat Invoice" per baris saat
+// waktunya menagih, tanpa input ulang.
+const SKEMA_PEMBAYARAN_PRESET = {
+  dp_pelunasan: () => [
+    { id: uid(), label: "DP (Uang Muka)", persen: 50, syarat: "Saat SPK/kontrak ditandatangani", tipe: "normal" },
+    { id: uid(), label: "Pelunasan", persen: 50, syarat: "Saat pekerjaan selesai (BAST)", tipe: "normal" }
+  ],
+  dp_termin_pelunasan: () => [
+    { id: uid(), label: "DP", persen: 20, syarat: "Saat SPK/kontrak ditandatangani", tipe: "normal" },
+    { id: uid(), label: "Termin 1", persen: 40, syarat: "Progres pekerjaan 50%", tipe: "normal" },
+    { id: uid(), label: "Pelunasan", persen: 40, syarat: "Serah terima pekerjaan (BAST)", tipe: "normal" }
+  ],
+  termin4: () => [
+    { id: uid(), label: "Termin 1", persen: 25, syarat: "Saat SPK/kontrak ditandatangani", tipe: "normal" },
+    { id: uid(), label: "Termin 2", persen: 25, syarat: "Progres pekerjaan 25%", tipe: "normal" },
+    { id: uid(), label: "Termin 3", persen: 25, syarat: "Progres pekerjaan 75%", tipe: "normal" },
+    { id: uid(), label: "Termin 4", persen: 25, syarat: "Serah terima pekerjaan (BAST)", tipe: "normal" }
+  ],
+  dp_progres_retensi: () => [
+    { id: uid(), label: "DP", persen: 20, syarat: "Saat SPK/kontrak ditandatangani", tipe: "normal" },
+    { id: uid(), label: "Termin Progres 50%", persen: 35, syarat: "Progres pekerjaan 50%", tipe: "normal" },
+    { id: uid(), label: "Termin Progres 100%", persen: 40, syarat: "Serah terima pekerjaan (BAST)", tipe: "normal" },
+    { id: uid(), label: "Retensi", persen: 5, syarat: "Dicairkan setelah masa garansi berakhir", tipe: "retensi", cairHariSetelahBast: 90 }
+  ]
+};
+function skemaPembayaranTotal(rows) {
+  return Math.round(((rows || []).reduce((s, r) => s + (Number(r.persen) || 0), 0)) * 100) / 100;
+}
+function skemaPembayaranSyaratText(rows) {
+  const list = (rows || []).filter(r => (r.persen || 0) > 0);
+  if (!list.length) return "";
+  return "Pembayaran: " + list.map(r => `${r.label || "Termin"} ${r.persen}%${r.syarat ? ` (${r.syarat})` : ""}`).join(", ") + ".";
+}
+// Menimpa baris "N. Pembayaran: ..." di Syarat & Ketentuan dengan kalimat
+// yang diturunkan dari skema (kalau ada barisnya); kalau tidak ketemu,
+// disisipkan sebagai baris ke-2 (mengikuti penomoran defaultSyarat()).
+// Baris lain (PPN/PPh, masa berlaku, dst.) tidak disentuh sama sekali.
+function syaratWithSkemaPembayaran(baseSyarat, rows) {
+  if (!rows || !rows.length || Math.abs(skemaPembayaranTotal(rows) - 100) > 0.01) return baseSyarat;
+  const teks = skemaPembayaranSyaratText(rows);
+  const lines = (baseSyarat || "").split("\n");
+  const idx = lines.findIndex(l => /^\s*\d+\.\s*Pembayaran/i.test(l));
+  if (idx >= 0) {
+    const nomor = (lines[idx].match(/^\s*(\d+)\./) || [, "2"])[1];
+    lines[idx] = `${nomor}. ${teks}`;
+    return lines.join("\n");
+  }
+  const nomorBaru = lines.length >= 1 ? 2 : 1;
+  lines.splice(Math.min(1, lines.length), 0, `${nomorBaru}. ${teks}`);
+  return lines.join("\n");
+}
+function materializeRencanaTermin(skema, nilaiKontrak) {
+  return (skema || []).filter(r => (r.persen || 0) > 0).map(r => ({
+    id: uid(), label: r.label || "Termin", persen: r.persen || 0,
+    nilai: Math.round((nilaiKontrak || 0) * (r.persen || 0) / 100),
+    tipe: r.tipe === "retensi" ? "retensi" : "normal",
+    syarat: r.syarat || "",
+    cairHariSetelahBast: r.tipe === "retensi" ? (r.cairHariSetelahBast || 90) : null,
+    status: "belum_ditagih", invoiceId: ""
+  }));
+}
+// Editor baris skema dipakai di 3 tempat (Penawaran, RAB, modal Proyek) --
+// satu render/wiring generik dibedakan lewat "ctx" (prefix id elemen di
+// index.html: pw_skema*, rab_skema*, pt_skema*), supaya tidak triplikasi.
+const SKEMA_STATE = { pw: [], rab: [], pt: [] };
+function skemaRowHtml(row, idx, ctx) {
+  return `<tr>
+    <td><input type="text" class="skema-label" data-ctx="${ctx}" data-idx="${idx}" value="${escapeHtml(row.label || "")}" style="width:100%;"></td>
+    <td><input type="number" class="skema-persen" data-ctx="${ctx}" data-idx="${idx}" value="${row.persen || 0}" min="0" max="100" step="0.1" style="width:70px;"></td>
+    <td><input type="text" class="skema-syarat" data-ctx="${ctx}" data-idx="${idx}" value="${escapeHtml(row.syarat || "")}" placeholder="mis. Progres 50% / BAST" style="width:100%;"></td>
+    <td>
+      <select class="skema-tipe" data-ctx="${ctx}" data-idx="${idx}">
+        <option value="normal" ${row.tipe !== "retensi" ? "selected" : ""}>Normal</option>
+        <option value="retensi" ${row.tipe === "retensi" ? "selected" : ""}>Retensi</option>
+      </select>
+    </td>
+    <td>${row.tipe === "retensi" ? `<input type="number" class="skema-cairhari" data-ctx="${ctx}" data-idx="${idx}" value="${row.cairHariSetelahBast ?? 90}" min="0" style="width:70px;">` : '<span class="muted">—</span>'}</td>
+    <td><button type="button" class="icon-btn skema-del" data-ctx="${ctx}" data-idx="${idx}" title="Hapus baris">🗑️</button></td>
+  </tr>`;
+}
+function renderSkemaEditor(ctx) {
+  const rows = SKEMA_STATE[ctx];
+  const tbody = document.querySelector(`#${ctx}_skemaTable tbody`);
+  if (!tbody) return;
+  tbody.innerHTML = rows.length ? rows.map((r, i) => skemaRowHtml(r, i, ctx)).join("")
+    : '<tr class="empty-row"><td colspan="6">Belum ada termin — pilih preset atau tambah baris manual</td></tr>';
+  const total = skemaPembayaranTotal(rows);
+  const totalEl = document.getElementById(`${ctx}_skemaTotal`);
+  if (totalEl) {
+    totalEl.textContent = `${total}%`;
+    totalEl.className = !rows.length ? "muted" : (Math.abs(total - 100) < 0.01 ? "" : "bad");
+  }
+}
+function wireSkemaEditor(ctx, onChange) {
+  const root = document.getElementById(`${ctx}_skemaPanel`);
+  if (!root) return;
+  root.addEventListener("input", e => {
+    if (e.target.dataset.ctx !== ctx) return;
+    const idx = Number(e.target.dataset.idx);
+    const row = SKEMA_STATE[ctx][idx];
+    if (!row) return;
+    if (e.target.classList.contains("skema-label")) row.label = e.target.value;
+    else if (e.target.classList.contains("skema-persen")) row.persen = clampPercent(parseFloat(e.target.value) || 0);
+    else if (e.target.classList.contains("skema-syarat")) row.syarat = e.target.value;
+    else if (e.target.classList.contains("skema-cairhari")) row.cairHariSetelahBast = Math.max(0, parseInt(e.target.value) || 0);
+    else return;
+    const totalEl = document.getElementById(`${ctx}_skemaTotal`);
+    if (totalEl) {
+      const t = skemaPembayaranTotal(SKEMA_STATE[ctx]);
+      totalEl.textContent = `${t}%`;
+      totalEl.className = Math.abs(t - 100) < 0.01 ? "" : "bad";
+    }
+    onChange(SKEMA_STATE[ctx]);
+  });
+  root.addEventListener("change", e => {
+    if (e.target.dataset.ctx !== ctx || !e.target.classList.contains("skema-tipe")) return;
+    const idx = Number(e.target.dataset.idx);
+    const row = SKEMA_STATE[ctx][idx];
+    if (!row) return;
+    row.tipe = e.target.value;
+    if (row.tipe === "retensi" && row.cairHariSetelahBast == null) row.cairHariSetelahBast = 90;
+    renderSkemaEditor(ctx);
+    onChange(SKEMA_STATE[ctx]);
+  });
+  root.addEventListener("click", e => {
+    const delBtn = e.target.closest(".skema-del");
+    const presetBtn = e.target.closest("[data-skema-preset]");
+    const addBtn = e.target.closest(`#${ctx}_skemaAddBtn`);
+    if (delBtn && delBtn.dataset.ctx === ctx) {
+      SKEMA_STATE[ctx].splice(Number(delBtn.dataset.idx), 1);
+      renderSkemaEditor(ctx);
+      onChange(SKEMA_STATE[ctx]);
+    } else if (presetBtn) {
+      SKEMA_STATE[ctx] = SKEMA_PEMBAYARAN_PRESET[presetBtn.dataset.skemaPreset]();
+      renderSkemaEditor(ctx);
+      onChange(SKEMA_STATE[ctx]);
+    } else if (addBtn) {
+      SKEMA_STATE[ctx].push({ id: uid(), label: "Termin", persen: 0, syarat: "", tipe: "normal" });
+      renderSkemaEditor(ctx);
+      onChange(SKEMA_STATE[ctx]);
+    }
+  });
+}
 // LOGO_SVG dulu berisi pendekatan vektor (tiruan) logo. Sekarang diarahkan
 // ke logo ASLI (MITRA_LOGO_DATA_URI) supaya kop surat SEMUA dokumen cetak
 // memakai logo Mitra Creative yang sama dengan template Penawaran.
@@ -11308,6 +11557,8 @@ function renderRabEditor() {
       return header + rows;
     }).join("");
   }
+  SKEMA_STATE.rab = (rab.skemaPembayaran || []).map(r => ({ ...r }));
+  renderSkemaEditor("rab");
   refreshRabTotals();
 }
 // Mengelompokkan item RAB berdasarkan field kelompok (section) -- item tanpa
@@ -11335,6 +11586,13 @@ function refreshRabTotals() {
   document.getElementById("rab_pphValue").textContent = rupiah(pphValue);
   document.getElementById("rab_total").textContent = rupiah(total);
 }
+wireSkemaEditor("rab", rows => {
+  const rab = state.proyekRab.find(r => r.id === currentRabId);
+  if (!rab) return;
+  rab.skemaPembayaran = rows;
+  saveState();
+  mirrorRabUpsert(rab, false);
+});
 function buildRabPrintHtml(rab) {
   const { subtotal, ppnValue, pphValue, total } = rabTotals(rab);
   let rowNum = 0;
@@ -11494,7 +11752,8 @@ function createPenawaranFromRab(rab) {
     status: "draft", diskon: 0, ppn: rab.ppn || 0, pph: typeof rab.pph === "number" ? rab.pph : 0.5,
     biayaLain: rab.biayaLain || 0,
     items: rab.items.map(it => ({ id: uid(), uraian: it.uraian, satuan: it.satuan, volume: it.volume, hargaSatuan: it.hargaSatuan, ahspId: it.ahspId || "" })),
-    syarat: defaultSyarat(), penutup: defaultPenutup(), ttdNama: state.ownerNama, ttdJabatan: state.ownerJabatan
+    skemaPembayaran: (rab.skemaPembayaran || []).map(r => ({ ...r })),
+    syarat: syaratWithSkemaPembayaran(defaultSyarat(), rab.skemaPembayaran || []), penutup: defaultPenutup(), ttdNama: state.ownerNama, ttdJabatan: state.ownerJabatan
   };
 }
 document.getElementById("rab_toPenawaranBtn").addEventListener("click", () => {
@@ -11583,7 +11842,9 @@ function createProyekFromDoc(kind, doc) {
     subkontraktor: [],
     belanjaMaterial: [],
     sumberRabId: kind === "rab" ? doc.id : "",
-    sumberPenawaranId: kind === "pw" ? doc.id : ""
+    sumberPenawaranId: kind === "pw" ? doc.id : "",
+    skemaPembayaran: (doc.skemaPembayaran || []).map(r => ({ ...r })),
+    rencanaTermin: materializeRencanaTermin(doc.skemaPembayaran || [], totals.total)
   };
   state.proyek.push(proj);
   doc.proyekId = proj.id;
@@ -11753,6 +12014,8 @@ function renderPwEditor() {
       tbody.appendChild(tr);
     });
   }
+  SKEMA_STATE.pw = (pw.skemaPembayaran || []).map(r => ({ ...r }));
+  renderSkemaEditor("pw");
   refreshPwTotals();
 }
 function refreshPwTotals() {
@@ -11763,6 +12026,27 @@ function refreshPwTotals() {
   document.getElementById("pw_pphValue").textContent = rupiah(pphValue);
   document.getElementById("pw_total").textContent = rupiah(total);
 }
+wireSkemaEditor("pw", rows => {
+  const pw = state.penawaran.find(p => p.id === currentPwId);
+  if (!pw) return;
+  pw.skemaPembayaran = rows;
+  saveState();
+  mirrorPenawaranUpsert(pw, false);
+});
+document.getElementById("pw_skemaApplyBtn").addEventListener("click", () => {
+  const pw = state.penawaran.find(p => p.id === currentPwId);
+  if (!pw) return;
+  const total = skemaPembayaranTotal(SKEMA_STATE.pw);
+  if (!SKEMA_STATE.pw.length || Math.abs(total - 100) > 0.01) {
+    alert(`Total persen skema pembayaran harus 100% dulu (saat ini ${total}%) sebelum diterapkan ke Syarat & Ketentuan.`);
+    return;
+  }
+  pw.syarat = syaratWithSkemaPembayaran(pw.syarat || defaultSyarat(), SKEMA_STATE.pw);
+  document.getElementById("pw_syarat").value = pw.syarat;
+  saveState();
+  mirrorPenawaranUpsert(pw, false);
+  alert("Kalimat pembayaran di Syarat & Ketentuan sudah diperbarui sesuai skema.");
+});
 document.getElementById("pw_addBtn").addEventListener("click", () => {
   const brand = document.getElementById("pw_addBrandSel").value === "mataresolusi" ? "mataresolusi" : "mitra";
   const isMr = brand === "mataresolusi";
