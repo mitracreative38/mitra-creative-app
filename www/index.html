@@ -1444,6 +1444,20 @@
         </div>
 
         <div class="panel">
+          <div class="muted" style="margin-bottom:10px; display:flex; align-items:center; gap:8px;">
+            <span style="flex:1;">📅 Rencana Termin Pembayaran — dari Skema Pembayaran (DP/Termin/Retensi) yang ditentukan saat nego. Klik "Buat Invoice" saat waktunya menagih, tanpa ketik ulang tanggal/jumlah.</span>
+            <button type="button" class="btn-ghost" id="pd_skemaPembayaranBtn">✏️ Tetapkan/Ubah Skema</button>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="pd_rencanaTerminTable">
+              <thead><tr><th>Termin</th><th class="num">%</th><th class="num">Nilai</th><th>Syarat Pencairan</th><th>Status</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p class="muted" id="pd_rencanaTerminEmpty" style="font-size:12px; margin-top:8px; display:none;">Belum ada skema pembayaran untuk proyek ini — klik "Tetapkan/Ubah Skema" untuk menentukan DP/termin/retensi sekali saja, atau tetap catat termin manual di tabel di bawah seperti biasa.</p>
+        </div>
+
+        <div class="panel">
           <div class="muted" style="margin-bottom:10px;">Termin Pembayaran — tersinkron otomatis dua arah dengan Kas Perusahaan (kategori Pendapatan Jasa/Lain-lain yang dikaitkan ke proyek ini)</div>
           <div class="form-grid" style="margin-bottom:12px;">
             <div class="field"><label>Tanggal</label><input type="date" id="tm_tanggal"></div>
@@ -2481,6 +2495,27 @@
             <button class="btn-primary" id="rab_toProyekBtn">🏗️ Buat Proyek dari RAB Ini</button>
           </div>
         </div>
+
+        <div class="panel">
+          <h3>💰 Skema Pembayaran</h3>
+          <p class="muted" style="font-size:12px; margin:-4px 0 10px;">Tentukan DP/termin/retensi SEKALI di sini — otomatis ikut jadi Rencana Termin saat Proyek dibuat dari RAB ini (ACC), jadi tidak perlu ketik ulang tanggal/jumlah tiap kali menagih.</p>
+          <div id="rab_skemaPanel">
+            <div class="toolbar" style="flex-wrap:wrap; gap:8px;">
+              <button type="button" class="btn-ghost" data-skema-preset="dp_pelunasan">DP 50% + Pelunasan</button>
+              <button type="button" class="btn-ghost" data-skema-preset="dp_termin_pelunasan">DP + Termin + Pelunasan</button>
+              <button type="button" class="btn-ghost" data-skema-preset="termin4">Termin 4x Rata</button>
+              <button type="button" class="btn-ghost" data-skema-preset="dp_progres_retensi">DP + Progres + Retensi 5%</button>
+              <button type="button" class="btn-ghost" id="rab_skemaAddBtn">+ Tambah Baris</button>
+            </div>
+            <div class="table-wrap">
+              <table class="tbl" id="rab_skemaTable">
+                <thead><tr><th>Label</th><th style="width:80px;">%</th><th>Syarat Pencairan</th><th style="width:110px;">Tipe</th><th style="width:110px;">Cair (hari stlh BAST)</th><th></th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div class="summary-row" style="margin-top:8px;"><span>Total Persen</span><strong id="rab_skemaTotal">0%</strong></div>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -2672,6 +2707,30 @@
             <div class="summary-row total"><span>Total Penawaran</span><strong id="pw_total">Rp 0</strong></div>
           </div>
           <p class="muted" style="font-size:11px; margin-top:8px;">PPN dan PPh Final sama-sama ditambahkan ke Total Penawaran -- jadi Total di atas adalah nilai akhir yang dibayar klien (harga satuan belum termasuk PPN/PPh).</p>
+        </div>
+
+        <div class="panel">
+          <h3>💰 Skema Pembayaran</h3>
+          <p class="muted" style="font-size:12px; margin:-4px 0 10px;">Tentukan DP/termin/retensi SEKALI di sini — otomatis ikut jadi Rencana Termin saat Proyek dibuat dari penawaran ini (ACC), jadi tidak perlu ketik ulang tanggal/jumlah tiap kali menagih.</p>
+          <div id="pw_skemaPanel">
+            <div class="toolbar" style="flex-wrap:wrap; gap:8px;">
+              <button type="button" class="btn-ghost" data-skema-preset="dp_pelunasan">DP 50% + Pelunasan</button>
+              <button type="button" class="btn-ghost" data-skema-preset="dp_termin_pelunasan">DP + Termin + Pelunasan</button>
+              <button type="button" class="btn-ghost" data-skema-preset="termin4">Termin 4x Rata</button>
+              <button type="button" class="btn-ghost" data-skema-preset="dp_progres_retensi">DP + Progres + Retensi 5%</button>
+              <button type="button" class="btn-ghost" id="pw_skemaAddBtn">+ Tambah Baris</button>
+            </div>
+            <div class="table-wrap">
+              <table class="tbl" id="pw_skemaTable">
+                <thead><tr><th>Label</th><th style="width:80px;">%</th><th>Syarat Pencairan</th><th style="width:110px;">Tipe</th><th style="width:110px;">Cair (hari stlh BAST)</th><th></th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div class="summary-row" style="margin-top:8px;"><span>Total Persen</span><strong id="pw_skemaTotal">0%</strong></div>
+            <div class="modal-actions" style="justify-content:flex-start; margin-top:10px;">
+              <button type="button" class="btn-ghost" id="pw_skemaApplyBtn">📝 Terapkan ke Syarat &amp; Ketentuan</button>
+            </div>
+          </div>
         </div>
 
         <div class="panel narrow">
@@ -3962,6 +4021,37 @@
         <button type="submit" class="btn-primary" id="tl_submitBtn">Simpan</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- Modal: skema pembayaran proyek (DP/Termin/Retensi) -->
+<div class="modal-backdrop" id="skemaPembayaranModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Tetapkan/Ubah Skema Pembayaran</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <p class="muted" style="font-size:12px; margin:-4px 0 10px;">Simpan akan mengganti Rencana Termin proyek ini sesuai skema baru. Invoice yang sudah pernah dibuat dari termin lama TIDAK ikut terhapus.</p>
+    <div id="pt_skemaPanel">
+      <div class="toolbar" style="flex-wrap:wrap; gap:8px;">
+        <button type="button" class="btn-ghost" data-skema-preset="dp_pelunasan">DP 50% + Pelunasan</button>
+        <button type="button" class="btn-ghost" data-skema-preset="dp_termin_pelunasan">DP + Termin + Pelunasan</button>
+        <button type="button" class="btn-ghost" data-skema-preset="termin4">Termin 4x Rata</button>
+        <button type="button" class="btn-ghost" data-skema-preset="dp_progres_retensi">DP + Progres + Retensi 5%</button>
+        <button type="button" class="btn-ghost" id="pt_skemaAddBtn">+ Tambah Baris</button>
+      </div>
+      <div class="table-wrap">
+        <table class="tbl" id="pt_skemaTable">
+          <thead><tr><th>Label</th><th style="width:80px;">%</th><th>Syarat Pencairan</th><th style="width:110px;">Tipe</th><th style="width:110px;">Cair (hari stlh BAST)</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="summary-row" style="margin-top:8px;"><span>Total Persen</span><strong id="pt_skemaTotal">0%</strong></div>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+      <button type="button" class="btn-primary" id="pt_skemaSimpanBtn">Simpan</button>
+    </div>
   </div>
 </div>
 
