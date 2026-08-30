@@ -5014,8 +5014,15 @@ const BIAYA_LAIN_KATEGORI = ["Biaya Transport", "Biaya Operasional", "Biaya Alat
 // benar-benar milik proyek ini di modal.
 function txnBiayaTanpaProyek() {
   const kategoriBiaya = [...KATEGORI_BIAYA_PROYEK, ...BIAYA_LAIN_KATEGORI];
+  // Rapikan laporan lama: transaksi PENDAPATAN yang diinput duluan di Kas
+  // (sebelum proyeknya dibuat) juga bisa dikaitkan belakangan -- penting
+  // untuk pendapatan proyek maintenance, deteksi termin terbayar, dan
+  // Laporan Proyek, tanpa harus input ulang (anti dobel input).
+  const kategoriPendapatan = ["Pendapatan Jasa", "Pendapatan Lain-lain"];
   return state.kasUsaha.transactions.filter(t =>
-    t.tipe === "Keluar" && kategoriBiaya.includes(t.kategori) && !t.proyekId &&
+    ((t.tipe === "Keluar" && kategoriBiaya.includes(t.kategori)) ||
+     (t.tipe === "Masuk" && kategoriPendapatan.includes(t.kategori))) &&
+    !t.proyekId &&
     // Periode yang sudah ditutup bukunya tidak boleh diubah -- jangan tawarkan.
     !(state.periodeTerkunci && (t.tanggal || "").slice(0, 7) <= state.periodeTerkunci));
 }
@@ -5024,9 +5031,15 @@ function renderTxnTanpaProyekHint(p) {
   if (!hintEl) return;
   const list = p.arsip ? [] : txnBiayaTanpaProyek();
   if (!list.length) { hintEl.style.display = "none"; return; }
-  const total = list.reduce((s, t) => s + Math.max(0, t.jumlah || 0), 0);
+  const biaya = list.filter(t => t.tipe === "Keluar");
+  const masuk = list.filter(t => t.tipe === "Masuk");
+  const totalBiaya = biaya.reduce((s, t) => s + Math.max(0, t.jumlah || 0), 0);
+  const totalMasuk = masuk.reduce((s, t) => s + Math.max(0, t.jumlah || 0), 0);
+  const parts = [];
+  if (biaya.length) parts.push(`${biaya.length} transaksi biaya (${rupiah(totalBiaya)})`);
+  if (masuk.length) parts.push(`${masuk.length} pendapatan (${rupiah(totalMasuk)})`);
   document.getElementById("pd_txnTanpaProyekText").textContent =
-    `⚠️ Ada ${list.length} transaksi biaya (total ${rupiah(total)}) di Kas Perusahaan yang belum dikaitkan ke proyek mana pun — tidak terhitung di Realisasi/Margin proyek ini.`;
+    `⚠️ Ada ${parts.join(" dan ")} di Kas Perusahaan yang belum dikaitkan ke proyek mana pun — tidak terhitung di Realisasi/Margin/Laporan proyek ini.`;
   hintEl.style.display = "flex";
 }
 document.getElementById("pd_kaitkanTxnBtn").addEventListener("click", () => {
@@ -5037,11 +5050,12 @@ document.getElementById("pd_kaitkanTxnBtn").addEventListener("click", () => {
     <tr>
       <td><input type="checkbox" class="kt-check" data-txn-id="${t.id}"></td>
       <td style="white-space:nowrap;">${formatTanggal(t.tanggal)}</td>
+      <td><span class="badge ${t.tipe === "Masuk" ? "badge-lunas" : "badge-pending"}">${t.tipe === "Masuk" ? "Masuk" : "Keluar"}</span></td>
       <td>${escapeHtml(t.kategori)}</td>
       <td>${t.sumberSlipId ? "💰 " : ""}${escapeHtml(t.keterangan || "-")}</td>
       <td class="num">${rupiah(t.jumlah)}</td>
     </tr>
-  `).join("") : '<tr class="empty-row"><td colspan="5">Semua transaksi biaya sudah terkait proyek 👍</td></tr>';
+  `).join("") : '<tr class="empty-row"><td colspan="6">Semua transaksi biaya & pendapatan sudah terkait proyek 👍</td></tr>';
   document.getElementById("kt_checkAll").checked = false;
   document.getElementById("kaitkanTxnModal").classList.add("open");
 });
