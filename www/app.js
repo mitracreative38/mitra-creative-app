@@ -4370,11 +4370,27 @@ function renderProyekDetail() {
   const terminRows = proyekKasTxns(p)
     .filter(t => t.tipe === "Masuk" && ["Pendapatan Jasa", "Pendapatan Lain-lain"].includes(t.kategori))
     .sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
+  // Deteksi dobel: pembayaran yang sama gampang tercatat 2x saat merapikan
+  // laporan lama (sudah diinput di Kas duluan / dikaitkan, LALU ditambah
+  // lagi lewat "+ Tambah Termin"). Dua termin berjumlah PERSIS sama di
+  // proyek yang sama ditandai untuk diperiksa -- kalau memang dobel, hapus
+  // salah satunya lewat 🗑️ (transaksi Kas-nya ikut terhapus).
+  const jumlahCount = {};
+  terminRows.forEach(t => { if (t.jumlah) jumlahCount[t.jumlah] = (jumlahCount[t.jumlah] || 0) + 1; });
+  const kembarIds = new Set(terminRows.filter(t => t.jumlah && jumlahCount[t.jumlah] > 1).map(t => t.id));
+  const dobelHint = document.getElementById("pd_terminDobelHint");
+  if (kembarIds.size) {
+    const nilaiKembar = [...new Set(terminRows.filter(t => kembarIds.has(t.id)).map(t => t.jumlah))];
+    dobelHint.textContent = `⚠️ Ada termin dengan JUMLAH SAMA (${nilaiKembar.map(j => rupiah(j)).join(", ")}) — kemungkinan pembayaran yang sama tercatat dobel (mis. sudah diinput di Kas lalu ditambah lagi lewat Tambah Termin). Periksa baris bertanda ⚠️ di bawah; kalau memang dobel, hapus salah satunya lewat 🗑️ (transaksi Kas-nya ikut terhapus). Abaikan bila memang dua termin sah bernilai sama.`;
+    dobelHint.style.display = "block";
+  } else {
+    dobelHint.style.display = "none";
+  }
   const terminTbody = document.querySelector("#pd_terminTable tbody");
   terminTbody.innerHTML = terminRows.length ? terminRows.map(t => `
     <tr>
       <td>${formatTanggal(t.tanggal)}</td>
-      <td>${escapeHtml(t.keterangan)}</td>
+      <td>${kembarIds.has(t.id) ? '<span title="Jumlah sama dengan termin lain di proyek ini — cek kemungkinan dobel">⚠️ </span>' : ""}${escapeHtml(t.keterangan)}</td>
       <td><span class="badge ${(t.status || "lunas") === "lunas" ? "badge-lunas" : "badge-pending"}">${(t.status || "lunas") === "lunas" ? "Lunas" : "Piutang"}</span></td>
       <td class="num">${rupiah(t.jumlah)}</td>
       <td><div class="row-actions"><button class="icon-btn" data-delete-termin="${t.id}" title="Hapus">🗑️</button></div></td>
@@ -5042,32 +5058,97 @@ function renderTxnTanpaProyekHint(p) {
     `⚠️ Ada ${parts.join(" dan ")} di Kas Perusahaan yang belum dikaitkan ke proyek mana pun — tidak terhitung di Realisasi/Margin/Laporan proyek ini.`;
   hintEl.style.display = "flex";
 }
-document.getElementById("pd_kaitkanTxnBtn").addEventListener("click", () => {
-  const p = state.proyek.find(x => x.id === currentProyekId);
-  if (!p || proyekArsipGuard(p)) return;
-  const rows = txnBiayaTanpaProyek().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
+// Modal Kaitkan: daftar bisa panjang (rapel laporan lama = puluhan
+// transaksi), jadi ada pencarian + filter Jenis/Bulan. Centangan disimpan
+// di Set LINTAS filter -- pilah per bulan, centang, ganti bulan, centang
+// lagi, lalu simpan sekaligus. Sebelum filter berganti / simpan, keadaan
+// checkbox yang sedang tampil disinkronkan dulu ke Set.
+let ktRows = [];
+let ktChecked = new Set();
+function ktSyncFromDom() {
+  document.querySelectorAll("#kt_table tbody .kt-check").forEach(c => {
+    if (c.checked) ktChecked.add(c.dataset.txnId); else ktChecked.delete(c.dataset.txnId);
+  });
+}
+function ktVisibleRows() {
+  const cari = (document.getElementById("kt_cari").value || "").toLowerCase();
+  const tipe = document.getElementById("kt_tipe").value;
+  const bulan = document.getElementById("kt_bulan").value;
+  return ktRows.filter(t =>
+    (!tipe || t.tipe === tipe) &&
+    (!bulan || (t.tanggal || "").slice(0, 7) === bulan) &&
+    (!cari || `${t.keterangan || ""} ${t.kategori || ""} ${t.extra || ""}`.toLowerCase().includes(cari)));
+}
+function renderKtTable() {
+  const rows = ktVisibleRows();
   document.querySelector("#kt_table tbody").innerHTML = rows.length ? rows.map(t => `
     <tr>
-      <td><input type="checkbox" class="kt-check" data-txn-id="${t.id}"></td>
+      <td><input type="checkbox" class="kt-check" data-txn-id="${t.id}" ${ktChecked.has(t.id) ? "checked" : ""}></td>
       <td style="white-space:nowrap;">${formatTanggal(t.tanggal)}</td>
       <td><span class="badge ${t.tipe === "Masuk" ? "badge-lunas" : "badge-pending"}">${t.tipe === "Masuk" ? "Masuk" : "Keluar"}</span></td>
       <td>${escapeHtml(t.kategori)}</td>
       <td>${t.sumberSlipId ? "💰 " : ""}${escapeHtml(t.keterangan || "-")}</td>
       <td class="num">${rupiah(t.jumlah)}</td>
     </tr>
-  `).join("") : '<tr class="empty-row"><td colspan="6">Semua transaksi biaya & pendapatan sudah terkait proyek 👍</td></tr>';
-  document.getElementById("kt_checkAll").checked = false;
+  `).join("") : `<tr class="empty-row"><td colspan="6">${ktRows.length ? "Tidak ada transaksi yang cocok dengan pencarian/filter ini." : "Semua transaksi biaya & pendapatan sudah terkait proyek 👍"}</td></tr>`;
+  document.getElementById("kt_checkAll").checked = rows.length > 0 && rows.every(t => ktChecked.has(t.id));
+  renderKtRingkas(rows);
+}
+function renderKtRingkas(rows) {
+  const totalDipilih = ktRows.filter(t => ktChecked.has(t.id)).reduce((s, t) => s + (t.jumlah || 0), 0);
+  document.getElementById("kt_ringkas").textContent =
+    `Tampil ${(rows || ktVisibleRows()).length} dari ${ktRows.length} transaksi • ${ktChecked.size} dicentang (total ${rupiah(totalDipilih)}).`;
+}
+document.getElementById("pd_kaitkanTxnBtn").addEventListener("click", () => {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p || proyekArsipGuard(p)) return;
+  ktRows = txnBiayaTanpaProyek().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
+  ktChecked = new Set();
+  document.getElementById("kt_cari").value = "";
+  document.getElementById("kt_tipe").value = "";
+  const bulanSel = document.getElementById("kt_bulan");
+  const bulanUnik = [...new Set(ktRows.map(t => (t.tanggal || "").slice(0, 7)).filter(Boolean))].sort().reverse();
+  bulanSel.innerHTML = '<option value="">Semua Bulan</option>' + bulanUnik.map(m =>
+    `<option value="${m}">${new Date(m + "-01T12:00:00").toLocaleDateString("id-ID", { month: "long", year: "numeric" })}</option>`).join("");
+  bulanSel.value = "";
+  renderKtTable();
   document.getElementById("kaitkanTxnModal").classList.add("open");
+});
+["kt_cari", "kt_tipe", "kt_bulan"].forEach(id => {
+  const ev = id === "kt_cari" ? "input" : "change";
+  document.getElementById(id).addEventListener(ev, () => { ktSyncFromDom(); renderKtTable(); });
+});
+document.getElementById("kt_table").addEventListener("change", e => {
+  if (!e.target.classList.contains("kt-check")) return;
+  ktSyncFromDom();
+  renderKtRingkas();
+  const rows = ktVisibleRows();
+  document.getElementById("kt_checkAll").checked = rows.length > 0 && rows.every(t => ktChecked.has(t.id));
 });
 document.getElementById("kt_checkAll").addEventListener("change", () => {
   const master = document.getElementById("kt_checkAll");
   document.querySelectorAll("#kt_table tbody .kt-check").forEach(c => { c.checked = master.checked; });
+  ktSyncFromDom();
+  renderKtRingkas();
 });
 document.getElementById("kt_simpanBtn").addEventListener("click", () => {
   const p = state.proyek.find(x => x.id === currentProyekId);
   if (!p) { closeModals(); return; }
-  const ids = Array.from(document.querySelectorAll("#kt_table tbody .kt-check:checked")).map(c => c.dataset.txnId);
+  ktSyncFromDom();
+  const ids = Array.from(ktChecked);
   if (!ids.length) { alert("Centang dulu transaksi yang mau dikaitkan ke proyek ini."); return; }
+  // Anti dobel input: pendapatan yang dicentang tapi berjumlah sama dengan
+  // pembayaran/termin yang SUDAH ada di proyek ini kemungkinan pembayaran
+  // yang sama tercatat 2x (mis. sudah ditambah manual lewat Tambah Termin).
+  const masukProyek = proyekKasTxns(p).filter(t =>
+    t.tipe === "Masuk" && ["Pendapatan Jasa", "Pendapatan Lain-lain"].includes(t.kategori));
+  const calonDobel = ids
+    .map(id => state.kasUsaha.transactions.find(x => x.id === id))
+    .filter(t => t && t.tipe === "Masuk" && masukProyek.some(x => x.jumlah === t.jumlah));
+  if (calonDobel.length && !confirm(
+    `PERHATIAN — KEMUNGKINAN DOBEL: ${calonDobel.length} pendapatan yang dicentang berjumlah SAMA dengan pembayaran/termin yang sudah ada di proyek ini:\n\n` +
+    calonDobel.slice(0, 5).map(t => `• ${rupiah(t.jumlah)} — "${t.keterangan || "-"}" (${formatTanggal(t.tanggal)})`).join("\n") +
+    `\n\nKalau itu pembayaran yang SAMA (sudah pernah ditambah lewat Tambah Termin), batalkan dan hapus dulu termin dobelnya lewat 🗑️ di daftar Termin.\n\nTetap kaitkan?`)) return;
   let count = 0;
   ids.forEach(id => {
     const t = state.kasUsaha.transactions.find(x => x.id === id);
@@ -13717,6 +13798,12 @@ document.getElementById("tm_addBtn").addEventListener("click", () => {
   const keterangan = document.getElementById("tm_keterangan").value.trim();
   const jumlah = parseNumberInput(document.getElementById("tm_jumlah").value);
   if (!tanggal || !keterangan || !jumlah) { alert("Isi tanggal, keterangan, dan jumlah terlebih dahulu."); return; }
+  // Anti dobel input: kalau pembayaran ini sudah pernah masuk Kas (input
+  // duluan / dikaitkan), menambah termin lagi = pendapatan tercatat 2x.
+  const kembar = proyekKasTxns(p).find(t =>
+    t.tipe === "Masuk" && ["Pendapatan Jasa", "Pendapatan Lain-lain"].includes(t.kategori) && t.jumlah === jumlah);
+  if (kembar && !confirm(
+    `PERHATIAN — KEMUNGKINAN DOBEL: proyek ini SUDAH punya pembayaran/termin sebesar ${rupiah(jumlah)}:\n\n"${kembar.keterangan || "-"}" (${formatTanggal(kembar.tanggal)}, ${(kembar.status || "lunas") === "lunas" ? "Lunas" : "Piutang"}).\n\nKalau ini pembayaran yang SAMA (mis. sudah diinput di Kas Perusahaan duluan), JANGAN ditambah lagi — transaksinya cukup dikaitkan lewat tombol "Kaitkan Transaksi ke Proyek Ini".\n\nTetap catat sebagai termin BARU yang berbeda?`)) return;
   // Total termin yang melebihi nilai kontrak proyek jangan lolos diam-diam
   // -- boleh dilanjutkan sadar (mis. pekerjaan tambahan), lewat konfirmasi.
   const calcSebelum = projectCalc(p);
