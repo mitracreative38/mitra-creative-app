@@ -1822,6 +1822,7 @@
             </div>
           </div>
           <button class="btn-ghost" id="pg_hitungBtn" style="margin-top:10px;">Hitung Otomatis dari Absensi</button>
+          <button class="btn-ghost" id="pg_massalBtn" style="margin-top:10px;" title="Buat slip gaji banyak periode sekaligus dari absensi yang sudah dirapel — otomatis masuk Kas, Laporan Keuangan, Margin Proyek, dan KPI">⚡ Buat Slip Massal (Rapel)</button>
         </div>
 
         <div class="panel narrow">
@@ -4091,6 +4092,31 @@
     <div class="modal-actions">
       <button type="button" class="btn-ghost" data-close-modal>Batal</button>
       <button type="button" class="btn-primary" id="am_terapkanBtn">Isi Absensi Massal</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: buat slip gaji massal (rapel per bulan dari absensi) -->
+<div class="modal-backdrop" id="slipMassalModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>⚡ Buat Slip Gaji Massal (Rapel)</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <p class="muted" style="font-size:12px; margin:-4px 0 10px;">Rentang dipecah <strong>per bulan kalender</strong>; tiap slip dihitung otomatis dari absensi (hari hadir, lembur, uang makan mingguan, bon) lalu langsung tercatat sebagai Biaya Upah/Tenaga di Kas Perusahaan — teralokasi per proyek — sehingga Dashboard, Laporan Keuangan, Margin Proyek, dan KPI ikut terisi. Periode yang <strong>sudah punya slip dilewati</strong> (tidak ada gaji dobel), begitu juga bulan tanpa absensi dan periode yang sudah ditutup buku. Potongan pinjaman diisi 0 — koreksi lewat ✏️ di Riwayat Slip bila perlu. Karyawan gaji Bulanan tidak ikut (perlu input target/realisasi manual).</p>
+    <div class="form-grid">
+      <div class="field"><label>Dari Tanggal</label><input type="date" id="sm_dari"></div>
+      <div class="field"><label>Sampai Tanggal</label><input type="date" id="sm_sampai"></div>
+    </div>
+    <div class="table-wrap" style="max-height:220px; overflow-y:auto; margin-top:10px;">
+      <table class="tbl" id="sm_table">
+        <thead><tr><th style="width:36px;"><input type="checkbox" id="sm_checkAll" checked title="Centang semua"></th><th>Nama</th><th>Jabatan</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+      <button type="button" class="btn-primary" id="sm_terapkanBtn">Buat Slip Massal</button>
     </div>
   </div>
 </div>

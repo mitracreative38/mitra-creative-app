@@ -9060,6 +9060,121 @@ document.getElementById("pg_simpanCetakBtn").addEventListener("click", () => {
   alert(`Slip gaji ${k.nama} tersimpan.\n\nPeriksa dulu angkanya di tabel Riwayat Slip di bawah — kalau ada yang salah, perbaiki lewat tombol ✏️ (aman, tidak membuat slip baru). Setelah benar, cetak lewat 🖨️ atau unduh PDF.`);
 });
 
+// ----- Buat Slip Gaji Massal (rapel per bulan dari absensi) -----
+// Pasangan dari Isi Absensi Massal: absensi rapel baru berpengaruh ke Kas/
+// Dashboard/Laporan Keuangan/Margin Proyek/KPI SETELAH slip gajinya dibuat
+// (slip -> transaksi Kas Keluar otomatis via syncSlipGajiKasTxn). Membuat
+// slip bulan demi bulan per karyawan sama melelahkannya dengan input
+// absensi manual -- tombol ini membuatnya sekaligus: rentang dipecah per
+// bulan kalender, tiap slip dihitung dengan RUMUS YANG SAMA PERSIS dengan
+// tombol "Hitung Otomatis dari Absensi" + "Simpan Slip".
+function hitungSlipHarianDariAbsensi(k, mulai, selesai) {
+  const inRange = (k.absensi || []).filter(a => a.tanggal >= mulai && a.tanggal <= selesai);
+  const hariHadir = inRange.filter(a => a.hadir).length;
+  const jamLembur = inRange.reduce((s, a) => s + (a.jamLembur || 0), 0);
+  const totalUpahHarian = hariHadir * (k.upahHarian || 0);
+  const totalLembur = jamLembur * (k.tarifLembur || 0);
+  const sisaSebelum = sisaPinjaman(k);
+  return {
+    id: uid(),
+    mulai, selesai,
+    namaKaryawan: k.nama,
+    jabatan: k.jabatan,
+    tipeGaji: "Harian",
+    hariHadir, jamLembur,
+    upahHarian: k.upahHarian, tarifLembur: k.tarifLembur,
+    totalUpahHarian, totalLembur,
+    upahKotor: totalUpahHarian + totalLembur,
+    uangMakan: hitungUangMakanMingguan(k, mulai, selesai).total,
+    bon: inRange.filter(a => a.hadir).reduce((s, a) => s + (a.bon || 0), 0),
+    // Potongan pinjaman sengaja 0 pada slip massal (kebijakan cicilan per
+    // periode tidak bisa ditebak mesin) -- koreksi lewat ✏️ Riwayat Slip.
+    potonganPinjaman: 0,
+    sisaSebelum, sisaSesudah: sisaSebelum,
+    pembayaran: Object.assign({ metode: "Tunai" }, k.pembayaranGaji || {}),
+    tanggalDibuat: hariIniIso()
+  };
+}
+function periodeBulananMassal(dari, sampai) {
+  const out = [];
+  let m = dari.slice(0, 7);
+  while (m <= sampai.slice(0, 7)) {
+    const [y, b] = m.split("-").map(Number);
+    const awal = `${m}-01` < dari ? dari : `${m}-01`;
+    const akhirBulan = isoTanggalLokal(new Date(y, b, 0));
+    out.push({ mulai: awal, selesai: akhirBulan > sampai ? sampai : akhirBulan });
+    m = isoTanggalLokal(new Date(y, b, 1)).slice(0, 7);
+  }
+  return out;
+}
+function openSlipMassalModal() {
+  const thnIni = hariIniIso().slice(0, 4);
+  document.getElementById("sm_dari").value = `${thnIni}-01-01`;
+  document.getElementById("sm_sampai").value = hariIniIso();
+  const harian = state.karyawan.filter(k => k.aktif !== false && k.tipeGaji !== "Bulanan")
+    .slice().sort((a, b) => a.nama.localeCompare(b.nama));
+  document.querySelector("#sm_table tbody").innerHTML = harian.length
+    ? harian.map(k => `<tr><td><input type="checkbox" class="sm-pilih" value="${k.id}" checked></td><td>${escapeHtml(k.nama)}</td><td>${escapeHtml(k.jabatan || "-")}</td></tr>`).join("")
+    : `<tr class="empty-row"><td colspan="3">Belum ada karyawan Harian aktif</td></tr>`;
+  document.getElementById("sm_checkAll").checked = true;
+  document.getElementById("slipMassalModal").classList.add("open");
+}
+document.getElementById("pg_massalBtn").addEventListener("click", openSlipMassalModal);
+document.getElementById("sm_checkAll").addEventListener("change", () => {
+  const master = document.getElementById("sm_checkAll");
+  document.querySelectorAll("#sm_table tbody .sm-pilih").forEach(c => { c.checked = master.checked; });
+});
+document.getElementById("sm_terapkanBtn").addEventListener("click", () => {
+  if (currentTeamRole !== "owner") { alert("Slip gaji hanya bisa dibuat oleh Owner."); return; }
+  const dari = document.getElementById("sm_dari").value;
+  let sampai = document.getElementById("sm_sampai").value;
+  if (!dari || !sampai) { alert("Isi tanggal Dari dan Sampai terlebih dahulu."); return; }
+  if (dari > sampai) { alert("Tanggal Dari harus sebelum (atau sama dengan) tanggal Sampai."); return; }
+  if (sampai > hariIniIso()) sampai = hariIniIso();
+  if (addDaysIso(dari, 370) < sampai) { alert("Rentang maksimal sekitar 1 tahun (370 hari) sekali jalan — pecah jadi dua kali kalau lebih."); return; }
+  const pilihan = Array.from(document.querySelectorAll("#sm_table tbody .sm-pilih:checked")).map(c => c.value);
+  const daftarK = state.karyawan.filter(k => pilihan.includes(k.id));
+  if (!daftarK.length) { alert("Pilih minimal satu karyawan."); return; }
+  const periode = periodeBulananMassal(dari, sampai);
+  if (!confirm(`Buat slip gaji massal ${formatTanggal(dari)} s/d ${formatTanggal(sampai)}?\n\n` +
+    `• ${daftarK.length} karyawan × maks. ${periode.length} periode bulanan\n` +
+    `• Dihitung otomatis dari absensi; langsung tercatat di Kas Perusahaan (Biaya Upah/Tenaga, alokasi per proyek)\n` +
+    `• Periode yang sudah punya slip / tanpa absensi / sudah ditutup buku otomatis dilewati`)) return;
+  let dibuat = 0, adaSlip = 0, kosong = 0, terkunci = 0, totalGaji = 0;
+  daftarK.forEach(k => {
+    if (!k.slipGaji) k.slipGaji = [];
+    let dibuatK = 0;
+    periode.forEach(per => {
+      // Anti gaji dobel: periode yang beririsan dengan slip lama dilewati
+      // diam-diam (bukan confirm satu-satu seperti jalur manual -- rapel
+      // setahun bisa berisi periode yang memang sudah pernah digaji).
+      if (k.slipGaji.some(s => (s.mulai || "") <= per.selesai && (s.selesai || "") >= per.mulai)) { adaSlip++; return; }
+      // Transaksi Kas slip bertanggal akhir periode -- kalau bulan itu
+      // sudah ditutup buku, slip dilewati (koreksi = buka kunci dulu).
+      if (state.periodeTerkunci && per.selesai.slice(0, 7) <= state.periodeTerkunci) { terkunci++; return; }
+      const adaAbsensi = (k.absensi || []).some(a => a.tanggal >= per.mulai && a.tanggal <= per.selesai && (a.hadir || (a.jamLembur || 0) > 0));
+      if (!adaAbsensi) { kosong++; return; }
+      const slip = hitungSlipHarianDariAbsensi(k, per.mulai, per.selesai);
+      k.slipGaji.push(slip);
+      syncSlipGajiKasTxn(k, slip);
+      totalGaji += slipGajiBersih(slip);
+      dibuatK++;
+    });
+    if (!dibuatK) return;
+    dibuat += dibuatK;
+    mirrorKaryawanGajiUpsert(k, true);
+  });
+  saveState();
+  renderAll();
+  closeModals();
+  alert(`Buat slip gaji massal selesai.\n\n` +
+    `• ${dibuat} slip dibuat (total gaji bersih ${rupiah(totalGaji)}) — sudah tercatat di Kas Perusahaan dan langsung terbaca di Dashboard, Laporan Keuangan, Margin Proyek, dan KPI\n` +
+    (adaSlip ? `• ${adaSlip} periode dilewati karena sudah punya slip (tidak ada gaji dobel)\n` : "") +
+    (kosong ? `• ${kosong} periode dilewati karena tidak ada absensi\n` : "") +
+    (terkunci ? `• ${terkunci} periode dilewati karena bulannya sudah ditutup buku\n` : "") +
+    `\nPeriksa/koreksi slip lewat ✏️ di Riwayat Slip masing-masing karyawan (potongan pinjaman sengaja 0).`);
+});
+
 function buildSlipGajiPrintHtml(k, sl) {
   return `
     <div class="letterhead">
