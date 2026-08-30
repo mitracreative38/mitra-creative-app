@@ -3073,8 +3073,16 @@
           <input type="text" id="pj_lokasi" placeholder="Lokasi proyek">
         </div>
         <div class="field">
-          <label>Nilai Kontrak (Rp)</label>
-          <input type="text" inputmode="numeric" id="pj_nilai" required placeholder="0">
+          <label>Jenis Pekerjaan</label>
+          <select id="pj_tipe">
+            <option value="kontrak">Proyek Kontrak (ada nilai kontrak)</option>
+            <option value="maintenance">Maintenance / Pekerjaan Berjalan (tanpa kontrak)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label id="pj_nilaiLabel">Nilai Kontrak (Rp)</label>
+          <input type="text" inputmode="numeric" id="pj_nilai" placeholder="0">
+          <small class="muted" id="pj_tipeHint" style="display:none;">Untuk maintenance/pekerjaan berjalan, nilai kontrak boleh dikosongkan — margin dihitung dari pembayaran yang benar-benar diterima dikurangi biaya.</small>
         </div>
         <div class="field">
           <label>Status</label>
