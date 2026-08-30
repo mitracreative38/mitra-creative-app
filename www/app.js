@@ -4292,6 +4292,8 @@ function renderProyekDetail() {
     </tr>
   `;
 
+  renderTxnTanpaProyekHint(p);
+
   const terminRows = proyekKasTxns(p)
     .filter(t => t.tipe === "Masuk" && ["Pendapatan Jasa", "Pendapatan Lain-lain"].includes(t.kategori))
     .sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
@@ -4924,6 +4926,71 @@ function printInvoice(p, inv) {
 // harus lewat halaman Kas Perusahaan dan sering lupa memilih proyek).
 // Tetap satu sumber data: transaksi Kas Perusahaan biasa.
 const BIAYA_LAIN_KATEGORI = ["Biaya Transport", "Biaya Operasional", "Biaya Alat", "Biaya Lain-lain"];
+// ----- Kaitkan transaksi biaya lama ke Proyek -----
+// Realisasi di Anggaran vs Realisasi HANYA menghitung transaksi Kas yang
+// proyekId-nya = proyek ini. Transaksi biaya yang diinput tanpa memilih
+// proyek (gaji lama, operasional, dll) tidak pernah terhitung di Margin
+// Proyek mana pun -- terasa "tidak sinkron" padahal datanya ada di Kas.
+// Deteksi + modal ini jalur perbaikannya: pilih massal, langsung terkait.
+// Cakupan kategori: inti proyek (KATEGORI_BIAYA_PROYEK dari Pemeriksaan
+// Integrasi) + biaya lain-lain -- pengguna sendiri yang memilih mana yang
+// benar-benar milik proyek ini di modal.
+function txnBiayaTanpaProyek() {
+  const kategoriBiaya = [...KATEGORI_BIAYA_PROYEK, ...BIAYA_LAIN_KATEGORI];
+  return state.kasUsaha.transactions.filter(t =>
+    t.tipe === "Keluar" && kategoriBiaya.includes(t.kategori) && !t.proyekId &&
+    // Periode yang sudah ditutup bukunya tidak boleh diubah -- jangan tawarkan.
+    !(state.periodeTerkunci && (t.tanggal || "").slice(0, 7) <= state.periodeTerkunci));
+}
+function renderTxnTanpaProyekHint(p) {
+  const hintEl = document.getElementById("pd_txnTanpaProyekHint");
+  if (!hintEl) return;
+  const list = p.arsip ? [] : txnBiayaTanpaProyek();
+  if (!list.length) { hintEl.style.display = "none"; return; }
+  const total = list.reduce((s, t) => s + Math.max(0, t.jumlah || 0), 0);
+  document.getElementById("pd_txnTanpaProyekText").textContent =
+    `⚠️ Ada ${list.length} transaksi biaya (total ${rupiah(total)}) di Kas Perusahaan yang belum dikaitkan ke proyek mana pun — tidak terhitung di Realisasi/Margin proyek ini.`;
+  hintEl.style.display = "flex";
+}
+document.getElementById("pd_kaitkanTxnBtn").addEventListener("click", () => {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p || proyekArsipGuard(p)) return;
+  const rows = txnBiayaTanpaProyek().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
+  document.querySelector("#kt_table tbody").innerHTML = rows.length ? rows.map(t => `
+    <tr>
+      <td><input type="checkbox" class="kt-check" data-txn-id="${t.id}"></td>
+      <td style="white-space:nowrap;">${formatTanggal(t.tanggal)}</td>
+      <td>${escapeHtml(t.kategori)}</td>
+      <td>${t.sumberSlipId ? "💰 " : ""}${escapeHtml(t.keterangan || "-")}</td>
+      <td class="num">${rupiah(t.jumlah)}</td>
+    </tr>
+  `).join("") : '<tr class="empty-row"><td colspan="5">Semua transaksi biaya sudah terkait proyek 👍</td></tr>';
+  document.getElementById("kt_checkAll").checked = false;
+  document.getElementById("kaitkanTxnModal").classList.add("open");
+});
+document.getElementById("kt_checkAll").addEventListener("change", () => {
+  const master = document.getElementById("kt_checkAll");
+  document.querySelectorAll("#kt_table tbody .kt-check").forEach(c => { c.checked = master.checked; });
+});
+document.getElementById("kt_simpanBtn").addEventListener("click", () => {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) { closeModals(); return; }
+  const ids = Array.from(document.querySelectorAll("#kt_table tbody .kt-check:checked")).map(c => c.dataset.txnId);
+  if (!ids.length) { alert("Centang dulu transaksi yang mau dikaitkan ke proyek ini."); return; }
+  let count = 0;
+  ids.forEach(id => {
+    const t = state.kasUsaha.transactions.find(x => x.id === id);
+    if (!t || t.proyekId) return;
+    const before = { ...t };
+    t.proyekId = p.id;
+    mirrorKasUsahaUpsert(t, before);
+    count++;
+  });
+  saveState();
+  closeModals();
+  renderAll();
+  alert(`${count} transaksi berhasil dikaitkan ke proyek "${p.nama}" — Realisasi, Margin, dan KPI langsung ter-update.`);
+});
 function renderBiayaLainProyek(p) {
   const rows = proyekKasTxns(p)
     .filter(t => t.tipe === "Keluar" && BIAYA_LAIN_KATEGORI.includes(t.kategori) && !t.sumberBelanjaId && !t.sumberSlipId)
