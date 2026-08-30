@@ -1889,6 +1889,28 @@
             </table>
           </div>
         </div>
+
+        <div class="panel">
+          <h3>Rekap Pendapatan per Karyawan (Periode)</h3>
+          <p class="muted" style="font-size:12px; margin:4px 0 10px;">Total pendapatan SEMUA karyawan dijumlah dari slip gaji yang periodenya berakhir di rentang ini — cocok untuk rekap tahunan setelah rapel absensi + slip massal.</p>
+          <div class="toolbar">
+            <label class="field-label" style="margin:0 4px 0 0;">Dari</label>
+            <input type="date" id="rp_mulai">
+            <label class="field-label" style="margin:0 4px 0 8px;">Sampai</label>
+            <input type="date" id="rp_selesai">
+            <button class="btn-ghost" id="rp_muatBtn">Muat Rekap</button>
+            <button class="btn-ghost" id="rp_cetakBtn">🖨️ Cetak Rekap</button>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="rp_table">
+              <thead><tr>
+                <th>Nama</th><th>Jabatan</th><th class="num">Slip</th><th class="num">Hari Hadir</th><th class="num">Jam Lembur</th><th class="num">Upah Kotor</th><th class="num">Uang Makan</th><th class="num">Bon</th><th class="num">Pot. Pinjaman</th><th class="num">Gaji Bersih</th>
+              </tr></thead>
+              <tbody></tbody>
+              <tfoot></tfoot>
+            </table>
+          </div>
+        </div>
       </div>
 
       <div class="subtab-panel" id="ky_rekapPanel">
