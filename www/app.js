@@ -166,6 +166,20 @@ function getPendingMirrorIds(table) {
   const map = readPendingMirror();
   return map[table] || [];
 }
+// Penghitung kiriman cloud yang masih berjalan (kasus "semua editan saya
+// hilang"): mirror bersifat kirim-dan-lupa, jadi menutup/memuat ulang tab
+// SEBELUM kiriman selesai (mis. langsung reload setelah operasi massal
+// yang mengirim puluhan baris) membuat cloud tertinggal -- reload
+// berikutnya membangun state dari cloud yang lama dan editan lenyap.
+// Selama masih ada kiriman berjalan, browser diminta menahan penutupan
+// tab dengan dialog konfirmasi bawaan.
+let mirrorInFlight = 0;
+window.addEventListener("beforeunload", e => {
+  if (mirrorInFlight > 0) {
+    e.preventDefault();
+    e.returnValue = "Perubahan masih dikirim ke cloud -- tunggu sebentar sebelum menutup halaman.";
+  }
+});
 function saveState() {
   persistLocalState();
   // Fase 0.4: subscribeRealtime() sekarang mendengarkan SEMUA tabel
@@ -982,6 +996,7 @@ function proyekToRow(p) {
 }
 async function mirrorProyekUpsert(p, existing) {
   if (!sb || !targetCompanyId) return;
+  mirrorInFlight++;
   try {
     const { error } = await sb.from("proyek").upsert(proyekToRow(p));
     if (error) throw error;
@@ -997,7 +1012,7 @@ async function mirrorProyekUpsert(p, existing) {
     if (existing === null) {
       alert(`Proyek "${p.nama}" tersimpan di perangkat ini tapi GAGAL tersimpan ke cloud:\n\n${err.message}\n\nJangan khawatir -- proyek TIDAK akan hilang, aplikasi otomatis mencoba mengirim ulang saat sinkron berikutnya.`);
     }
-  }
+  } finally { mirrorInFlight--; }
 }
 async function mirrorProyekDelete(id, deletedRecord) {
   if (!sb || !targetCompanyId) return;
@@ -1095,23 +1110,31 @@ function karyawanGajiToRow(k, opts) {
 }
 async function mirrorKaryawanUpsert(k, existing) {
   if (!sb || !targetCompanyId) return;
+  mirrorInFlight++;
   try {
     const { error } = await sb.from("karyawan").upsert(karyawanToRow(k));
     if (error) throw error;
+    clearPendingMirror("karyawan", k.id);
     if (existing !== undefined) logActivityNow("karyawan", existing ? "update" : "create", k.id, existing, k);
   } catch (err) {
+    // Antrean pending: absensi/data karyawan yang gagal termirror jangan
+    // hilang saat reload (kasus "editan rekap hilang semua").
+    notePendingMirror("karyawan", k.id);
     setSyncStatus("Gagal menyimpan Karyawan ke tabel relasional: " + err.message);
-  }
+  } finally { mirrorInFlight--; }
 }
 async function mirrorKaryawanGajiUpsert(k, isNewSlip, opts) {
   if (!sb || !targetCompanyId) return;
+  mirrorInFlight++;
   try {
     const { error } = await sb.from("karyawan_gaji").upsert(karyawanGajiToRow(k, opts));
     if (error) throw error;
+    clearPendingMirror("karyawanGaji", k.id);
     if (isNewSlip !== undefined) logActivityNow("karyawanGaji", "update", k.id, null, k);
   } catch (err) {
+    notePendingMirror("karyawanGaji", k.id);
     setSyncStatus("Gagal menyimpan slip gaji ke tabel relasional: " + err.message);
-  }
+  } finally { mirrorInFlight--; }
 }
 async function mirrorKaryawanDelete(id, deletedRecord) {
   if (!sb || !targetCompanyId) return;
@@ -1638,32 +1661,42 @@ function kasUsahaTxnToRow(t) {
 }
 async function mirrorKasUsahaUpsert(t, existing) {
   if (!sb || !targetCompanyId) return;
+  mirrorInFlight++;
   try {
     const { error } = await sb.from("kas_usaha_transaksi").upsert(kasUsahaTxnToRow(t));
     if (error) throw error;
+    clearPendingMirror("kasUsaha", t.id);
     if (existing !== undefined) logActivityNow("kasUsaha", existing ? "update" : "create", t.id, existing, t);
   } catch (err) {
+    // Antrean pending (pola "proyek AC Demak"): transaksi yang gagal
+    // termirror JANGAN hilang saat reload -- buildStateFromRelational
+    // mempertahankan salinan lokalnya dan mencoba mirror ulang.
+    notePendingMirror("kasUsaha", t.id);
     setSyncStatus("Gagal menyimpan transaksi Kas Perusahaan ke tabel relasional: " + err.message);
-  }
+  } finally { mirrorInFlight--; }
 }
 async function mirrorKasUsahaDelete(id, deletedRecord) {
   if (!sb || !targetCompanyId) return;
+  // Hapus yang disengaja tidak boleh dihidupkan kembali oleh antrean pending.
+  clearPendingMirror("kasUsaha", id);
+  mirrorInFlight++;
   try {
     const { error } = await sb.from("kas_usaha_transaksi").delete().eq("id", id).eq("company_id", targetCompanyId);
     if (error) throw error;
     if (deletedRecord) logActivityNow("kasUsaha", "delete", id, deletedRecord, null);
   } catch (err) {
     setSyncStatus("Gagal menghapus transaksi Kas Perusahaan di tabel relasional: " + err.message);
-  }
+  } finally { mirrorInFlight--; }
 }
 async function mirrorKasUsahaDeleteBySumberSlip(slipId) {
   if (!sb || !targetCompanyId) return;
+  mirrorInFlight++;
   try {
     const { error } = await sb.from("kas_usaha_transaksi").delete().eq("sumber_slip_id", slipId).eq("company_id", targetCompanyId);
     if (error) throw error;
   } catch (err) {
     setSyncStatus("Gagal menghapus transaksi Kas Perusahaan (slip gaji) di tabel relasional: " + err.message);
-  }
+  } finally { mirrorInFlight--; }
 }
 async function mirrorKasUsahaDeleteBySumberBelanja(belanjaId) {
   if (!sb || !targetCompanyId) return;
@@ -2046,6 +2079,36 @@ async function buildStateFromRelational(companyId) {
 
   built = withDefaults(built);
   built = await hydrateSensitiveFields(built);
+
+  // Jaring pengaman yang sama untuk Kas Perusahaan & Karyawan (kasus
+  // "semua editan rekap saya hilang"): mutasi yang mirror-nya gagal/belum
+  // sempat terkirim tercatat di antrean pending -- saat reload, versi
+  // LOKAL-lah yang benar (lebih baru dari cloud), jadi dipertahankan
+  // (ditimpa/ditambahkan ke hasil relasional) lalu dimirror ulang di latar
+  // belakang. Ditaruh SETELAH hydrateSensitiveFields supaya hasil rescue
+  // (slip gaji, uang makan) tidak tertimpa balik oleh data cloud lama.
+  const lokalState = typeof state !== "undefined" && state ? state : null;
+  if (lokalState) {
+    getPendingMirrorIds("kasUsaha").forEach(id => {
+      const lokal = ((lokalState.kasUsaha || {}).transactions || []).find(t => t.id === id);
+      if (!lokal) { clearPendingMirror("kasUsaha", id); return; }
+      const idx = built.kasUsaha.transactions.findIndex(t => t.id === id);
+      if (idx >= 0) built.kasUsaha.transactions[idx] = lokal;
+      else built.kasUsaha.transactions.push(lokal);
+      setTimeout(() => { mirrorKasUsahaUpsert(lokal); }, 2000);
+    });
+    [...new Set([...getPendingMirrorIds("karyawan"), ...getPendingMirrorIds("karyawanGaji")])].forEach(id => {
+      const lokal = (lokalState.karyawan || []).find(k => k.id === id);
+      if (!lokal) { clearPendingMirror("karyawan", id); clearPendingMirror("karyawanGaji", id); return; }
+      const idx = built.karyawan.findIndex(k => k.id === id);
+      if (idx >= 0) built.karyawan[idx] = lokal;
+      else built.karyawan.push(lokal);
+      setTimeout(() => {
+        mirrorKaryawanUpsert(lokal);
+        if (currentTeamRole === "owner") mirrorKaryawanGajiUpsert(lokal);
+      }, 2000);
+    });
+  }
   return built;
 }
 
