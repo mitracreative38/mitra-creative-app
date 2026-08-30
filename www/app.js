@@ -8207,6 +8207,7 @@ function renderAbsensiPanel() {
     tbody.appendChild(tr);
   });
   syncAbHadirAllState();
+  syncUndoMassalButtons();
 }
 // Kotak "ceklis semua" di header kolom Hadir: sekali klik mencentang (atau
 // menghapus centang) Hadir SEMUA karyawan sekaligus -- untuk input manual
@@ -8330,6 +8331,30 @@ document.getElementById("ab_saveBtn").addEventListener("click", () => {
 // tanggal yang BELUM punya catatan yang diisi -- absensi yang sudah pernah
 // disimpan (manual/QR/biometrik) tidak pernah ditimpa; bulan yang sudah
 // ditutup bukunya (periodeTerkunci) dilewati.
+// Jejak undo operasi massal (permintaan Owner: kesalahan rekap harus bisa
+// dibatalkan). Satu slot untuk operasi massal TERAKHIR, berisi ID persis
+// dari record yang DIBUAT oleh operasi itu -- undo menghapus tepat record
+// tersebut saja (input manual tidak pernah tersentuh), lokal + cloud.
+// Disimpan di localStorage (bukan state) karena state dibangun ulang dari
+// tabel relasional saat reload; undo memang dimaksudkan ditekan segera di
+// perangkat yang sama setelah sadar salah input.
+const UNDO_MASSAL_KEY = "mitraCreative_undoMassal_v1";
+function readUndoMassal() {
+  try { return JSON.parse(localStorage.getItem(UNDO_MASSAL_KEY)) || null; } catch (e) { return null; }
+}
+function writeUndoMassal(rec) {
+  try {
+    if (rec) localStorage.setItem(UNDO_MASSAL_KEY, JSON.stringify(rec));
+    else localStorage.removeItem(UNDO_MASSAL_KEY);
+  } catch (e) { /* storage penuh/di-blok: undo saja yang tidak tersedia */ }
+}
+function syncUndoMassalButtons() {
+  const rec = readUndoMassal();
+  const ab = document.getElementById("ab_undoMassalBtn");
+  const pg = document.getElementById("pg_undoMassalBtn");
+  if (ab) ab.style.display = rec && rec.tipe === "absensi" ? "" : "none";
+  if (pg) pg.style.display = rec && rec.tipe === "slip" ? "" : "none";
+}
 function tanggalKerjaMassal(dari, sampai, hariKerja) {
   const hasil = { kerja: [], terkunci: 0 };
   if (!dari || !sampai || dari > sampai) return hasil;
@@ -8389,6 +8414,7 @@ document.getElementById("am_terapkanBtn").addEventListener("click", () => {
     (terkunci ? `• ${terkunci} hari dilewati (periode ditutup buku)\n` : "") +
     `\nTanggal yang sudah punya catatan absensi TIDAK akan ditimpa.`)) return;
   let dibuat = 0, adaSudah = 0, slipTersinkron = 0;
+  const undoPerKaryawan = {};
   daftarK.forEach(k => {
     if (!k.absensi) k.absensi = [];
     const adaTanggal = new Set(k.absensi.map(a => a.tanggal));
@@ -8399,6 +8425,7 @@ document.getElementById("am_terapkanBtn").addEventListener("click", () => {
       if (proyekId) rec.proyekId = proyekId;
       if (isiUangMakan) { rec.uangMakan = k.uangMakanHarian || 0; rec.bon = 0; }
       k.absensi.push(rec);
+      (undoPerKaryawan[k.id] = undoPerKaryawan[k.id] || []).push(rec.id);
       dibuatK++;
     });
     if (!dibuatK) return;
@@ -8418,6 +8445,9 @@ document.getElementById("am_terapkanBtn").addEventListener("click", () => {
     logActivityNow("absensi", "create", `${k.id}:massal:${dari}_${sampai}`, null,
       { nama: `${k.nama} (isi massal ${dibuatK} hari)`, tanggal: `${dari} s/d ${sampai}`, hadir: true, jamLembur, uangMakan: isiUangMakan ? (k.uangMakanHarian || 0) : 0, bon: 0 });
   });
+  if (dibuat) {
+    writeUndoMassal({ tipe: "absensi", waktu: new Date().toISOString(), dari, sampai, dibuat, perKaryawan: undoPerKaryawan });
+  }
   saveState();
   renderAll();
   closeModals();
@@ -8426,7 +8456,45 @@ document.getElementById("am_terapkanBtn").addEventListener("click", () => {
     (adaSudah ? `• ${adaSudah} tanggal dilewati karena sudah punya catatan absensi\n` : "") +
     (terkunci ? `• ${terkunci} hari dilewati karena periodenya sudah ditutup buku\n` : "") +
     (slipTersinkron ? `• ${slipTersinkron} slip gaji ditata ulang alokasi proyeknya\n` : "") +
-    `\nRekap bisa langsung dilihat di subtab Rekap Bulanan, dan gaji dihitung otomatis lewat Penggajian → Hitung Otomatis dari Absensi.`);
+    `\nRekap bisa langsung dilihat di subtab Rekap Bulanan, dan gaji dihitung otomatis lewat Penggajian → Hitung Otomatis dari Absensi.` +
+    (dibuat ? `\n\nSalah input? Klik "↩️ Batalkan Isi Massal Terakhir" di halaman Absensi Harian — hanya ${dibuat} catatan barusan yang dihapus, input manual tidak tersentuh.` : ""));
+});
+// Batalkan Isi Absensi Massal terakhir: hapus TEPAT record yang tadi
+// dibuat (by id) -- absensi manual/QR/biometrik tidak pernah ikut.
+document.getElementById("ab_undoMassalBtn").addEventListener("click", () => {
+  const rec = readUndoMassal();
+  if (!rec || rec.tipe !== "absensi") { syncUndoMassalButtons(); return; }
+  if (!confirm(`Batalkan Isi Absensi Massal terakhir (${formatTanggal(rec.dari)} s/d ${formatTanggal(rec.sampai)})?\n\n${rec.dibuat} catatan hadir yang dibuat operasi itu akan DIHAPUS. Absensi yang diinput manual tidak tersentuh.`)) return;
+  const terkunciBln = t => state.periodeTerkunci && (t || "").slice(0, 7) <= state.periodeTerkunci;
+  let dihapus = 0, terkunci = 0, slipTersinkron = 0;
+  Object.keys(rec.perKaryawan).forEach(kid => {
+    const k = state.karyawan.find(x => x.id === kid);
+    if (!k) return;
+    const idSet = new Set(rec.perKaryawan[kid]);
+    const sebelum = (k.absensi || []).length;
+    k.absensi = (k.absensi || []).filter(a => {
+      if (!idSet.has(a.id)) return true;
+      if (terkunciBln(a.tanggal)) { terkunci++; return true; }
+      return false;
+    });
+    const dihapusK = sebelum - k.absensi.length;
+    if (!dihapusK) return;
+    dihapus += dihapusK;
+    mirrorKaryawanUpsert(k);
+    if (currentTeamRole === "owner") {
+      mirrorKaryawanGajiUpsert(k);
+      (k.slipGaji || []).forEach(sl => {
+        if ((sl.mulai || "") <= rec.sampai && (sl.selesai || "") >= rec.dari) { syncSlipGajiKasTxn(k, sl); slipTersinkron++; }
+      });
+    }
+  });
+  writeUndoMassal(null);
+  saveState();
+  renderAll();
+  alert(`Isi Absensi Massal dibatalkan.\n\n` +
+    `• ${dihapus} catatan hadir dihapus kembali\n` +
+    (terkunci ? `• ${terkunci} catatan TIDAK dihapus karena periodenya sudah ditutup buku (buka kunci dulu di Laporan Keuangan → Tutup Buku bila memang perlu)\n` : "") +
+    (slipTersinkron ? `• ${slipTersinkron} slip gaji ditata ulang alokasi proyeknya\n` : ""));
 });
 
 // ----- Absensi via Scan QR (Fase 1.7) -----
@@ -8546,6 +8614,7 @@ function renderPenggajianPanel() {
   computePayrollFromAbsensi(true);
   renderPenggajianRiwayat();
   renderRekapPendapatan();
+  syncUndoMassalButtons();
 }
 function currentKaryawanForPayroll() {
   return state.karyawan.find(k => k.id === document.getElementById("pg_karyawan").value);
@@ -9240,6 +9309,7 @@ document.getElementById("sm_terapkanBtn").addEventListener("click", () => {
     `• Dihitung otomatis dari absensi; langsung tercatat di Kas Perusahaan (Biaya Upah/Tenaga, alokasi per proyek)\n` +
     `• Periode yang sudah punya slip / tanpa absensi / sudah ditutup buku otomatis dilewati`)) return;
   let dibuat = 0, adaSlip = 0, kosong = 0, terkunci = 0, totalGaji = 0;
+  const undoPerKaryawan = {};
   daftarK.forEach(k => {
     if (!k.slipGaji) k.slipGaji = [];
     let dibuatK = 0;
@@ -9255,6 +9325,7 @@ document.getElementById("sm_terapkanBtn").addEventListener("click", () => {
       if (!adaAbsensi) { kosong++; return; }
       const slip = hitungSlipHarianDariAbsensi(k, per.mulai, per.selesai);
       k.slipGaji.push(slip);
+      (undoPerKaryawan[k.id] = undoPerKaryawan[k.id] || []).push(slip.id);
       syncSlipGajiKasTxn(k, slip);
       totalGaji += slipGajiBersih(slip);
       dibuatK++;
@@ -9263,6 +9334,9 @@ document.getElementById("sm_terapkanBtn").addEventListener("click", () => {
     dibuat += dibuatK;
     mirrorKaryawanGajiUpsert(k, true);
   });
+  if (dibuat) {
+    writeUndoMassal({ tipe: "slip", waktu: new Date().toISOString(), dari, sampai, dibuat, perKaryawan: undoPerKaryawan });
+  }
   saveState();
   renderAll();
   closeModals();
@@ -9271,7 +9345,44 @@ document.getElementById("sm_terapkanBtn").addEventListener("click", () => {
     (adaSlip ? `• ${adaSlip} periode dilewati karena sudah punya slip (tidak ada gaji dobel)\n` : "") +
     (kosong ? `• ${kosong} periode dilewati karena tidak ada absensi\n` : "") +
     (terkunci ? `• ${terkunci} periode dilewati karena bulannya sudah ditutup buku\n` : "") +
-    `\nPeriksa/koreksi slip lewat ✏️ di Riwayat Slip masing-masing karyawan (potongan pinjaman sengaja 0).`);
+    `\nPeriksa/koreksi slip lewat ✏️ di Riwayat Slip masing-masing karyawan (potongan pinjaman sengaja 0).` +
+    (dibuat ? `\n\nSalah input? Klik "↩️ Batalkan Slip Massal Terakhir" di halaman Penggajian — hanya ${dibuat} slip barusan (beserta transaksi Kas otomatisnya) yang dihapus, slip yang dibuat manual tidak tersentuh.` : ""));
+});
+// Batalkan Buat Slip Massal terakhir: hapus TEPAT slip yang tadi dibuat
+// beserta transaksi Kas otomatisnya (sumberSlipId) -- jalur hapus yang
+// sama dengan tombol 🗑️ per slip, dijalankan sekaligus.
+document.getElementById("pg_undoMassalBtn").addEventListener("click", () => {
+  if (currentTeamRole !== "owner") { alert("Slip gaji hanya bisa diubah oleh Owner."); return; }
+  const rec = readUndoMassal();
+  if (!rec || rec.tipe !== "slip") { syncUndoMassalButtons(); return; }
+  if (!confirm(`Batalkan Buat Slip Massal terakhir (${formatTanggal(rec.dari)} s/d ${formatTanggal(rec.sampai)})?\n\n${rec.dibuat} slip yang dibuat operasi itu akan DIHAPUS beserta transaksi Kas otomatisnya. Sisa pinjaman karyawan dihitung ulang. Slip yang dibuat manual tidak tersentuh.`)) return;
+  const terkunciBln = t => state.periodeTerkunci && (t || "").slice(0, 7) <= state.periodeTerkunci;
+  let dihapus = 0, terkunci = 0;
+  Object.keys(rec.perKaryawan).forEach(kid => {
+    const k = state.karyawan.find(x => x.id === kid);
+    if (!k) return;
+    const idSet = new Set(rec.perKaryawan[kid]);
+    const dihapusIds = [];
+    k.slipGaji = (k.slipGaji || []).filter(s => {
+      if (!idSet.has(s.id)) return true;
+      if (terkunciBln(s.selesai)) { terkunci++; return true; }
+      dihapusIds.push(s.id);
+      return false;
+    });
+    if (!dihapusIds.length) return;
+    dihapus += dihapusIds.length;
+    const hapusSet = new Set(dihapusIds);
+    state.kasUsaha.transactions = state.kasUsaha.transactions.filter(t => !hapusSet.has(t.sumberSlipId));
+    recomputeSlipGajiChain(k);
+    mirrorKaryawanGajiUpsert(k, true);
+    dihapusIds.forEach(id => mirrorKasUsahaDeleteBySumberSlip(id));
+  });
+  writeUndoMassal(null);
+  saveState();
+  renderAll();
+  alert(`Buat Slip Massal dibatalkan.\n\n` +
+    `• ${dihapus} slip dihapus kembali beserta transaksi Kas otomatisnya — Kas, Laporan Keuangan, Margin Proyek, dan KPI langsung kembali seperti sebelum slip massal\n` +
+    (terkunci ? `• ${terkunci} slip TIDAK dihapus karena periodenya sudah ditutup buku (buka kunci dulu di Laporan Keuangan → Tutup Buku bila memang perlu)\n` : ""));
 });
 
 function buildSlipGajiPrintHtml(k, sl) {
