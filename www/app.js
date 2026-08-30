@@ -950,6 +950,7 @@ function proyekToRow(p) {
     lokasi_lat: (typeof p.lokasiLat === "number") ? p.lokasiLat : null,
     lokasi_lng: (typeof p.lokasiLng === "number") ? p.lokasiLng : null,
     nilai_kontrak: p.nilaiKontrak || 0,
+    tipe: p.tipe || "kontrak",
     status: p.status || "",
     tanggal_mulai: p.tanggalMulai || null,
     tanggal_selesai: p.tanggalSelesai || null,
@@ -1806,7 +1807,7 @@ function rowToProyek(r) {
     id: r.id, nama: r.nama || "", klienId: r.klien_id || "", klien: r.klien || "",
     lokasi: r.lokasi || "", lokasiLat: (typeof r.lokasi_lat === "number") ? r.lokasi_lat : null,
     lokasiLng: (typeof r.lokasi_lng === "number") ? r.lokasi_lng : null,
-    nilaiKontrak: r.nilai_kontrak || 0, status: r.status || "",
+    nilaiKontrak: r.nilai_kontrak || 0, tipe: r.tipe || "kontrak", status: r.status || "",
     tanggalMulai: r.tanggal_mulai || "", tanggalSelesai: r.tanggal_selesai || "",
     biayaBahan: r.biaya_bahan || 0, biayaUpah: r.biaya_upah || 0, biayaLain: r.biaya_lain || 0,
     karyawanIds: r.karyawan_ids || [], subkontraktor: r.subkontraktor || [],
@@ -2351,8 +2352,16 @@ function projectCalc(p) {
   const anggaranLain = p.biayaLain || 0;
   const anggaranSubkon = (p.subkontraktor || []).reduce((s, sk) => s + (sk.nilaiKontrak || 0), 0);
 
-  const margin = (p.nilaiKontrak || 0) - totalBiaya;
-  const marginPct = p.nilaiKontrak ? margin / p.nilaiKontrak : 0;
+  // Maintenance/pekerjaan berjalan tidak punya nilai kontrak -- margin
+  // dihitung dari pendapatan yang BENAR-BENAR diterima dikurangi biaya
+  // (basis kas), bukan dari kontrak yang memang tidak ada. Proyek kontrak
+  // tetap memakai rumus lama (nilai kontrak - biaya).
+  const isMaintenance = p.tipe === "maintenance";
+  const basisPendapatan = isMaintenance
+    ? sumTxns(txns, "Masuk", ["Pendapatan Jasa", "Pendapatan Lain-lain"], "lunas")
+    : (p.nilaiKontrak || 0);
+  const margin = basisPendapatan - totalBiaya;
+  const marginPct = basisPendapatan ? margin / basisPendapatan : 0;
   let marginStatus = "critical";
   if (marginPct > 0.30) marginStatus = "good";
   else if (marginPct >= 0.15) marginStatus = "warning";
@@ -4278,10 +4287,10 @@ function renderProyekList() {
     const tr = document.createElement("tr");
     const overdue = p.status === "berjalan" && p.tanggalSelesai && p.tanggalSelesai < today;
     tr.innerHTML = `
-      <td>${escapeHtml(p.nama)}${p.arsip ? ' <span title="Sudah ditutup & diarsipkan">📦</span>' : ""}${p.klien ? `<div class="muted" style="font-size:12px;">${escapeHtml(p.klien)}</div>` : ""}</td>
+      <td>${escapeHtml(p.nama)}${p.tipe === "maintenance" ? ' <span class="badge badge-pending" title="Maintenance / pekerjaan berjalan tanpa kontrak — margin dihitung dari pembayaran yang diterima">🔧 Maintenance</span>' : ""}${p.arsip ? ' <span title="Sudah ditutup & diarsipkan">📦</span>' : ""}${p.klien ? `<div class="muted" style="font-size:12px;">${escapeHtml(p.klien)}</div>` : ""}</td>
       <td>${proyekStatusLabel(p.status)}</td>
       <td class="${overdue ? "bad" : ""}">${p.tanggalSelesai ? formatTanggal(p.tanggalSelesai) : "-"}${overdue ? " ⚠️" : ""}</td>
-      <td class="num">${rupiah(p.nilaiKontrak)}</td>
+      <td class="num">${p.tipe === "maintenance" && !p.nilaiKontrak ? '<span class="muted">— (berjalan)</span>' : rupiah(p.nilaiKontrak)}</td>
       <td class="num">${rupiah(p.totalBiaya)}</td>
       <td class="num">${rupiah(p.margin)}</td>
       <td class="num"><span class="badge-margin ${p.marginStatus}">${(p.marginPct * 100).toFixed(1)}% · ${marginStatusLabel(p.marginStatus)}</span></td>
@@ -4305,9 +4314,9 @@ function renderProyekDetail() {
   const today = hariIniIso();
   const overdue = p.status === "berjalan" && p.tanggalSelesai && p.tanggalSelesai < today;
 
-  document.getElementById("pd_nama").textContent = p.nama || "(Tanpa nama)";
-  document.getElementById("pd_sub").textContent = [p.klien, p.lokasi].filter(Boolean).join(" · ") || "-";
-  document.getElementById("pd_nilaiKontrak").textContent = rupiah(p.nilaiKontrak);
+  document.getElementById("pd_nama").textContent = (p.nama || "(Tanpa nama)") + (p.tipe === "maintenance" ? " 🔧" : "");
+  document.getElementById("pd_sub").textContent = [p.tipe === "maintenance" ? "Maintenance / Pekerjaan Berjalan" : "", p.klien, p.lokasi].filter(Boolean).join(" · ") || "-";
+  document.getElementById("pd_nilaiKontrak").textContent = p.tipe === "maintenance" && !p.nilaiKontrak ? "— (berjalan)" : rupiah(p.nilaiKontrak);
   document.getElementById("pd_termin").textContent = rupiah(calc.terminDiterima) + (calc.terminPiutang ? ` (Piutang ${rupiah(calc.terminPiutang)})` : "");
   document.getElementById("pd_realisasi").textContent = rupiah(calc.totalBiaya);
   document.getElementById("pd_margin").textContent = rupiah(calc.margin);
@@ -4502,6 +4511,10 @@ function ensureTahapanProyek(p) {
 // terakhir yang selesai (atau sejak tanggal mulai proyek).
 function proyekTahapanMacet(p, today) {
   if (p.arsip || (p.status || "") !== "berjalan") return null;
+  // Maintenance/pekerjaan berjalan memang tidak mengikuti urutan tahapan
+  // administrasi kontrak (SPK/BAST/pelunasan) -- jangan pernah ditandai
+  // "macet" hanya karena checklist-nya kosong terus.
+  if (p.tipe === "maintenance") return null;
   // Proyek lama yang belum pernah dibuka detailnya belum punya p.tahapan
   // -- anggap semua tahap baku masih kosong supaya tetap terpantau.
   const list = Array.isArray(p.tahapan) && p.tahapan.length
@@ -13115,6 +13128,8 @@ function openProyekModal(existing) {
   pjKlienSel.innerHTML = '<option value="">Tidak dikaitkan</option>' + state.klien.map(k => `<option value="${k.id}">${escapeHtml(k.nama)}</option>`).join("");
   pjKlienSel.value = existing ? (existing.klienId || "") : "";
   document.getElementById("pj_lokasi").value = existing ? (existing.lokasi || "") : "";
+  document.getElementById("pj_tipe").value = existing ? (existing.tipe || "kontrak") : "kontrak";
+  toggleProyekTipeFields();
   document.getElementById("pj_nilai").value = existing ? formatNumberInput(existing.nilaiKontrak) : "";
   document.getElementById("pj_status").value = existing ? (existing.status || "berjalan") : "berjalan";
   document.getElementById("pj_tanggalMulai").value = existing ? (existing.tanggalMulai || "") : "";
@@ -13135,6 +13150,15 @@ function openProyekModal(existing) {
   proyekModal.classList.add("open");
 }
 ["pj_nilai", "pj_bahan", "pj_upah", "pj_lain"].forEach(id => attachNumberFormatting(document.getElementById(id)));
+// Maintenance/pekerjaan berjalan (tanpa kontrak): label & petunjuk field
+// nilai menyesuaikan -- nilai kontrak boleh kosong, margin dihitung dari
+// pendapatan yang benar-benar diterima (lihat projectCalc).
+function toggleProyekTipeFields() {
+  const isMaintenance = document.getElementById("pj_tipe").value === "maintenance";
+  document.getElementById("pj_nilaiLabel").textContent = isMaintenance ? "Nilai Kontrak (Rp, opsional)" : "Nilai Kontrak (Rp)";
+  document.getElementById("pj_tipeHint").style.display = isMaintenance ? "block" : "none";
+}
+document.getElementById("pj_tipe").addEventListener("change", toggleProyekTipeFields);
 
 document.querySelectorAll("[data-open-modal='proyek']").forEach(btn => {
   btn.addEventListener("click", () => openProyekModal(null));
@@ -13155,6 +13179,7 @@ document.getElementById("proyekForm").addEventListener("submit", e => {
     klien: document.getElementById("pj_klien").value.trim(),
     klienId: document.getElementById("pj_klienId").value || "",
     lokasi: document.getElementById("pj_lokasi").value.trim(),
+    tipe: document.getElementById("pj_tipe").value === "maintenance" ? "maintenance" : "kontrak",
     nilaiKontrak: parseNumberInput(document.getElementById("pj_nilai").value),
     status: document.getElementById("pj_status").value,
     tanggalMulai: document.getElementById("pj_tanggalMulai").value,
