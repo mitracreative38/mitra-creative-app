@@ -8324,6 +8324,111 @@ document.getElementById("ab_saveBtn").addEventListener("click", () => {
     (slipTersinkron ? `\n\n${slipTersinkron} slip gaji yang mencakup tanggal ini otomatis ditata ulang alokasi proyeknya (total gaji tidak berubah).` : ""));
 });
 
+// ----- Isi Absensi Massal (backfill rentang tanggal) -----
+// Untuk merapel absensi bulan-bulan lalu tanpa input satu per satu (mis.
+// rekap tahunan: semua pekerja penuh 6 hari/minggu + lembur 6 jam). Hanya
+// tanggal yang BELUM punya catatan yang diisi -- absensi yang sudah pernah
+// disimpan (manual/QR/biometrik) tidak pernah ditimpa; bulan yang sudah
+// ditutup bukunya (periodeTerkunci) dilewati.
+function tanggalKerjaMassal(dari, sampai, hariKerja) {
+  const hasil = { kerja: [], terkunci: 0 };
+  if (!dari || !sampai || dari > sampai) return hasil;
+  for (let t = dari; t <= sampai; t = addDaysIso(t, 1)) {
+    // T12:00:00 supaya hari-dalam-minggu tidak bergeser oleh timezone
+    // (pelajaran dari bug uang makan mingguan WIB).
+    const dow = new Date(t + "T12:00:00").getDay();
+    if (hariKerja === 6 && dow === 0) continue;            // Minggu libur
+    if (hariKerja === 5 && (dow === 0 || dow === 6)) continue; // Sabtu-Minggu libur
+    if (state.periodeTerkunci && t.slice(0, 7) <= state.periodeTerkunci) { hasil.terkunci++; continue; }
+    hasil.kerja.push(t);
+  }
+  return hasil;
+}
+function openAbsensiMassalModal() {
+  const thnIni = hariIniIso().slice(0, 4);
+  document.getElementById("am_dari").value = `${thnIni}-01-01`;
+  document.getElementById("am_sampai").value = hariIniIso();
+  document.getElementById("am_lembur").value = "6";
+  const proyekSel = document.getElementById("am_proyek");
+  proyekSel.innerHTML = `<option value="">— (tanpa proyek)</option>` +
+    state.proyek.filter(pp => !pp.arsip).map(pp => `<option value="${pp.id}">${escapeHtml(pp.nama)}</option>`).join("");
+  // Uang makan = data gaji sensitif, sama seperti panel harian: Owner saja.
+  document.getElementById("am_uangMakanField").style.display = currentTeamRole === "owner" ? "" : "none";
+  const aktif = state.karyawan.filter(k => k.aktif !== false).slice().sort((a, b) => a.nama.localeCompare(b.nama));
+  document.querySelector("#am_table tbody").innerHTML = aktif.length
+    ? aktif.map(k => `<tr><td><input type="checkbox" class="am-pilih" value="${k.id}" checked></td><td>${escapeHtml(k.nama)}</td><td>${escapeHtml(k.jabatan || "-")}</td></tr>`).join("")
+    : `<tr class="empty-row"><td colspan="3">Belum ada karyawan aktif</td></tr>`;
+  document.getElementById("am_checkAll").checked = true;
+  document.getElementById("absensiMassalModal").classList.add("open");
+}
+document.getElementById("ab_massalBtn").addEventListener("click", openAbsensiMassalModal);
+document.getElementById("am_checkAll").addEventListener("change", () => {
+  const master = document.getElementById("am_checkAll");
+  document.querySelectorAll("#am_table tbody .am-pilih").forEach(c => { c.checked = master.checked; });
+});
+document.getElementById("am_terapkanBtn").addEventListener("click", () => {
+  const dari = document.getElementById("am_dari").value;
+  let sampai = document.getElementById("am_sampai").value;
+  if (!dari || !sampai) { alert("Isi tanggal Dari dan Sampai terlebih dahulu."); return; }
+  if (dari > sampai) { alert("Tanggal Dari harus sebelum (atau sama dengan) tanggal Sampai."); return; }
+  // Absensi masa depan tidak masuk akal untuk rekap -- dipotong ke hari ini.
+  if (sampai > hariIniIso()) sampai = hariIniIso();
+  if (addDaysIso(dari, 370) < sampai) { alert("Rentang maksimal sekitar 1 tahun (370 hari) sekali jalan — pecah jadi dua kali kalau lebih."); return; }
+  const hariKerja = parseInt(document.getElementById("am_hariKerja").value, 10) || 6;
+  const jamLembur = Math.max(0, parseFloat((document.getElementById("am_lembur").value || "").replace(",", ".")) || 0);
+  const proyekId = document.getElementById("am_proyek").value || "";
+  const isiUangMakan = currentTeamRole === "owner" && document.getElementById("am_isiUangMakan").checked;
+  const pilihan = Array.from(document.querySelectorAll("#am_table tbody .am-pilih:checked")).map(c => c.value);
+  const daftarK = state.karyawan.filter(k => pilihan.includes(k.id));
+  if (!daftarK.length) { alert("Pilih minimal satu karyawan."); return; }
+  const { kerja, terkunci } = tanggalKerjaMassal(dari, sampai, hariKerja);
+  if (!kerja.length) { alert("Tidak ada hari kerja yang bisa diisi di rentang itu" + (terkunci ? ` (${terkunci} hari dilewati karena periodenya sudah ditutup buku).` : ".")); return; }
+  if (!confirm(`Isi absensi massal ${formatTanggal(dari)} s/d ${formatTanggal(sampai)}?\n\n` +
+    `• ${daftarK.length} karyawan × maks. ${kerja.length} hari kerja (pola ${hariKerja} hari/minggu)\n` +
+    `• Hadir penuh + lembur ${jamLembur} jam/hari\n` +
+    (terkunci ? `• ${terkunci} hari dilewati (periode ditutup buku)\n` : "") +
+    `\nTanggal yang sudah punya catatan absensi TIDAK akan ditimpa.`)) return;
+  let dibuat = 0, adaSudah = 0, slipTersinkron = 0;
+  daftarK.forEach(k => {
+    if (!k.absensi) k.absensi = [];
+    const adaTanggal = new Set(k.absensi.map(a => a.tanggal));
+    let dibuatK = 0;
+    kerja.forEach(t => {
+      if (adaTanggal.has(t)) { adaSudah++; return; }
+      const rec = { id: uid(), tanggal: t, hadir: true, jamLembur };
+      if (proyekId) rec.proyekId = proyekId;
+      if (isiUangMakan) { rec.uangMakan = k.uangMakanHarian || 0; rec.bon = 0; }
+      k.absensi.push(rec);
+      dibuatK++;
+    });
+    if (!dibuatK) return;
+    dibuat += dibuatK;
+    mirrorKaryawanUpsert(k);
+    if (currentTeamRole === "owner") {
+      mirrorKaryawanGajiUpsert(k);
+      // Slip gaji yang periodenya beririsan dengan rentang ini ditata ulang
+      // alokasi proyeknya (total gaji tidak berubah) -- sekali per slip,
+      // bukan per tanggal, supaya tidak ratusan kali sync.
+      (k.slipGaji || []).forEach(sl => {
+        if ((sl.mulai || "") <= sampai && (sl.selesai || "") >= dari) { syncSlipGajiKasTxn(k, sl); slipTersinkron++; }
+      });
+    }
+    // Satu baris log ringkas per karyawan (bukan per tanggal -- rentang
+    // setahun x banyak karyawan akan membanjiri Aktivitas Tim).
+    logActivityNow("absensi", "create", `${k.id}:massal:${dari}_${sampai}`, null,
+      { nama: `${k.nama} (isi massal ${dibuatK} hari)`, tanggal: `${dari} s/d ${sampai}`, hadir: true, jamLembur, uangMakan: isiUangMakan ? (k.uangMakanHarian || 0) : 0, bon: 0 });
+  });
+  saveState();
+  renderAll();
+  closeModals();
+  alert(`Isi absensi massal selesai.\n\n` +
+    `• ${dibuat} catatan hadir baru dibuat untuk ${daftarK.length} karyawan\n` +
+    (adaSudah ? `• ${adaSudah} tanggal dilewati karena sudah punya catatan absensi\n` : "") +
+    (terkunci ? `• ${terkunci} hari dilewati karena periodenya sudah ditutup buku\n` : "") +
+    (slipTersinkron ? `• ${slipTersinkron} slip gaji ditata ulang alokasi proyeknya\n` : "") +
+    `\nRekap bisa langsung dilihat di subtab Rekap Bulanan, dan gaji dihitung otomatis lewat Penggajian → Hitung Otomatis dari Absensi.`);
+});
+
 // ----- Absensi via Scan QR (Fase 1.7) -----
 // Alternatif dari GPS "Catat Lokasi" -- cocok untuk lokasi dalam gedung/
 // sinyal GPS lemah. Setiap pekerja punya kartu QR ID (lihat

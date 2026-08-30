@@ -1790,6 +1790,7 @@
             <input type="date" id="ab_tanggal">
             <button class="btn-ghost" id="ab_loadBtn">Muat Data Tanggal Ini</button>
             <button class="btn-primary" id="ab_scanQrBtn">📷 Scan QR Kehadiran</button>
+            <button class="btn-ghost" id="ab_massalBtn" title="Isi absensi banyak tanggal sekaligus (mis. rapel bulan-bulan lalu)">⚡ Isi Massal (Rentang Tanggal)</button>
           </div>
           <div class="table-wrap">
             <table class="tbl" id="ab_table">
@@ -4055,6 +4056,41 @@
     <div class="modal-actions">
       <button type="button" class="btn-ghost" data-close-modal>Batal</button>
       <button type="button" class="btn-primary" id="kt_simpanBtn">Kaitkan yang Dicentang</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: isi absensi massal (backfill rentang tanggal) -->
+<div class="modal-backdrop" id="absensiMassalModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>⚡ Isi Absensi Massal (Rentang Tanggal)</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <p class="muted" style="font-size:12px; margin:-4px 0 10px;">Untuk merapel absensi bulan-bulan lalu tanpa input satu per satu. Hanya tanggal yang <strong>belum punya catatan</strong> yang diisi — absensi yang sudah pernah disimpan tidak akan tertimpa. Bulan yang sudah ditutup bukunya otomatis dilewati.</p>
+    <div class="form-grid">
+      <div class="field"><label>Dari Tanggal</label><input type="date" id="am_dari"></div>
+      <div class="field"><label>Sampai Tanggal</label><input type="date" id="am_sampai"></div>
+      <div class="field"><label>Pola Hari Kerja</label>
+        <select id="am_hariKerja">
+          <option value="6" selected>6 hari / minggu (Senin–Sabtu)</option>
+          <option value="7">7 hari / minggu (setiap hari)</option>
+          <option value="5">5 hari / minggu (Senin–Jumat)</option>
+        </select></div>
+      <div class="field"><label>Jam Lembur per Hari</label><input type="text" inputmode="decimal" id="am_lembur" value="6"></div>
+      <div class="field"><label>Proyek Dikerjakan (opsional)</label><select id="am_proyek"></select></div>
+      <div class="field" id="am_uangMakanField"><label>Uang Makan Harian</label>
+        <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-weight:normal;"><input type="checkbox" id="am_isiUangMakan" checked> Isi sesuai setelan per karyawan</label></div>
+    </div>
+    <div class="table-wrap" style="max-height:220px; overflow-y:auto; margin-top:10px;">
+      <table class="tbl" id="am_table">
+        <thead><tr><th style="width:36px;"><input type="checkbox" id="am_checkAll" checked title="Centang semua"></th><th>Nama</th><th>Jabatan</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+      <button type="button" class="btn-primary" id="am_terapkanBtn">Isi Absensi Massal</button>
     </div>
   </div>
 </div>
