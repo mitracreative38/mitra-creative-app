@@ -133,6 +133,39 @@ function persistLocalState() {
     }
   }
 }
+// ----- Antrean "pending mirror" (kasus proyek menghilang) -----
+// Sejak Fase 0.4 aplikasi MEMBACA data dari tabel relasional cloud. Kalau
+// mirror sebuah record baru GAGAL (jaringan putus sesaat, jeda SQL belum
+// dijalankan, dll), record itu tidak pernah sampai ke cloud -- dan pada
+// reload berikutnya (login/Realtime) ia ikut TERBUANG dari state karena
+// cloud tidak mengenalnya. Antrean ini mencatat id yang gagal termirror
+// (di kunci localStorage terpisah supaya tidak ikut tertimpa reload),
+// lalu buildStateFromRelational mempertahankan salinan lokalnya dan
+// mencoba mirror ulang sampai berhasil.
+const PENDING_MIRROR_KEY = "mitraCreative_pendingMirror_v1";
+function readPendingMirror() {
+  try { return JSON.parse(localStorage.getItem(PENDING_MIRROR_KEY)) || {}; } catch (e) { return {}; }
+}
+function notePendingMirror(table, id) {
+  try {
+    const map = readPendingMirror();
+    if (!map[table]) map[table] = [];
+    if (!map[table].includes(id)) map[table].push(id);
+    localStorage.setItem(PENDING_MIRROR_KEY, JSON.stringify(map));
+  } catch (e) { /* penyimpanan penuh -- setSyncStatus pemanggil sudah memberi tahu */ }
+}
+function clearPendingMirror(table, id) {
+  try {
+    const map = readPendingMirror();
+    if (!map[table] || !map[table].includes(id)) return;
+    map[table] = map[table].filter(x => x !== id);
+    localStorage.setItem(PENDING_MIRROR_KEY, JSON.stringify(map));
+  } catch (e) { /* abaikan */ }
+}
+function getPendingMirrorIds(table) {
+  const map = readPendingMirror();
+  return map[table] || [];
+}
 function saveState() {
   persistLocalState();
   // Fase 0.4: subscribeRealtime() sekarang mendengarkan SEMUA tabel
@@ -951,13 +984,25 @@ async function mirrorProyekUpsert(p, existing) {
   try {
     const { error } = await sb.from("proyek").upsert(proyekToRow(p));
     if (error) throw error;
+    clearPendingMirror("proyek", p.id);
     if (existing !== undefined) logActivityNow("proyek", existing ? "update" : "create", p.id, existing, p);
   } catch (err) {
+    // Catat ke antrean pending supaya proyek TIDAK hilang saat reload dari
+    // cloud, dan beri tahu pengguna dengan jelas untuk proyek BARU (dulu
+    // cuma teks status kecil yang gampang terlewat -- proyek "menghilang"
+    // diam-diam di reload berikutnya).
+    notePendingMirror("proyek", p.id);
     setSyncStatus("Gagal menyimpan Proyek ke tabel relasional: " + err.message);
+    if (existing === null) {
+      alert(`Proyek "${p.nama}" tersimpan di perangkat ini tapi GAGAL tersimpan ke cloud:\n\n${err.message}\n\nJangan khawatir -- proyek TIDAK akan hilang, aplikasi otomatis mencoba mengirim ulang saat sinkron berikutnya.`);
+    }
   }
 }
 async function mirrorProyekDelete(id, deletedRecord) {
   if (!sb || !targetCompanyId) return;
+  // Penghapusan yang disengaja: buang juga dari antrean pending supaya
+  // jaring pengaman tidak menghidupkan kembali proyek yang memang dihapus.
+  clearPendingMirror("proyek", id);
   try {
     const { error } = await sb.from("proyek").delete().eq("id", id).eq("company_id", targetCompanyId);
     if (error) throw error;
@@ -1978,6 +2023,25 @@ async function buildStateFromRelational(companyId) {
       }
     } catch (e) { /* blob juga gagal diambil -- lanjut dengan hasil relasional kosong apa adanya */ }
   }
+
+  // Jaring pengaman per-item (kasus "proyek AC Demak menghilang"): proyek
+  // yang GAGAL termirror ke cloud tercatat di antrean pending. Saat reload
+  // dari tabel relasional, proyek itu belum ada di cloud -- tanpa blok ini
+  // ia ikut terbuang dari state secara permanen. Pertahankan salinan
+  // lokalnya (dari `state` yang masih lama saat fungsi ini berjalan) dan
+  // coba mirror ulang di latar belakang, sampai berhasil.
+  getPendingMirrorIds("proyek").forEach(id => {
+    if (built.proyek.some(pp => pp.id === id)) { clearPendingMirror("proyek", id); return; }
+    const lokal = ((typeof state !== "undefined" && state.proyek) || []).find(pp => pp.id === id);
+    if (lokal) {
+      built.proyek.push(lokal);
+      setTimeout(() => { mirrorProyekUpsert(lokal); }, 2000);
+    } else {
+      // Salinan lokal pun tidak ada (mis. localStorage dibersihkan) --
+      // tidak ada yang bisa diselamatkan, buang dari antrean.
+      clearPendingMirror("proyek", id);
+    }
+  });
 
   built = withDefaults(built);
   built = await hydrateSensitiveFields(built);
