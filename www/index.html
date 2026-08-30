@@ -1433,6 +1433,7 @@
 
         <div class="panel">
           <h3>Anggaran vs Realisasi (Quality Control)</h3>
+          <p class="muted" style="font-size:12px; margin:-4px 0 10px;">Realisasi dihitung dari transaksi Kas Perusahaan yang DIKAITKAN ke proyek ini (+ stok keluar untuk proyek ini). Transaksi biaya tanpa kaitan proyek tidak ikut terhitung di sini.</p>
           <div class="table-wrap">
             <table class="tbl" id="pd_anggaranTable">
               <thead><tr>
@@ -1440,6 +1441,10 @@
               </tr></thead>
               <tbody></tbody>
             </table>
+          </div>
+          <div id="pd_txnTanpaProyekHint" style="display:none; margin-top:10px; align-items:center; gap:10px; flex-wrap:wrap;">
+            <span class="bad" style="font-size:12.5px;" id="pd_txnTanpaProyekText"></span>
+            <button type="button" class="btn-ghost" id="pd_kaitkanTxnBtn">🔗 Kaitkan Transaksi ke Proyek Ini</button>
           </div>
         </div>
 
@@ -4021,6 +4026,28 @@
         <button type="submit" class="btn-primary" id="tl_submitBtn">Simpan</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- Modal: kaitkan transaksi Kas tanpa proyek ke proyek yang sedang dibuka -->
+<div class="modal-backdrop" id="kaitkanTxnModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Kaitkan Transaksi Biaya ke Proyek Ini</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <p class="muted" style="font-size:12px; margin:-4px 0 10px;">Daftar transaksi Keluar (kategori biaya) di Kas Perusahaan yang belum terkait ke proyek mana pun. Centang yang memang milik proyek ini — begitu disimpan, langsung terhitung di Realisasi, Margin, dan KPI. Biaya kantor/umum biarkan tidak dicentang.</p>
+    <div class="table-wrap" style="max-height:320px; overflow-y:auto;">
+      <table class="tbl" id="kt_table">
+        <thead><tr><th style="width:36px;"><input type="checkbox" id="kt_checkAll" title="Centang semua"></th><th>Tanggal</th><th>Kategori</th><th>Keterangan</th><th class="num">Jumlah</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="muted" style="font-size:11.5px; margin-top:8px;">Catatan: transaksi yang berasal dari slip gaji ditandai 💰 — kalau nanti absensi periode slip itu disimpan ulang, alokasinya mengikuti penanda "Proyek Dikerjakan" di Absensi Harian (lebih akurat per hari).</p>
+    <div class="modal-actions">
+      <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+      <button type="button" class="btn-primary" id="kt_simpanBtn">Kaitkan yang Dicentang</button>
+    </div>
   </div>
 </div>
 
