@@ -8545,6 +8545,7 @@ function renderPenggajianPanel() {
   }
   computePayrollFromAbsensi(true);
   renderPenggajianRiwayat();
+  renderRekapPendapatan();
 }
 function currentKaryawanForPayroll() {
   return state.karyawan.find(k => k.id === document.getElementById("pg_karyawan").value);
@@ -8805,6 +8806,104 @@ function renderPenggajianRiwayat() {
     tbody.appendChild(tr);
   });
 }
+
+// ----- Rekap Pendapatan per Karyawan (Periode) -----
+// Jawaban untuk "total pendapatan karyawan harian selama periode": sebelum
+// ini yang ada cuma total gabungan se-perusahaan (KPI Ringkasan Gaji) dan
+// riwayat slip per SATU karyawan tanpa penjumlahan. Rekap ini menjumlah
+// SEMUA karyawan sekaligus dari slip gaji yang periodenya berakhir di
+// rentang terpilih (aturan rentang yang sama dengan KPI Ringkasan Gaji).
+function computeRekapPendapatan(mulai, selesai) {
+  const rows = [];
+  const total = { slip: 0, hariHadir: 0, jamLembur: 0, upahKotor: 0, uangMakan: 0, bon: 0, potonganPinjaman: 0, bersih: 0 };
+  state.karyawan.slice().sort((a, b) => a.nama.localeCompare(b.nama)).forEach(k => {
+    const slips = (k.slipGaji || []).filter(sl => (sl.selesai || "") >= mulai && (sl.selesai || "") <= selesai);
+    if (!slips.length) return;
+    const r = { nama: k.nama, jabatan: k.jabatan || "-", slip: slips.length, hariHadir: 0, jamLembur: 0, upahKotor: 0, uangMakan: 0, bon: 0, potonganPinjaman: 0, bersih: 0 };
+    slips.forEach(sl => {
+      if (sl.tipeGaji !== "Bulanan") { r.hariHadir += sl.hariHadir || 0; r.jamLembur += sl.jamLembur || 0; }
+      r.upahKotor += sl.upahKotor || 0;
+      r.uangMakan += sl.uangMakan || 0;
+      r.bon += sl.bon || 0;
+      r.potonganPinjaman += sl.potonganPinjaman || 0;
+      r.bersih += slipGajiBersih(sl);
+    });
+    rows.push(r);
+    Object.keys(total).forEach(f => { total[f] += r[f]; });
+  });
+  return { rows, total };
+}
+function renderRekapPendapatan() {
+  const mulaiEl = document.getElementById("rp_mulai");
+  const selesaiEl = document.getElementById("rp_selesai");
+  if (!mulaiEl.value) mulaiEl.value = `${hariIniIso().slice(0, 4)}-01-01`;
+  if (!selesaiEl.value) selesaiEl.value = hariIniIso();
+  const { rows, total } = computeRekapPendapatan(mulaiEl.value, selesaiEl.value);
+  const tbody = document.querySelector("#rp_table tbody");
+  const tfoot = document.querySelector("#rp_table tfoot");
+  if (!rows.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="10">Belum ada slip gaji di rentang ini — buat dulu lewat Simpan Slip atau ⚡ Buat Slip Massal (Rapel).</td></tr>';
+    tfoot.innerHTML = "";
+    return;
+  }
+  tbody.innerHTML = rows.map(r => `
+    <tr>
+      <td>${escapeHtml(r.nama)}</td>
+      <td>${escapeHtml(r.jabatan)}</td>
+      <td class="num">${r.slip}</td>
+      <td class="num">${r.hariHadir}</td>
+      <td class="num">${r.jamLembur}</td>
+      <td class="num">${rupiah(r.upahKotor)}</td>
+      <td class="num">${rupiah(r.uangMakan)}</td>
+      <td class="num">${rupiah(r.bon)}</td>
+      <td class="num">${rupiah(r.potonganPinjaman)}</td>
+      <td class="num"><strong>${rupiah(r.bersih)}</strong></td>
+    </tr>`).join("");
+  tfoot.innerHTML = `
+    <tr>
+      <td colspan="2"><strong>TOTAL (${rows.length} karyawan)</strong></td>
+      <td class="num"><strong>${total.slip}</strong></td>
+      <td class="num"><strong>${total.hariHadir}</strong></td>
+      <td class="num"><strong>${total.jamLembur}</strong></td>
+      <td class="num"><strong>${rupiah(total.upahKotor)}</strong></td>
+      <td class="num"><strong>${rupiah(total.uangMakan)}</strong></td>
+      <td class="num"><strong>${rupiah(total.bon)}</strong></td>
+      <td class="num"><strong>${rupiah(total.potonganPinjaman)}</strong></td>
+      <td class="num"><strong>${rupiah(total.bersih)}</strong></td>
+    </tr>`;
+}
+document.getElementById("rp_muatBtn").addEventListener("click", renderRekapPendapatan);
+document.getElementById("rp_mulai").addEventListener("change", renderRekapPendapatan);
+document.getElementById("rp_selesai").addEventListener("change", renderRekapPendapatan);
+function buildRekapPendapatanPrintHtml(mulai, selesai) {
+  const { rows, total } = computeRekapPendapatan(mulai, selesai);
+  return `
+    <div class="letterhead">
+      <div class="letterhead-logo">${LOGO_SVG}</div>
+      <div class="letterhead-text">
+        <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+      </div>
+    </div>
+    <div class="letterhead-rule"></div>
+    <h3 style="text-align:center; margin:6px 0 4px; letter-spacing:.5px;">REKAP PENDAPATAN KARYAWAN</h3>
+    <p style="text-align:center; margin:0 0 14px;">Periode ${formatTanggal(mulai)} — ${formatTanggal(selesai)}</p>
+    <table class="doc-items">
+      <thead><tr><th>Nama</th><th>Jabatan</th><th class="r">Slip</th><th class="r">Hadir</th><th class="r">Lembur</th><th class="r">Upah Kotor</th><th class="r">Uang Makan</th><th class="r">Bon</th><th class="r">Pot. Pinjaman</th><th class="r">Gaji Bersih</th></tr></thead>
+      <tbody>
+        ${rows.map(r => `<tr><td>${escapeHtml(r.nama)}</td><td>${escapeHtml(r.jabatan)}</td><td class="r">${r.slip}</td><td class="r">${r.hariHadir}</td><td class="r">${r.jamLembur}</td><td class="r">${rupiah(r.upahKotor)}</td><td class="r">${rupiah(r.uangMakan)}</td><td class="r">${rupiah(r.bon)}</td><td class="r">${rupiah(r.potonganPinjaman)}</td><td class="r"><strong>${rupiah(r.bersih)}</strong></td></tr>`).join("")}
+        <tr><td colspan="2"><strong>TOTAL (${rows.length} karyawan)</strong></td><td class="r"><strong>${total.slip}</strong></td><td class="r"><strong>${total.hariHadir}</strong></td><td class="r"><strong>${total.jamLembur}</strong></td><td class="r"><strong>${rupiah(total.upahKotor)}</strong></td><td class="r"><strong>${rupiah(total.uangMakan)}</strong></td><td class="r"><strong>${rupiah(total.bon)}</strong></td><td class="r"><strong>${rupiah(total.potonganPinjaman)}</strong></td><td class="r"><strong>${rupiah(total.bersih)}</strong></td></tr>
+      </tbody>
+    </table>`;
+}
+document.getElementById("rp_cetakBtn").addEventListener("click", () => {
+  const mulai = document.getElementById("rp_mulai").value;
+  const selesai = document.getElementById("rp_selesai").value;
+  if (!mulai || !selesai) { alert("Isi rentang tanggal terlebih dahulu."); return; }
+  document.getElementById("printArea").innerHTML = buildRekapPendapatanPrintHtml(mulai, selesai);
+  cetakPrintArea();
+});
 // Menyusun ulang sisaSebelum/sisaSesudah tiap slip berurutan sesuai
 // tanggal dibuat -- dipanggil setelah slip gaji manapun diedit atau
 // dihapus, supaya riwayat pinjaman tetap runtut dan benar (bukan cuma
