@@ -7995,6 +7995,12 @@ document.getElementById("karyawanForm").addEventListener("submit", e => {
     });
   }
   if (idx >= 0) state.karyawan[idx] = k; else state.karyawan.push(k);
+  // Pinjaman Awal yang dikoreksi harus langsung mengalir ke rantai sisa
+  // pinjaman di slip-slip lama (sisaSebelum/sisaSesudah) -- tanpa ini
+  // riwayat slip & sisa pinjaman di layar tidak sinkron dengan angka baru.
+  if (currentTeamRole === "owner" && existing && (existing.pinjamanAwal || 0) !== (k.pinjamanAwal || 0)) {
+    recomputeSlipGajiChain(k);
+  }
   saveState();
   mirrorKaryawanUpsert(k, existing);
   // Nominal upah tinggal di karyawan_gaji (Owner-only) -- sesi non-Owner
@@ -8056,7 +8062,25 @@ function renderAbsensiPanel() {
     `;
     tbody.appendChild(tr);
   });
+  syncAbHadirAllState();
 }
+// Kotak "ceklis semua" di header kolom Hadir: sekali klik mencentang (atau
+// menghapus centang) Hadir SEMUA karyawan sekaligus -- untuk input manual
+// harian yang biasanya hampir semua hadir. Hanya menyentuh DOM; tersimpan
+// tetap lewat tombol "Simpan Absensi Tanggal Ini" seperti biasa.
+function syncAbHadirAllState() {
+  const master = document.getElementById("ab_hadirAll");
+  if (!master) return;
+  const checks = Array.from(document.querySelectorAll("#ab_table tbody .ab-hadir"));
+  master.checked = checks.length > 0 && checks.every(c => c.checked);
+}
+document.getElementById("ab_hadirAll").addEventListener("change", () => {
+  const master = document.getElementById("ab_hadirAll");
+  document.querySelectorAll("#ab_table tbody .ab-hadir").forEach(c => { c.checked = master.checked; });
+});
+document.getElementById("ab_table").addEventListener("change", e => {
+  if (e.target.classList.contains("ab-hadir")) syncAbHadirAllState();
+});
 // Fase 1.8: kolom "Absen via HP" -- jam masuk/pulang + badge Biometrik +
 // tombol lihat selfie (dibuka lewat signed URL, karena bucketnya privat)
 // untuk record yang berasal dari absen mandiri lewat aplikasi pekerja.
@@ -8115,6 +8139,7 @@ document.getElementById("ab_saveBtn").addEventListener("click", () => {
   if (!tanggal) { alert("Pilih tanggal terlebih dahulu."); return; }
   const rows = document.querySelectorAll("#ab_table tbody tr");
   let count = 0;
+  let slipTersinkron = 0;
   rows.forEach(tr => {
     const kId = tr.dataset.karyawanId;
     if (!kId) return;
@@ -8140,11 +8165,19 @@ document.getElementById("ab_saveBtn").addEventListener("click", () => {
     // Fix 30: uangMakan/bon harian tidak lagi ikut baris karyawan --
     // persist ke kolom absensi_gaji di karyawan_gaji (Owner-only).
     if (currentTeamRole === "owner") mirrorKaryawanGajiUpsert(k);
+    // Kalau tanggal ini sudah masuk slip gaji yang pernah dibuat, alokasi
+    // upah per proyeknya ditata ulang mengikuti absensi terbaru.
+    if (currentTeamRole === "owner") slipTersinkron += resyncSlipTerdampakAbsensi(k, tanggal);
     logAbsensiActivity(k, tanggal, before);
     count++;
   });
   saveState();
-  alert(`Absensi tanggal ${formatTanggal(tanggal)} untuk ${count} karyawan berhasil disimpan.`);
+  // renderAll (bukan cuma panel absensi): hadir/lembur/proyek hari ini
+  // memengaruhi Dashboard, Margin Proyek, dan KPI -- tanpa ini angka di
+  // layar baru berubah setelah pindah-pindah halaman.
+  renderAll();
+  alert(`Absensi tanggal ${formatTanggal(tanggal)} untuk ${count} karyawan berhasil disimpan.` +
+    (slipTersinkron ? `\n\n${slipTersinkron} slip gaji yang mencakup tanggal ini otomatis ditata ulang alokasi proyeknya (total gaji tidak berubah).` : ""));
 });
 
 // ----- Absensi via Scan QR (Fase 1.7) -----
@@ -8593,7 +8626,13 @@ function syncSlipGajiKasTxn(k, sl) {
       sumberSlipId: sl.id,
       proyekId: bagian.proyekId || "",
       tipe: "Keluar",
-      status: expenseApprovalStatus(bagian.jumlah),
+      // Langsung "lunas", TIDAK lewat expenseApprovalStatus: slip gaji hanya
+      // bisa dibuat Owner (Penggajian Owner-only sejak Fix 30), dan approval
+      // bertingkat ditujukan untuk pengeluaran yang diinput orang lain.
+      // Kalau ikut ambang approval, gaji yang baru diinput "menghilang" dari
+      // Laporan Keuangan/Margin Proyek/KPI sampai Owner menyetujui inputnya
+      // sendiri di Kas -- sinkronnya terasa putus tanpa sebab yang jelas.
+      status: "lunas",
       tanggal: sl.selesai,
       jumlah: bagian.jumlah,
       keterangan: `Gaji ${k.nama} (${formatTanggal(sl.mulai)} - ${formatTanggal(sl.selesai)})` +
@@ -8609,6 +8648,22 @@ function syncSlipGajiKasTxn(k, sl) {
     await mirrorKasUsahaDeleteBySumberSlip(sl.id);
     txns.forEach(txn => mirrorKasUsahaUpsert(txn));
   })();
+}
+// Koreksi absensi SETELAH slip gaji periode itu dibuat (mis. baru menandai
+// "Proyek Dikerjakan" belakangan) dulu tidak menata ulang transaksi Kas-nya
+// -- Margin Proyek tetap memakai alokasi lama. Sekarang: setiap simpan
+// absensi memicu alokasi ulang untuk slip yang periodenya mencakup tanggal
+// itu. Yang ditata ulang HANYA pembagian per proyek; total gaji bersih slip
+// tidak pernah berubah dari sini (koreksi nominal tetap lewat ✏️ slip).
+function resyncSlipTerdampakAbsensi(k, tanggal) {
+  let count = 0;
+  (k.slipGaji || []).forEach(sl => {
+    if ((sl.mulai || "") <= tanggal && (sl.selesai || "") >= tanggal) {
+      syncSlipGajiKasTxn(k, sl);
+      count++;
+    }
+  });
+  return count;
 }
 const slipGajiEditModal = document.getElementById("slipGajiEditModal");
 function openSlipGajiEditModal(sl) {
