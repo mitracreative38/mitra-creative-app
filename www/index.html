@@ -1521,8 +1521,9 @@
           <div class="toolbar">
             <div class="muted" style="flex:1">Daftar Belanja Material — status "Dibeli" otomatis masuk Kas Perusahaan &amp; Stok Material</div>
             <button class="btn-primary" id="bm_addBtn">+ Tambah Belanja</button>
-            <button class="btn-ghost" id="pd_pulihkanBelanjaBtn" style="display:none;" title="Bangun ulang daftar belanja yang hilang dari transaksi Kas Perusahaan yang tercatat otomatis — tanpa mengubah angka Kas sedikit pun">♻️ Pulihkan Daftar dari Kas</button>
+            <button class="btn-ghost" id="pd_pulihkanBelanjaBtn" style="display:none;" title="Periksa transaksi Kas belanja otomatis yang item daftarnya hilang: hapus yang dobel (uang terlanjur tercatat dua kali), pulihkan yang memang hilang">♻️ Periksa Belanja dari Kas</button>
           </div>
+          <p class="muted" id="pd_belanjaDobelHint" style="display:none; font-size:12px; margin:0 0 8px; color:var(--warning, #b45309);"></p>
           <div class="table-wrap">
             <table class="tbl" id="pd_belanjaTable">
               <thead><tr>
@@ -4092,6 +4093,28 @@
     <div class="modal-actions">
       <button type="button" class="btn-ghost" data-close-modal>Batal</button>
       <button type="button" class="btn-primary" id="kt_simpanBtn">Kaitkan yang Dicentang</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: periksa belanja material vs catatan Kas (hapus dobel / pulihkan yang hilang) -->
+<div class="modal-backdrop" id="periksaBelanjaModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>♻️ Periksa Belanja dari Kas</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <p class="muted" style="font-size:12px; margin:-4px 0 10px;">Transaksi Kas di bawah ini berasal dari belanja material otomatis, tapi item daftarnya sudah tidak ada. Ada dua kemungkinan: <strong>dobel</strong> (belanjanya sudah diinput ulang setelah insiden data hilang, jadi uangnya tercatat dua kali — sisa lamanya harus DIHAPUS supaya Realisasi &amp; saldo Kas benar) atau <strong>memang hilang</strong> (belum diinput ulang — PULIHKAN ke daftar, angka Kas tidak berubah). Sistem sudah menganalisis dan memilihkan tindakan yang paling mungkin benar — periksa lalu ubah bila perlu.</p>
+    <div class="table-wrap" style="max-height:320px; overflow-y:auto;">
+      <table class="tbl" id="pb_table">
+        <thead><tr><th>Tanggal</th><th>Nama Belanja</th><th class="num">Jumlah</th><th>Analisis</th><th style="width:190px;">Tindakan</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="muted" style="font-size:11.5px; margin-top:8px;"><span id="pb_ringkas" style="font-weight:600;"></span></p>
+    <div class="modal-actions">
+      <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+      <button type="button" class="btn-primary" id="pb_terapkanBtn">Terapkan</button>
     </div>
   </div>
 </div>
