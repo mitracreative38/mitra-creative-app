@@ -4020,6 +4020,30 @@ function computePemeriksaanIntegrasi() {
     });
   }
 
+  // 10. Belanja material terputus / kemungkinan dobel (pola kasus KLA
+  // Mataram): transaksi Kas belanja otomatis yang item daftarnya hilang
+  // (yatim), dan/atau item daftar dengan total kembar (terinput dua kali).
+  const belanjaBermasalah = (state.proyek || []).filter(p => !p.arsip).map(p => {
+    const yatim = belanjaYatimDariKas(p).length;
+    const totalCount = {};
+    (p.belanjaMaterial || []).forEach(b => {
+      const tot = (b.qty || 0) * (b.hargaSatuan || 0);
+      if (tot > 0) totalCount[tot] = (totalCount[tot] || 0) + 1;
+    });
+    const kembar = Object.values(totalCount).filter(n => n > 1).length;
+    return { p, yatim, kembar };
+  }).filter(x => x.yatim || x.kembar);
+  if (belanjaBermasalah.length) {
+    temuan.push({
+      icon: "🛒", page: "proyek",
+      judul: `${belanjaBermasalah.length} proyek punya belanja material terputus/kemungkinan dobel`,
+      detail: belanjaBermasalah.map(x =>
+        `${x.p.nama}${x.yatim ? ` — ${x.yatim} transaksi Kas belanja tanpa item daftar` : ""}${x.kembar ? ` — ${x.kembar} nilai total kembar di daftar` : ""}`
+      ).join("; ") +
+        '. Buka detail proyeknya: klik "♻️ Periksa Belanja dari Kas" untuk hapus yang dobel/pulihkan yang hilang, dan cek baris ber-⚠️ di daftar belanja.'
+    });
+  }
+
   return temuan;
 }
 function renderPemeriksaanIntegrasi() {
@@ -4132,6 +4156,10 @@ function renderDashboard() {
     .reduce((s, l) => s + (l.tindakLanjut || []).filter(x => x.status === "rencana").length, 0);
   const terminSiapTagih = state.proyek.filter(p => !p.arsip)
     .reduce((s, p) => s + (p.rencanaTermin || []).filter(r => !r.invoiceId && rencanaTerminStatusInfo(p, r).bisaInvoice).length, 0);
+  // Transaksi Kas belanja otomatis yang item daftarnya hilang = jejak khas
+  // insiden data hilang/impor backup lama -- biaya proyek bisa dobel
+  // diam-diam kalau dibiarkan, jadi muncul otomatis tanpa perlu klik Periksa.
+  const belanjaTerputus = state.proyek.filter(p => !p.arsip && belanjaYatimDariKas(p).length).length;
 
   const alerts = [
     pendingTxns.length ? { icon: "⏳", label: "Kas Perusahaan menunggu persetujuan", value: `${pendingTxns.length} transaksi · ${rupiah(ku.menungguPersetujuan)}`, page: "kasUsaha" } : null,
@@ -4149,7 +4177,8 @@ function renderDashboard() {
     opnameSelisih ? { icon: "🧮", label: `Opname kas terakhir (${formatTanggal(opnameTerakhir.tanggal)}) ada selisih`, value: rupiah(opnameTerakhir.selisih), page: "kasUsaha" } : null,
     susulanBelumTindak ? { icon: "📝", label: "Pekerjaan susulan belum ditindaklanjuti (belum dibuat penawaran/dikerjakan)", value: `${susulanBelumTindak} catatan`, page: "proyek" } : null,
     surveyBelumTindak ? { icon: "📋", label: "Hasil survey/laporan kerja belum ditindaklanjuti", value: `${surveyBelumTindak} item`, page: "laporanKerja" } : null,
-    terminSiapTagih ? { icon: "🧾", label: "Termin/retensi siap ditagih dari Rencana Termin", value: `${terminSiapTagih} termin`, page: "proyek" } : null
+    terminSiapTagih ? { icon: "🧾", label: "Termin/retensi siap ditagih dari Rencana Termin", value: `${terminSiapTagih} termin`, page: "proyek" } : null,
+    belanjaTerputus ? { icon: "🛒", label: "Belanja material terputus dari daftar — kemungkinan biaya dobel (buka proyeknya → ♻️ Periksa Belanja dari Kas)", value: `${belanjaTerputus} proyek`, page: "proyek" } : null
   ].filter(Boolean);
 
   document.getElementById("dash_alertPanel").style.display = alerts.length ? "block" : "none";
@@ -4462,9 +4491,25 @@ function renderProyekDetail() {
   renderPaymentLinksForProyek(p.id);
 
   const belanjaTbody = document.querySelector("#pd_belanjaTable tbody");
+  // Item bertotal kembar = jejak khas belanja terinput dua kali (input
+  // ulang setelah insiden data hilang / klik pulihkan yang berlebihan) --
+  // tandai seperti anti-dobel termin supaya kelihatan tanpa dihitung manual.
+  const belanjaTotalCount = {};
+  p.belanjaMaterial.forEach(b => {
+    const tot = (b.qty || 0) * (b.hargaSatuan || 0);
+    if (tot > 0) belanjaTotalCount[tot] = (belanjaTotalCount[tot] || 0) + 1;
+  });
+  const belanjaKembarTotals = new Set(Object.keys(belanjaTotalCount).filter(tot => belanjaTotalCount[tot] > 1).map(Number));
+  const belanjaDobelHint = document.getElementById("pd_belanjaDobelHint");
+  if (belanjaDobelHint) {
+    belanjaDobelHint.style.display = belanjaKembarTotals.size ? "" : "none";
+    belanjaDobelHint.textContent = belanjaKembarTotals.size
+      ? `⚠️ ${belanjaKembarTotals.size} nilai total muncul di lebih dari satu item — kemungkinan belanja yang sama terinput dua kali. Cek baris ber-⚠️; kalau memang dobel, hapus salah satunya lewat 🗑️ (transaksi Kas otomatisnya ikut terhapus).`
+      : "";
+  }
   belanjaTbody.innerHTML = p.belanjaMaterial.length ? p.belanjaMaterial.slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || "")).map(b => `
     <tr>
-      <td>${escapeHtml(b.nama)}</td>
+      <td>${belanjaKembarTotals.has((b.qty || 0) * (b.hargaSatuan || 0)) ? '<span title="Total sama dengan item lain di proyek ini — cek kemungkinan dobel">⚠️ </span>' : ""}${escapeHtml(b.nama)}</td>
       <td class="num">${b.qty}</td>
       <td>${escapeHtml(b.satuan || "-")}</td>
       <td class="num">${rupiah(b.hargaSatuan)}</td>
@@ -14169,26 +14214,100 @@ function belanjaYatimDariKas(p) {
     return true;
   });
 }
+// Analisis satu transaksi belanja yatim: cari "kembar"-nya -- item daftar
+// dengan total sama, atau transaksi Kas Keluar lain proyek ini dengan
+// jumlah sama (pola input ulang manual setelah insiden data hilang:
+// belanja yang sama tercatat DUA KALI di Kas). Ada kembar = aksi yang
+// benar adalah MENGHAPUS sisa lamanya dari Kas, bukan memulihkannya ke
+// daftar (memulihkan justru melegalkan angka yang dobel).
+function belanjaKembarUntukYatim(p, t) {
+  const item = (p.belanjaMaterial || []).find(b => ((b.qty || 0) * (b.hargaSatuan || 0)) === (t.jumlah || 0));
+  if (item) return `item daftar "${item.nama}" (total sama)`;
+  const txn = state.kasUsaha.transactions.find(x => x.id !== t.id && x.tipe === "Keluar" &&
+    x.proyekId === p.id && (x.jumlah || 0) === (t.jumlah || 0) && x.sumberBelanjaId !== t.sumberBelanjaId);
+  if (txn) return `transaksi Kas "${(txn.keterangan || "-").slice(0, 45)}" (${formatTanggal(txn.tanggal)}, jumlah sama)`;
+  return null;
+}
+function namaDariKeteranganBelanja(t) {
+  return ((t.keterangan || "").replace(/^Belanja material:\s*/, "").replace(/\s*\([^)]*\)\s*$/, "").trim()) || "Belanja material";
+}
+function renderPbRingkas() {
+  const el = document.getElementById("pb_ringkas");
+  let nP = 0, totP = 0, nH = 0, totH = 0;
+  document.querySelectorAll("#pb_table .pb-aksi").forEach(sel => {
+    const t = state.kasUsaha.transactions.find(x => x.id === sel.dataset.yatimId);
+    if (!t) return;
+    if (sel.value === "pulihkan") { nP++; totP += t.jumlah || 0; }
+    if (sel.value === "hapus") { nH++; totH += t.jumlah || 0; }
+  });
+  el.textContent = `Pulihkan ${nP} (${rupiah(totP)}) • Hapus dobel ${nH} (${rupiah(totH)}) — menghapus yang dobel MENGURANGI Realisasi & mengoreksi saldo Kas ke angka sebenarnya.`;
+}
 document.getElementById("pd_pulihkanBelanjaBtn").addEventListener("click", () => {
   const p = state.proyek.find(x => x.id === currentProyekId);
   if (!p || proyekArsipGuard(p)) return;
   const yatim = belanjaYatimDariKas(p);
   if (!yatim.length) { renderAll(); return; }
-  if (!confirm(`Pulihkan ${yatim.length} baris belanja material yang hilang dari catatan Kas Perusahaan?\n\nDaftar dibangun ulang dari transaksi Kas otomatis milik proyek ini (qty diisi 1, harga satuan = total transaksi — bisa dirapikan lewat ✏️). Angka Kas TIDAK diubah sedikit pun, jadi tidak ada dobel.`)) return;
+  document.querySelector("#pb_table tbody").innerHTML = yatim.map(t => {
+    const kembar = belanjaKembarUntukYatim(p, t);
+    return `
+    <tr>
+      <td>${formatTanggal(t.tanggal)}</td>
+      <td>${escapeHtml(namaDariKeteranganBelanja(t))}</td>
+      <td class="num">${rupiah(t.jumlah || 0)}</td>
+      <td>${kembar ? `⚠️ <strong>Kemungkinan DOBEL</strong> dengan ${escapeHtml(kembar)}` : "Tidak ada kembarannya — itemnya memang hilang dari daftar"}</td>
+      <td>
+        <select class="pb-aksi" data-yatim-id="${t.id}">
+          <option value="pulihkan" ${kembar ? "" : "selected"}>Pulihkan ke daftar</option>
+          <option value="hapus" ${kembar ? "selected" : ""}>Hapus dari Kas (dobel)</option>
+          <option value="biarkan">Biarkan dulu</option>
+        </select>
+      </td>
+    </tr>`;
+  }).join("");
+  renderPbRingkas();
+  document.getElementById("periksaBelanjaModal").classList.add("open");
+});
+document.getElementById("pb_table").addEventListener("change", e => {
+  if (e.target.closest(".pb-aksi")) renderPbRingkas();
+});
+document.getElementById("pb_terapkanBtn").addEventListener("click", () => {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p || proyekArsipGuard(p)) return;
+  const aksi = [];
+  document.querySelectorAll("#pb_table .pb-aksi").forEach(sel => {
+    const t = state.kasUsaha.transactions.find(x => x.id === sel.dataset.yatimId);
+    if (t && sel.value !== "biarkan") aksi.push({ t, mau: sel.value });
+  });
+  if (!aksi.length) { closeModals(); return; }
+  const hapus = aksi.filter(a => a.mau === "hapus");
+  const pulihkan = aksi.filter(a => a.mau === "pulihkan");
+  if (hapus.length && !confirm(
+    `Hapus ${hapus.length} transaksi Kas DOBEL senilai ${rupiah(hapus.reduce((s, a) => s + (a.t.jumlah || 0), 0))}?\n\n` +
+    `Belanja ini tercatat DUA KALI di Kas (sisa lama + input ulang) — yang dihapus hanya sisa lamanya, jadi Realisasi & saldo Kas justru jadi BENAR.\n\nTindakan ini tidak bisa dibatalkan.`)) return;
+  let terkunci = 0;
+  hapus.forEach(a => {
+    if (state.periodeTerkunci && (a.t.tanggal || "").slice(0, 7) <= state.periodeTerkunci) { terkunci++; return; }
+    state.kasUsaha.transactions = state.kasUsaha.transactions.filter(x => x.id !== a.t.id);
+    mirrorKasUsahaDelete(a.t.id, a.t);
+  });
   if (!p.belanjaMaterial) p.belanjaMaterial = [];
-  yatim.forEach(t => {
-    const nama = (t.keterangan || "").replace(/^Belanja material:\s*/, "").replace(/\s*\([^)]*\)\s*$/, "").trim();
+  pulihkan.forEach(a => {
     p.belanjaMaterial.push({
-      id: t.sumberBelanjaId,
-      nama: nama || "Belanja material",
-      qty: 1, satuan: "", hargaSatuan: t.jumlah || 0,
-      tanggal: t.tanggal || "", status: "Dibeli", stokId: "", gudangId: ""
+      id: a.t.sumberBelanjaId,
+      nama: namaDariKeteranganBelanja(a.t),
+      qty: 1, satuan: "", hargaSatuan: a.t.jumlah || 0,
+      tanggal: a.t.tanggal || "", status: "Dibeli", stokId: "", gudangId: ""
     });
   });
   saveState();
-  mirrorProyekUpsert(p);
+  if (pulihkan.length) mirrorProyekUpsert(p);
   renderAll();
-  alert(`${yatim.length} baris belanja material berhasil dipulihkan dari catatan Kas.\n\nRapikan qty/satuan/harga lewat ✏️ bila perlu — totalnya sudah persis transaksi Kas aslinya, Realisasi/Margin tidak berubah.`);
+  closeModals();
+  alert(
+    `${pulihkan.length} baris dipulihkan ke daftar, ${hapus.length - terkunci} transaksi dobel dihapus dari Kas.` +
+    (terkunci ? `\n\n${terkunci} transaksi dobel TIDAK dihapus karena tanggalnya di periode yang sudah ditutup bukunya — buka kuncinya dulu di Laporan Keuangan → Tutup Buku, lalu ulangi.` : "") +
+    (pulihkan.length ? `\n\nBaris yang dipulihkan: rapikan qty/satuan/harga lewat ✏️ bila perlu — totalnya persis transaksi Kas aslinya.` : "")
+  );
 });
 const belanjaModal = document.getElementById("belanjaModal");
 function openBelanjaModal(existing) {
@@ -14237,6 +14356,20 @@ document.getElementById("belanjaForm").addEventListener("submit", async e => {
     gudangId: document.getElementById("bm_gudangId").value || "",
     lampiranPath: (lama && lama.lampiranPath) || ""
   };
+  // Anti-dobel (pola yang sama dengan termin): belanja BARU berstatus
+  // "Dibeli" yang totalnya sama dengan transaksi Kas keluar yang sudah ada
+  // di proyek ini kemungkinan besar belanja yang sama diinput dua kali --
+  // biaya proyek bakal terhitung dobel diam-diam.
+  if (!lama && item.status === "Dibeli") {
+    const totalBaru = (item.qty || 0) * (item.hargaSatuan || 0);
+    const kembarTxn = totalBaru > 0 && state.kasUsaha.transactions.find(t =>
+      t.tipe === "Keluar" && t.proyekId === p.id && (t.jumlah || 0) === totalBaru);
+    if (kembarTxn && !confirm(
+      `PERHATIAN — KEMUNGKINAN DOBEL: proyek ini SUDAH punya pengeluaran Kas sebesar ${rupiah(totalBaru)}:\n\n` +
+      `"${kembarTxn.keterangan || "-"}" (${formatTanggal(kembarTxn.tanggal)}).\n\n` +
+      `Kalau ini belanja yang SAMA, jangan diinput lagi — biaya proyek bakal terhitung dua kali di Realisasi & Margin.\n\n` +
+      `Tetap simpan sebagai belanja BARU yang berbeda?`)) return;
+  }
   const fileNota = document.getElementById("bm_lampiran").files[0];
   if (fileNota) {
     const path = await uploadLampiran(fileNota, "belanja", item.id);
