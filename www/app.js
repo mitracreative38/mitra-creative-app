@@ -4480,6 +4480,11 @@ function renderProyekDetail() {
       </td>
     </tr>
   `).join("") : '<tr class="empty-row"><td colspan="8">Belum ada belanja material</td></tr>';
+  // Pemulihan daftar belanja yang hilang (kasus "barang dibeli KLA Mataram
+  // hilang"): transaksi Kas otomatis dari belanja (sumberBelanjaId) tetap
+  // ada walau daftarnya tertimpa -- tawarkan bangun ulang dari situ.
+  const pulihkanBtn = document.getElementById("pd_pulihkanBelanjaBtn");
+  if (pulihkanBtn) pulihkanBtn.style.display = belanjaYatimDariKas(p).length && !p.arsip ? "" : "none";
 
   const subkonTbody = document.querySelector("#pd_subkonTable tbody");
   subkonTbody.innerHTML = p.subkontraktor.length ? p.subkontraktor.map(sk => {
@@ -14152,6 +14157,39 @@ function syncBelanjaMaterial(p, item) {
     }
   }
 }
+// Transaksi Kas otomatis dari belanja yang item daftarnya sudah tidak ada
+// (mis. daftar tertimpa saat Import Backup lama) -- bahan pemulihan.
+function belanjaYatimDariKas(p) {
+  const adaId = new Set((p.belanjaMaterial || []).map(b => b.id));
+  const seen = new Set();
+  return state.kasUsaha.transactions.filter(t => {
+    if (!t.sumberBelanjaId || t.proyekId !== p.id || adaId.has(t.sumberBelanjaId)) return false;
+    if (seen.has(t.sumberBelanjaId)) return false;
+    seen.add(t.sumberBelanjaId);
+    return true;
+  });
+}
+document.getElementById("pd_pulihkanBelanjaBtn").addEventListener("click", () => {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p || proyekArsipGuard(p)) return;
+  const yatim = belanjaYatimDariKas(p);
+  if (!yatim.length) { renderAll(); return; }
+  if (!confirm(`Pulihkan ${yatim.length} baris belanja material yang hilang dari catatan Kas Perusahaan?\n\nDaftar dibangun ulang dari transaksi Kas otomatis milik proyek ini (qty diisi 1, harga satuan = total transaksi — bisa dirapikan lewat ✏️). Angka Kas TIDAK diubah sedikit pun, jadi tidak ada dobel.`)) return;
+  if (!p.belanjaMaterial) p.belanjaMaterial = [];
+  yatim.forEach(t => {
+    const nama = (t.keterangan || "").replace(/^Belanja material:\s*/, "").replace(/\s*\([^)]*\)\s*$/, "").trim();
+    p.belanjaMaterial.push({
+      id: t.sumberBelanjaId,
+      nama: nama || "Belanja material",
+      qty: 1, satuan: "", hargaSatuan: t.jumlah || 0,
+      tanggal: t.tanggal || "", status: "Dibeli", stokId: "", gudangId: ""
+    });
+  });
+  saveState();
+  mirrorProyekUpsert(p);
+  renderAll();
+  alert(`${yatim.length} baris belanja material berhasil dipulihkan dari catatan Kas.\n\nRapikan qty/satuan/harga lewat ✏️ bila perlu — totalnya sudah persis transaksi Kas aslinya, Realisasi/Margin tidak berubah.`);
+});
 const belanjaModal = document.getElementById("belanjaModal");
 function openBelanjaModal(existing) {
   document.getElementById("bm_lampiran").value = "";
@@ -14810,12 +14848,14 @@ document.getElementById("aktivitasTable").addEventListener("click", async e => {
 // karyawan & riwayat perubahan harga AHSP. Kalau file yang diimpor ternyata
 // salinan lama yang belum sempat mencatat sebagian riwayat itu, gabungkan
 // (union berdasarkan id) dengan data yang ada di state SEBELUM impor,
-// supaya tidak ada yang hilang. Dokumen Proyek (SPK/BAST) dan riwayat
-// transaksi Stok BISA dihapus manual oleh pengguna lewat UI, jadi tidak
-// aman digabung begitu saja (bisa "menghidupkan lagi" entri yang memang
-// sengaja dihapus) -- untuk keduanya dipakai aturan yang sama seperti slip
-// gaji: pertahankan data lama HANYA kalau versi yang diimpor kosong sama
-// sekali untuk proyek/barang itu.
+// supaya tidak ada yang hilang. Kompromi yang dipilih (belajar dari kasus
+// "belanja KLA Mataram hilang setelah Import Backup"): union bisa
+// "menghidupkan lagi" entri yang sengaja dihapus SEBELUM impor -- itu
+// gangguan kecil yang gampang dihapus ulang -- sedangkan menimpa daftar
+// dengan versi backup lama menghilangkan data baru secara permanen. Jadi
+// SEMUA sub-daftar ber-id digabung union; hanya riwayat transaksi Stok
+// yang tetap pakai aturan pertahankan-kalau-kosong (volumenya besar dan
+// paling sering dikoreksi lewat hapus).
 function mergeArrById(lama, baru) {
   const map = new Map();
   (lama || []).forEach(item => { if (item && item.id) map.set(item.id, item); });
@@ -14829,7 +14869,12 @@ function preserveHistoryFieldsOnImport(sebelum, sesudah) {
   const karyawanLama = new Map((sebelum.karyawan || []).map(k => [k.id, k]));
   (sesudah.karyawan || []).forEach(k => {
     const old = karyawanLama.get(k.id);
-    if (old) k.absensi = mergeArrById(old.absensi, k.absensi);
+    if (old) {
+      k.absensi = mergeArrById(old.absensi, k.absensi);
+      // Slip gaji yang dibuat SETELAH tanggal backup jangan hilang saat
+      // impor backup lama (pola kasus "belanja KLA Mataram hilang").
+      k.slipGaji = mergeArrById(old.slipGaji, k.slipGaji);
+    }
   });
   const ahspLama = new Map((sebelum.ahsp || []).map(a => [a.id, a]));
   (sesudah.ahsp || []).forEach(a => {
@@ -14839,7 +14884,17 @@ function preserveHistoryFieldsOnImport(sebelum, sesudah) {
   const proyekLama = new Map((sebelum.proyek || []).map(p => [p.id, p]));
   (sesudah.proyek || []).forEach(p => {
     const old = proyekLama.get(p.id);
-    if (old) p.dokumen = preserveIfEmpty(old.dokumen, p.dokumen);
+    if (!old) return;
+    // Kasus nyata "barang dibeli KLA Mataram hilang": dulu cuma `dokumen`
+    // yang dilindungi -- impor backup lama menimpa daftar belanja (dan
+    // sub-daftar proyek lain) yang lebih baru dengan versi lama. Semua
+    // sub-daftar ber-id kini digabung (union), bukan ditimpa.
+    p.dokumen = mergeArrById(old.dokumen, p.dokumen);
+    p.belanjaMaterial = mergeArrById(old.belanjaMaterial, p.belanjaMaterial);
+    p.subkontraktor = mergeArrById(old.subkontraktor, p.subkontraktor);
+    p.invoices = mergeArrById(old.invoices, p.invoices);
+    p.bap = mergeArrById(old.bap, p.bap);
+    p.susulan = mergeArrById(old.susulan, p.susulan);
   });
   const stokLama = new Map((sebelum.stok || []).map(s => [s.id, s]));
   (sesudah.stok || []).forEach(s => {
