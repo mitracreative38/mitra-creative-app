@@ -4441,7 +4441,7 @@ function renderProyekDetail() {
   ];
   document.querySelector("#pd_anggaranTable tbody").innerHTML = rows.map(([label, anggaran, realisasi, variance]) => `
     <tr>
-      <td>${label}</td>
+      <td>${label} <button type="button" class="icon-btn" data-rincian-real="${label}" title="Lihat semua transaksi penyusun angka Realisasi ini (+ lepas kaitan yang salah)">🔎</button></td>
       <td class="num">${rupiah(anggaran)}</td>
       <td class="num">${rupiah(realisasi)}</td>
       <td class="num">${rupiah(variance)}</td>
@@ -14309,6 +14309,106 @@ document.getElementById("pb_terapkanBtn").addEventListener("click", () => {
     (pulihkan.length ? `\n\nBaris yang dipulihkan: rapikan qty/satuan/harga lewat ✏️ bila perlu — totalnya persis transaksi Kas aslinya.` : "")
   );
 });
+// ----- Rincian Realisasi per komponen + lepas kaitan massal -----
+// Jawaban untuk "kenapa Realisasi tetap besar": tanpa rincian, pengguna
+// tidak bisa melihat transaksi mana saja yang menyusun angkanya (termasuk
+// hasil ceklis berlebihan di modal Kaitkan) -- apalagi mengoreksinya.
+const KATEGORI_RINCIAN_REAL = {
+  "Bahan": ["Biaya Bahan"],
+  "Upah/Tenaga": ["Biaya Upah/Tenaga"],
+  "Subkontraktor": ["Biaya Subkontraktor"],
+  "Lain-lain": ["Biaya Operasional", "Biaya Transport", "Biaya Alat", "Biaya Lain-lain"]
+};
+function rrSumberTxn(t) {
+  if (t.sumberBelanjaId) return { label: "🛒 Belanja Material (otomatis)", lepas: false };
+  if (t.sumberSlipId) return { label: "💰 Slip Gaji (otomatis)", lepas: false };
+  if (t.sumberSewaId) return { label: "🏠 Sewa Aset (otomatis)", lepas: false };
+  return { label: "✍️ Manual / hasil Kaitkan", lepas: true };
+}
+function rrTxnsKomponen(p, komponen) {
+  const kategoris = KATEGORI_RINCIAN_REAL[komponen] || [];
+  return proyekKasTxns(p)
+    .filter(t => t.tipe === "Keluar" && kategoris.includes(t.kategori) && (t.status || "lunas") !== "menunggu_persetujuan")
+    .sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
+}
+let rrKomponenAktif = "";
+function renderRrRingkas() {
+  const el = document.getElementById("rr_ringkas");
+  const semua = Array.from(document.querySelectorAll("#rr_table .rr-check"));
+  const dicentang = semua.filter(c => c.checked);
+  const tot = list => list.reduce((s, c) => {
+    const t = state.kasUsaha.transactions.find(x => x.id === c.dataset.txnId);
+    return s + (t ? t.jumlah || 0 : 0);
+  }, 0);
+  el.textContent = `${document.querySelectorAll("#rr_table tbody td[data-txn-id]").length} transaksi tampil • ${dicentang.length} dicentang (${rupiah(tot(dicentang))}) — melepas kaitan MENGURANGI Realisasi komponen ini sebesar itu.`;
+}
+function openRincianRealisasi(komponen) {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) return;
+  rrKomponenAktif = komponen;
+  const txns = rrTxnsKomponen(p, komponen);
+  document.getElementById("rr_judul").textContent = `${komponen} (${p.nama})`;
+  const c = projectCalc(p);
+  const kasSum = txns.reduce((s, t) => s + (t.jumlah || 0), 0);
+  const dariStok = komponen === "Bahan" ? c.realisasiBahan - kasSum : 0;
+  document.querySelector("#rr_table tbody").innerHTML = (txns.map(t => {
+    const sumber = rrSumberTxn(t);
+    return `
+    <tr>
+      <td>${sumber.lepas ? `<input type="checkbox" class="rr-check" data-txn-id="${t.id}">` : ""}</td>
+      <td data-txn-id="${t.id}">${formatTanggal(t.tanggal)}</td>
+      <td>${escapeHtml(t.keterangan || "-")}<br><small class="muted">${escapeHtml(t.kategori || "")}${(t.status || "lunas") !== "lunas" ? " • belum lunas" : ""}</small></td>
+      <td>${sumber.label}</td>
+      <td class="num">${rupiah(t.jumlah || 0)}</td>
+    </tr>`;
+  }).join("") || '<tr class="empty-row"><td colspan="5">Tidak ada transaksi Kas untuk komponen ini</td></tr>') + (dariStok > 0 ? `
+    <tr>
+      <td></td><td>—</td>
+      <td>Material dari Stok gudang (Stok Keluar yang dikaitkan proyek ini)<br><small class="muted">non-tunai — dikoreksi lewat halaman Stok Material</small></td>
+      <td>📦 Stok (otomatis)</td>
+      <td class="num">${rupiah(dariStok)}</td>
+    </tr>` : "");
+  renderRrRingkas();
+  document.getElementById("rincianRealisasiModal").classList.add("open");
+}
+document.getElementById("pd_anggaranTable").addEventListener("click", e => {
+  const btn = e.target.closest("[data-rincian-real]");
+  if (btn) openRincianRealisasi(btn.dataset.rincianReal);
+});
+document.getElementById("rr_table").addEventListener("change", e => {
+  if (e.target.closest(".rr-check")) renderRrRingkas();
+});
+document.getElementById("rr_checkAll").addEventListener("change", e => {
+  document.querySelectorAll("#rr_table .rr-check").forEach(c => { c.checked = e.target.checked; });
+  renderRrRingkas();
+});
+document.getElementById("rr_lepasBtn").addEventListener("click", () => {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) return;
+  const dipilih = Array.from(document.querySelectorAll("#rr_table .rr-check:checked"))
+    .map(c => state.kasUsaha.transactions.find(x => x.id === c.dataset.txnId))
+    .filter(Boolean);
+  if (!dipilih.length) { alert("Belum ada transaksi yang dicentang."); return; }
+  const total = dipilih.reduce((s, t) => s + (t.jumlah || 0), 0);
+  if (!confirm(
+    `Lepas kaitan ${dipilih.length} transaksi (total ${rupiah(total)}) dari proyek "${p.nama}"?\n\n` +
+    `Transaksinya TETAP ada di Kas Perusahaan (tidak dihapus, saldo Kas tidak berubah) — hanya tidak lagi terhitung di Realisasi/Margin proyek ini. Bisa dikaitkan ulang kapan saja lewat tombol "Kaitkan Transaksi ke Proyek Ini" atau edit transaksinya di Kas.`)) return;
+  let terkunci = 0;
+  dipilih.forEach(t => {
+    if (state.periodeTerkunci && (t.tanggal || "").slice(0, 7) <= state.periodeTerkunci) { terkunci++; return; }
+    const sebelum = { ...t };
+    t.proyekId = "";
+    mirrorKasUsahaUpsert(t, sebelum);
+  });
+  saveState();
+  renderAll();
+  closeModals();
+  alert(
+    `${dipilih.length - terkunci} transaksi dilepas kaitannya dari proyek ini — Realisasi langsung terkoreksi.` +
+    (terkunci ? `\n\n${terkunci} transaksi TIDAK dilepas karena tanggalnya di periode yang sudah ditutup bukunya — buka kuncinya dulu di Laporan Keuangan → Tutup Buku.` : "")
+  );
+});
+
 const belanjaModal = document.getElementById("belanjaModal");
 function openBelanjaModal(existing) {
   document.getElementById("bm_lampiran").value = "";
