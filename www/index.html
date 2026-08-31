@@ -4119,6 +4119,28 @@
   </div>
 </div>
 
+<!-- Modal: rincian transaksi penyusun Realisasi per komponen + lepas kaitan massal -->
+<div class="modal-backdrop" id="rincianRealisasiModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>🔎 Rincian Realisasi — <span id="rr_judul"></span></h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <p class="muted" style="font-size:12px; margin:-4px 0 10px;">SEMUA transaksi Kas Perusahaan yang menyusun angka Realisasi komponen ini. Kalau ada yang bukan milik proyek ini (mis. hasil ceklis berlebihan di modal Kaitkan, atau input dobel), centang lalu <strong>Lepas Kaitan</strong> — transaksinya TETAP ada di Kas Perusahaan (tidak dihapus), hanya tidak lagi terhitung di Realisasi/Margin proyek ini. Transaksi otomatis (dari Belanja Material/Slip Gaji/Sewa) tidak bisa dilepas dari sini — bereskan lewat sumbernya.</p>
+    <div class="table-wrap" style="max-height:340px; overflow-y:auto;">
+      <table class="tbl" id="rr_table">
+        <thead><tr><th style="width:36px;"><input type="checkbox" id="rr_checkAll" title="Centang semua yang bisa dilepas"></th><th>Tanggal</th><th>Keterangan</th><th>Sumber</th><th class="num">Jumlah</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="muted" style="font-size:11.5px; margin-top:8px;"><span id="rr_ringkas" style="font-weight:600;"></span></p>
+    <div class="modal-actions">
+      <button type="button" class="btn-ghost" data-close-modal>Tutup</button>
+      <button type="button" class="btn-primary" id="rr_lepasBtn">Lepas Kaitan yang Dicentang</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: isi absensi massal (backfill rentang tanggal) -->
 <div class="modal-backdrop" id="absensiMassalModal">
   <div class="modal">
