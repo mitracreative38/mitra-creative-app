@@ -4530,6 +4530,7 @@ function renderProyekDetail() {
   // ada walau daftarnya tertimpa -- tawarkan bangun ulang dari situ.
   const pulihkanBtn = document.getElementById("pd_pulihkanBelanjaBtn");
   if (pulihkanBtn) pulihkanBtn.style.display = belanjaYatimDariKas(p).length && !p.arsip ? "" : "none";
+  syncUndoKaitanButton();
 
   const subkonTbody = document.querySelector("#pd_subkonTable tbody");
   subkonTbody.innerHTML = p.subkontraktor.length ? p.subkontraktor.map(sk => {
@@ -5178,6 +5179,23 @@ function renderTxnTanpaProyekHint(p) {
 // checkbox yang sedang tampil disinkronkan dulu ke Set.
 let ktRows = [];
 let ktChecked = new Set();
+// Kata pembeda dari nama proyek (mis. "Adiwerna" dari "KLA Adiwerna") --
+// dipakai untuk menandai/menyaring transaksi Kas yang keterangannya
+// menyebut nama proyek ini, supaya laporan uang masuk/keluar yang diinput
+// duluan di Kas gampang ketemu dan tidak diinput dobel.
+const KATA_UMUM_PROYEK = new Set(["proyek", "pekerjaan", "pemasangan", "perbaikan", "maintenance",
+  "pembangunan", "renovasi", "gedung", "kantor", "cabang", "unit", "toko", "rumah", "jalan"]);
+function kataKunciProyek(p) {
+  return (p.nama || "").toLowerCase().split(/[^a-z0-9]+/)
+    .filter(k => k.length >= 4 && !KATA_UMUM_PROYEK.has(k));
+}
+let ktKataKunci = [];
+let ktHanyaCocok = false;
+function ktCocokNama(t) {
+  if (!ktKataKunci.length) return false;
+  const teks = `${t.keterangan || ""} ${t.extra || ""}`.toLowerCase();
+  return ktKataKunci.some(k => teks.includes(k));
+}
 function ktSyncFromDom() {
   document.querySelectorAll("#kt_table tbody .kt-check").forEach(c => {
     if (c.checked) ktChecked.add(c.dataset.txnId); else ktChecked.delete(c.dataset.txnId);
@@ -5188,6 +5206,7 @@ function ktVisibleRows() {
   const tipe = document.getElementById("kt_tipe").value;
   const bulan = document.getElementById("kt_bulan").value;
   return ktRows.filter(t =>
+    (!ktHanyaCocok || ktCocokNama(t)) &&
     (!tipe || t.tipe === tipe) &&
     (!bulan || (t.tanggal || "").slice(0, 7) === bulan) &&
     (!cari || `${t.keterangan || ""} ${t.kategori || ""} ${t.extra || ""}`.toLowerCase().includes(cari)));
@@ -5200,7 +5219,7 @@ function renderKtTable() {
       <td style="white-space:nowrap;">${formatTanggal(t.tanggal)}</td>
       <td><span class="badge ${t.tipe === "Masuk" ? "badge-lunas" : "badge-pending"}">${t.tipe === "Masuk" ? "Masuk" : "Keluar"}</span></td>
       <td>${escapeHtml(t.kategori)}</td>
-      <td>${t.sumberSlipId ? "💰 " : ""}${escapeHtml(t.keterangan || "-")}</td>
+      <td>${ktCocokNama(t) ? '<span title="Keterangan menyebut nama proyek ini — kemungkinan besar memang miliknya">✨ </span>' : ""}${t.sumberSlipId ? "💰 " : ""}${escapeHtml(t.keterangan || "-")}</td>
       <td class="num">${rupiah(t.jumlah)}</td>
     </tr>
   `).join("") : `<tr class="empty-row"><td colspan="6">${ktRows.length ? "Tidak ada transaksi yang cocok dengan pencarian/filter ini." : "Semua transaksi biaya & pendapatan sudah terkait proyek 👍"}</td></tr>`;
@@ -5217,6 +5236,13 @@ document.getElementById("pd_kaitkanTxnBtn").addEventListener("click", () => {
   if (!p || proyekArsipGuard(p)) return;
   ktRows = txnBiayaTanpaProyek().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
   ktChecked = new Set();
+  ktKataKunci = kataKunciProyek(p);
+  ktHanyaCocok = false;
+  const cocokBtn = document.getElementById("kt_cocokBtn");
+  const nCocok = ktKataKunci.length ? ktRows.filter(ktCocokNama).length : 0;
+  cocokBtn.style.display = ktKataKunci.length ? "" : "none";
+  cocokBtn.textContent = `✨ Cocok Nama Proyek (${nCocok})`;
+  cocokBtn.classList.remove("btn-primary");
   document.getElementById("kt_cari").value = "";
   document.getElementById("kt_tipe").value = "";
   const bulanSel = document.getElementById("kt_bulan");
@@ -5230,6 +5256,12 @@ document.getElementById("pd_kaitkanTxnBtn").addEventListener("click", () => {
 ["kt_cari", "kt_tipe", "kt_bulan"].forEach(id => {
   const ev = id === "kt_cari" ? "input" : "change";
   document.getElementById(id).addEventListener(ev, () => { ktSyncFromDom(); renderKtTable(); });
+});
+document.getElementById("kt_cocokBtn").addEventListener("click", () => {
+  ktSyncFromDom();
+  ktHanyaCocok = !ktHanyaCocok;
+  document.getElementById("kt_cocokBtn").classList.toggle("btn-primary", ktHanyaCocok);
+  renderKtTable();
 });
 document.getElementById("kt_table").addEventListener("change", e => {
   if (!e.target.classList.contains("kt-check")) return;
@@ -5263,18 +5295,67 @@ document.getElementById("kt_simpanBtn").addEventListener("click", () => {
     calonDobel.slice(0, 5).map(t => `• ${rupiah(t.jumlah)} — "${t.keterangan || "-"}" (${formatTanggal(t.tanggal)})`).join("\n") +
     `\n\nKalau itu pembayaran yang SAMA (sudah pernah ditambah lewat Tambah Termin), batalkan dan hapus dulu termin dobelnya lewat 🗑️ di daftar Termin.\n\nTetap kaitkan?`)) return;
   let count = 0;
+  const undoPerTxn = {};
   ids.forEach(id => {
     const t = state.kasUsaha.transactions.find(x => x.id === id);
     if (!t || t.proyekId) return;
     const before = { ...t };
+    undoPerTxn[id] = "";
     t.proyekId = p.id;
     mirrorKasUsahaUpsert(t, before);
     count++;
   });
+  if (count) writeUndoKaitan({ tipe: "kaitkan", proyekId: p.id, waktu: Date.now(), perTxn: undoPerTxn });
   saveState();
   closeModals();
   renderAll();
-  alert(`${count} transaksi berhasil dikaitkan ke proyek "${p.nama}" — Realisasi, Margin, dan KPI langsung ter-update.`);
+  alert(`${count} transaksi berhasil dikaitkan ke proyek "${p.nama}" — Realisasi, Margin, dan KPI langsung ter-update.\n\nSalah pilih? Klik "↩️ Batalkan Kaitan/Lepas Terakhir" di sebelah tombol Kaitkan.`);
+});
+// ----- Undo operasi kaitkan / lepas kaitan massal -----
+// Kaitkan massal (ceklis banyak) dan Lepas Kaitan massal sama-sama
+// mengubah puluhan transaksi sekaligus -- salah pilih harus bisa langsung
+// dikembalikan, bukan dikoreksi manual satu-satu. Satu slot per operasi
+// terakhir (pola yang sama dengan undo absensi/slip massal).
+const UNDO_KAITAN_KEY = "mitraCreative_undoKaitan_v1";
+function readUndoKaitan() {
+  try { return JSON.parse(localStorage.getItem(UNDO_KAITAN_KEY) || "null"); } catch { return null; }
+}
+function writeUndoKaitan(data) {
+  try {
+    if (data) localStorage.setItem(UNDO_KAITAN_KEY, JSON.stringify(data));
+    else localStorage.removeItem(UNDO_KAITAN_KEY);
+  } catch {}
+  syncUndoKaitanButton();
+}
+function syncUndoKaitanButton() {
+  const btn = document.getElementById("pd_undoKaitanBtn");
+  if (!btn) return;
+  const u = readUndoKaitan();
+  const tampil = u && u.proyekId === currentProyekId;
+  btn.style.display = tampil ? "" : "none";
+  if (tampil) btn.textContent = `↩️ Batalkan ${u.tipe === "lepas" ? "Lepas Kaitan" : "Kaitan"} Terakhir (${Object.keys(u.perTxn || {}).length})`;
+}
+document.getElementById("pd_undoKaitanBtn").addEventListener("click", () => {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  const u = readUndoKaitan();
+  if (!p || !u || u.proyekId !== p.id) { syncUndoKaitanButton(); return; }
+  const n = Object.keys(u.perTxn || {}).length;
+  if (!confirm(`Batalkan operasi ${u.tipe === "lepas" ? "LEPAS KAITAN" : "KAITKAN"} massal terakhir (${n} transaksi) di proyek "${p.nama}"?\n\nSetiap transaksi dikembalikan persis ke kaitan sebelum operasi itu — Realisasi/Margin ikut terkoreksi.`)) return;
+  let ok = 0, terkunci = 0;
+  Object.entries(u.perTxn || {}).forEach(([id, sebelumnya]) => {
+    const t = state.kasUsaha.transactions.find(x => x.id === id);
+    if (!t) return;
+    if (state.periodeTerkunci && (t.tanggal || "").slice(0, 7) <= state.periodeTerkunci) { terkunci++; return; }
+    const before = { ...t };
+    t.proyekId = sebelumnya || "";
+    mirrorKasUsahaUpsert(t, before);
+    ok++;
+  });
+  saveState();
+  writeUndoKaitan(null);
+  renderAll();
+  alert(`${ok} transaksi dikembalikan ke kaitan sebelum operasi terakhir.` +
+    (terkunci ? `\n\n${terkunci} transaksi tidak diubah karena tanggalnya di periode yang sudah ditutup bukunya.` : ""));
 });
 function renderBiayaLainProyek(p) {
   const rows = proyekKasTxns(p)
@@ -14394,18 +14475,22 @@ document.getElementById("rr_lepasBtn").addEventListener("click", () => {
     `Lepas kaitan ${dipilih.length} transaksi (total ${rupiah(total)}) dari proyek "${p.nama}"?\n\n` +
     `Transaksinya TETAP ada di Kas Perusahaan (tidak dihapus, saldo Kas tidak berubah) — hanya tidak lagi terhitung di Realisasi/Margin proyek ini. Bisa dikaitkan ulang kapan saja lewat tombol "Kaitkan Transaksi ke Proyek Ini" atau edit transaksinya di Kas.`)) return;
   let terkunci = 0;
+  const undoPerTxn = {};
   dipilih.forEach(t => {
     if (state.periodeTerkunci && (t.tanggal || "").slice(0, 7) <= state.periodeTerkunci) { terkunci++; return; }
     const sebelum = { ...t };
+    undoPerTxn[t.id] = p.id;
     t.proyekId = "";
     mirrorKasUsahaUpsert(t, sebelum);
   });
+  if (Object.keys(undoPerTxn).length) writeUndoKaitan({ tipe: "lepas", proyekId: p.id, waktu: Date.now(), perTxn: undoPerTxn });
   saveState();
   renderAll();
   closeModals();
   alert(
     `${dipilih.length - terkunci} transaksi dilepas kaitannya dari proyek ini — Realisasi langsung terkoreksi.` +
-    (terkunci ? `\n\n${terkunci} transaksi TIDAK dilepas karena tanggalnya di periode yang sudah ditutup bukunya — buka kuncinya dulu di Laporan Keuangan → Tutup Buku.` : "")
+    (terkunci ? `\n\n${terkunci} transaksi TIDAK dilepas karena tanggalnya di periode yang sudah ditutup bukunya — buka kuncinya dulu di Laporan Keuangan → Tutup Buku.` : "") +
+    `\n\nSalah lepas? Klik "↩️ Batalkan Kaitan/Lepas Terakhir" di sebelah tombol Kaitkan.`
   );
 });
 
