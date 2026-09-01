@@ -1445,6 +1445,7 @@
           <div id="pd_txnTanpaProyekHint" style="display:none; margin-top:10px; align-items:center; gap:10px; flex-wrap:wrap;">
             <span class="bad" style="font-size:12.5px;" id="pd_txnTanpaProyekText"></span>
             <button type="button" class="btn-ghost" id="pd_kaitkanTxnBtn">🔗 Kaitkan Transaksi ke Proyek Ini</button>
+            <button type="button" class="btn-ghost" id="pd_undoKaitanBtn" style="display:none;" title="Kembalikan kaitan transaksi ke keadaan sebelum operasi kaitkan/lepas kaitan massal terakhir di proyek ini">↩️ Batalkan Kaitan/Lepas Terakhir</button>
           </div>
         </div>
 
@@ -4076,6 +4077,7 @@
     <p class="muted" style="font-size:12px; margin:-4px 0 10px;">Daftar transaksi biaya (Keluar) DAN pendapatan (Masuk) di Kas Perusahaan yang belum terkait ke proyek mana pun — untuk merapikan input lama yang masuk Kas duluan sebelum proyeknya dibuat, tanpa input ulang. Centang yang memang milik proyek ini — begitu disimpan, langsung terhitung di Realisasi, Margin, Laporan Proyek, dan KPI. Centangan TETAP tersimpan saat berpindah pencarian/filter, jadi bisa memilah per bulan lalu simpan sekaligus.</p>
     <div class="toolbar" style="flex-wrap:wrap; gap:8px; margin-bottom:8px;">
       <input type="text" id="kt_cari" placeholder="🔍 Cari keterangan/kategori..." style="flex:1; min-width:180px;">
+      <button type="button" class="btn-ghost" id="kt_cocokBtn" title="Tampilkan hanya transaksi yang keterangannya menyebut nama proyek ini (mis. transaksi 'pembayaran adiwerna' untuk proyek Adiwerna) — lalu centang semua sekaligus">✨ Cocok Nama Proyek</button>
       <select id="kt_tipe" style="max-width:170px;">
         <option value="">Semua Jenis</option>
         <option value="Keluar">Biaya (Keluar)</option>
