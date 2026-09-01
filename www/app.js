@@ -2926,6 +2926,7 @@ document.getElementById("utangBayarForm").addEventListener("submit", e => {
   if (!u) return;
   const jumlah = parseNumberInput(document.getElementById("ub_jumlah").value);
   if (jumlah <= 0) { alert("Jumlah pembayaran harus lebih dari 0."); return; }
+  if (guardPeriodeTerkunci(document.getElementById("ub_tanggal").value)) return;
   const sisa = utangSisa(u);
   if (jumlah > sisa && !confirm(`Jumlah ini MELEBIHI sisa utang (${rupiah(Math.max(0, sisa))}).\nTetap catat?`)) return;
   const txn = {
@@ -3356,6 +3357,7 @@ document.getElementById("asetBayarForm").addEventListener("submit", e => {
   if (!a || !kt) return;
   const jumlah = parseNumberInput(document.getElementById("swb_jumlah").value);
   if (jumlah <= 0) { alert("Jumlah pembayaran harus lebih dari 0."); return; }
+  if (guardPeriodeTerkunci(document.getElementById("swb_tanggal").value)) return;
   const sisa = (kt.nilai || 0) - sewaDibayar(kt.id);
   if (jumlah > sisa && !confirm(`Jumlah ini MELEBIHI sisa tagihan kontrak (${rupiah(Math.max(0, sisa))}).\nTetap catat?`)) return;
   const ketTambahan = document.getElementById("swb_keterangan").value.trim();
@@ -4044,6 +4046,20 @@ function computePemeriksaanIntegrasi() {
     });
   }
 
+  // 11. Transaksi lama yang menunjuk proyek yang SUDAH DIHAPUS (sebelum
+  // hapus proyek otomatis melepas kaitan): tidak terhitung di Margin mana
+  // pun dan tidak pernah ditawarkan lagi di modal Kaitkan.
+  const proyekIdAda = new Set((state.proyek || []).map(p => p.id));
+  const txnProyekHilang = state.kasUsaha.transactions.filter(t => t.proyekId && !proyekIdAda.has(t.proyekId));
+  if (txnProyekHilang.length) {
+    temuan.push({
+      icon: "🧹", page: "kasUsaha", fix: "proyekHilang",
+      judul: `${txnProyekHilang.length} transaksi menunjuk proyek yang sudah dihapus`,
+      detail: `Total ${rupiah(txnProyekHilang.reduce((s, t) => s + (t.jumlah || 0), 0))} tidak terhitung di Margin mana pun dan tidak muncul di modal Kaitkan. Klik "Lepas Kaitan" untuk mengembalikannya ke daftar "belum dikaitkan".`,
+      data: txnProyekHilang
+    });
+  }
+
   return temuan;
 }
 function renderPemeriksaanIntegrasi() {
@@ -4061,6 +4077,7 @@ function renderPemeriksaanIntegrasi() {
           <span style="white-space:nowrap;">
             ${t.fix === "invoiceKas" ? `<button class="btn-ghost" data-fix-invoice-kas="${i}">⚡ Catat ke Kas</button>` : ""}
             ${t.fix === "invoiceManualOk" ? `<button class="btn-ghost" data-fix-invoice-manual-ok="${i}">✔️ Tandai Sudah Cocok</button>` : ""}
+            ${t.fix === "proyekHilang" ? `<button class="btn-ghost" data-fix-proyek-hilang="${i}">🧹 Lepas Kaitan</button>` : ""}
             <button class="btn-ghost" data-goto-page="${t.page}">Buka</button>
           </span>
         </div>
@@ -4071,7 +4088,26 @@ document.getElementById("dash_periksaBtn").addEventListener("click", renderPemer
 document.getElementById("dash_integrasiHasil").addEventListener("click", e => {
   const fixBtn = e.target.closest("[data-fix-invoice-kas]");
   const okBtn = e.target.closest("[data-fix-invoice-manual-ok]");
+  const lepasBtn = e.target.closest("[data-fix-proyek-hilang]");
   const gotoBtn = e.target.closest("[data-goto-page]");
+  if (lepasBtn) {
+    const temuan = computePemeriksaanIntegrasi().find(t => t.fix === "proyekHilang");
+    if (!temuan || !temuan.data.length) { renderPemeriksaanIntegrasi(); return; }
+    if (!confirm(`Lepas kaitan ${temuan.data.length} transaksi yang menunjuk proyek terhapus (total ${rupiah(temuan.data.reduce((s, t) => s + (t.jumlah || 0), 0))})?\n\nTransaksinya TETAP ada di Kas — hanya kembali ke daftar "belum dikaitkan" supaya bisa dikaitkan ulang ke proyek yang benar.`)) return;
+    let terkunci = 0;
+    temuan.data.forEach(t => {
+      if (state.periodeTerkunci && (t.tanggal || "").slice(0, 7) <= state.periodeTerkunci) { terkunci++; return; }
+      const before = { ...t };
+      t.proyekId = "";
+      if (t.subkonId) t.subkonId = "";
+      mirrorKasUsahaUpsert(t, before);
+    });
+    saveState();
+    renderAll();
+    renderPemeriksaanIntegrasi();
+    if (terkunci) alert(`${terkunci} transaksi tidak diubah karena tanggalnya di periode yang sudah ditutup bukunya.`);
+    return;
+  }
   if (okBtn) {
     const temuan = computePemeriksaanIntegrasi().find(t => t.fix === "invoiceManualOk");
     if (temuan && temuan.data.length &&
@@ -5385,6 +5421,7 @@ document.getElementById("bo_addBtn").addEventListener("click", async () => {
   const keterangan = document.getElementById("bo_keterangan").value.trim();
   const jumlah = parseNumberInput(document.getElementById("bo_jumlah").value);
   if (!tanggal || !keterangan || !(jumlah > 0)) { alert("Isi tanggal, keterangan, dan jumlah terlebih dahulu."); return; }
+  if (guardPeriodeTerkunci(tanggal)) return;
   const txn = {
     id: uid(),
     proyekId: p.id,
@@ -5415,6 +5452,8 @@ document.getElementById("pd_biayaLainTable").addEventListener("click", e => {
   const p = state.proyek.find(x => x.id === currentProyekId);
   if (!delBtn || !p) return;
   if (proyekArsipGuard(p)) return;
+  const txnBiayaLain = state.kasUsaha.transactions.find(t => t.id === delBtn.dataset.deleteBiayalain);
+  if (txnBiayaLain && guardPeriodeTerkunci(txnBiayaLain.tanggal)) return;
   if (confirm("Hapus biaya ini? Transaksinya juga akan terhapus dari Kas Perusahaan.")) {
     const deleted = state.kasUsaha.transactions.find(t => t.id === delBtn.dataset.deleteBiayalain);
     state.kasUsaha.transactions = state.kasUsaha.transactions.filter(t => t.id !== delBtn.dataset.deleteBiayalain);
@@ -8163,10 +8202,24 @@ document.getElementById("ky_table").addEventListener("click", e => {
     const k = state.karyawan.find(x => x.id === editBtn.dataset.editKaryawan);
     if (k) openKaryawanModal(k);
   } else if (delBtn) {
-    if (confirm("Hapus karyawan ini beserta seluruh riwayat absensi & slip gajinya?")) {
-      const deleted = state.karyawan.find(x => x.id === delBtn.dataset.deleteKaryawan);
+    // Transaksi Kas gaji (sumberSlipId) milik slip-slip karyawan ini harus
+    // ikut terhapus -- kalau tidak, uangnya jadi "yatim": tetap terhitung
+    // di Kas & Realisasi proyek tanpa sumber yang bisa dilacak (pola bug
+    // yang sama dengan kasus belanja KLA Mataram).
+    const kHapus = state.karyawan.find(x => x.id === delBtn.dataset.deleteKaryawan);
+    if (!kHapus) return;
+    const slipIds = new Set((kHapus.slipGaji || []).map(s => s.id));
+    const txnGaji = state.kasUsaha.transactions.filter(t => t.sumberSlipId && slipIds.has(t.sumberSlipId));
+    const txnTerkunci = txnGaji.find(t => state.periodeTerkunci && (t.tanggal || "").slice(0, 7) <= state.periodeTerkunci);
+    if (txnTerkunci) {
+      alert(`Karyawan ini punya transaksi gaji di periode yang sudah DITUTUP BUKUNYA (${formatTanggal(txnTerkunci.tanggal)}) — menghapusnya akan mengubah laporan yang sudah diarsipkan.\n\nBuka kunci periode dulu di Laporan Keuangan → Tutup Buku, atau biarkan karyawan ini (set saja jadi tidak aktif).`);
+      return;
+    }
+    if (confirm(`Hapus karyawan ini beserta seluruh riwayat absensi & slip gajinya?${txnGaji.length ? `\n\n${txnGaji.length} transaksi gaji di Kas Perusahaan (total ${rupiah(txnGaji.reduce((s, t) => s + Math.max(0, t.jumlah || 0), 0))}) juga akan ikut terhapus supaya tidak jadi catatan tanpa sumber.` : ""}`)) {
       state.karyawan = state.karyawan.filter(x => x.id !== delBtn.dataset.deleteKaryawan);
-      mirrorKaryawanDelete(delBtn.dataset.deleteKaryawan, deleted);
+      state.kasUsaha.transactions = state.kasUsaha.transactions.filter(t => !(t.sumberSlipId && slipIds.has(t.sumberSlipId)));
+      mirrorKaryawanDelete(delBtn.dataset.deleteKaryawan, kHapus);
+      slipIds.forEach(id => mirrorKasUsahaDeleteBySumberSlip(id));
       saveState();
       renderAll();
     }
@@ -9393,6 +9446,7 @@ document.getElementById("slipGajiEditForm").addEventListener("submit", e => {
   if (!k) { closeModals(); return; }
   const sl = (k.slipGaji || []).find(s => s.id === document.getElementById("sge_id").value);
   if (!sl) { closeModals(); return; }
+  if (guardPeriodeTerkunci(sl.selesai)) return;
   const newUangMakan = parseNumberInput(document.getElementById("sge_uangMakan").value);
   const newBon = parseNumberInput(document.getElementById("sge_bon").value);
   const newPotonganPinjaman = parseNumberInput(document.getElementById("sge_potonganPinjaman").value);
@@ -9436,6 +9490,8 @@ document.getElementById("pg_riwayatTable").addEventListener("click", e => {
     const sl = k.slipGaji.find(s => s.id === editBtn.dataset.editSlip);
     if (sl) openSlipGajiEditModal(sl);
   } else if (delBtn) {
+    const slHapus = k.slipGaji.find(s => s.id === delBtn.dataset.deleteSlip);
+    if (slHapus && guardPeriodeTerkunci(slHapus.selesai)) return;
     if (confirm("Hapus slip gaji ini? Sisa pinjaman akan otomatis dihitung ulang tanpa potongan dari slip ini, dan transaksi Kas Perusahaan yang tercatat otomatis dari slip ini akan ikut terhapus.")) {
       k.slipGaji = k.slipGaji.filter(s => s.id !== delBtn.dataset.deleteSlip);
       state.kasUsaha.transactions = state.kasUsaha.transactions.filter(t => t.sumberSlipId !== delBtn.dataset.deleteSlip);
@@ -9452,6 +9508,9 @@ document.getElementById("pg_simpanCetakBtn").addEventListener("click", () => {
   const mulai = document.getElementById("pg_mulai").value;
   const selesai = document.getElementById("pg_selesai").value;
   if (!k || !mulai || !selesai) { alert("Pilih karyawan dan periode terlebih dahulu."); return; }
+  // Transaksi Kas otomatis slip bertanggal `selesai` -- periode yang sudah
+  // ditutup bukunya tidak boleh ketambahan slip baru dari sini.
+  if (guardPeriodeTerkunci(selesai)) return;
   // Cegah gaji terbayar dobel: slip baru yang periodenya beririsan dengan
   // slip lama karyawan yang sama harus dikonfirmasi sadar dulu.
   const tumpangTindih = (k.slipGaji || []).find(s => (s.mulai || "") <= selesai && (s.selesai || "") >= mulai);
@@ -13939,9 +13998,19 @@ document.getElementById("pr_table").addEventListener("click", e => {
     const p = state.proyek.find(x => x.id === editBtn.dataset.editProyek);
     if (p) openProyekModal(p);
   } else if (delBtn) {
-    if (confirm("Hapus proyek ini? Transaksi Kas Perusahaan yang sudah terkait proyek ini tidak akan ikut terhapus.")) {
+    if (confirm("Hapus proyek ini? Transaksi Kas Perusahaan yang terkait TIDAK ikut terhapus — kaitannya dilepas otomatis supaya kembali muncul di daftar \"belum dikaitkan\" (bisa dikaitkan ulang ke proyek lain).")) {
       const deleted = state.proyek.find(x => x.id === delBtn.dataset.deleteProyek);
       state.proyek = state.proyek.filter(x => x.id !== delBtn.dataset.deleteProyek);
+      // Tanpa pelepasan ini, transaksi ber-proyekId proyek terhapus jadi
+      // "hilang selamanya": tidak terhitung di Margin mana pun DAN tidak
+      // pernah ditawarkan lagi di modal Kaitkan (karena proyekId terisi).
+      state.kasUsaha.transactions.forEach(t => {
+        if (t.proyekId !== delBtn.dataset.deleteProyek) return;
+        const before = { ...t };
+        t.proyekId = "";
+        if (t.subkonId) t.subkonId = "";
+        mirrorKasUsahaUpsert(t, before);
+      });
       mirrorProyekDelete(delBtn.dataset.deleteProyek, deleted);
       if (currentProyekId === delBtn.dataset.deleteProyek) currentProyekId = null;
       saveState();
@@ -13992,6 +14061,7 @@ document.getElementById("tm_addBtn").addEventListener("click", () => {
   const keterangan = document.getElementById("tm_keterangan").value.trim();
   const jumlah = parseNumberInput(document.getElementById("tm_jumlah").value);
   if (!tanggal || !keterangan || !jumlah) { alert("Isi tanggal, keterangan, dan jumlah terlebih dahulu."); return; }
+  if (guardPeriodeTerkunci(tanggal)) return;
   // Anti dobel input: kalau pembayaran ini sudah pernah masuk Kas (input
   // duluan / dikaitkan), menambah termin lagi = pendapatan tercatat 2x.
   const kembar = proyekKasTxns(p).find(t =>
@@ -14029,10 +14099,13 @@ document.getElementById("tm_addBtn").addEventListener("click", () => {
 });
 document.getElementById("pd_terminTable").addEventListener("click", e => {
   const delBtn = e.target.closest("[data-delete-termin]");
-  if (delBtn && confirm("Hapus termin pembayaran ini? Transaksi ini juga akan terhapus dari Kas Perusahaan.")) {
+  if (!delBtn) return;
+  const terminTxn = state.kasUsaha.transactions.find(t => t.id === delBtn.dataset.deleteTermin);
+  if (terminTxn && guardPeriodeTerkunci(terminTxn.tanggal)) return;
+  if (confirm("Hapus termin pembayaran ini? Transaksi ini juga akan terhapus dari Kas Perusahaan.")) {
     state.kasUsaha.transactions = state.kasUsaha.transactions.filter(t => t.id !== delBtn.dataset.deleteTermin);
     saveState();
-    mirrorKasUsahaDelete(delBtn.dataset.deleteTermin);
+    mirrorKasUsahaDelete(delBtn.dataset.deleteTermin, terminTxn);
     renderAll();
   }
 });
@@ -14541,6 +14614,10 @@ document.getElementById("belanjaForm").addEventListener("submit", async e => {
     gudangId: document.getElementById("bm_gudangId").value || "",
     lampiranPath: (lama && lama.lampiranPath) || ""
   };
+  // Periode yang sudah ditutup bukunya: transaksi Kas otomatis belanja ini
+  // ikut berubah, jadi item bertanggal (atau yang transaksinya bertanggal)
+  // di periode terkunci tidak boleh ditambah/diubah dari sini.
+  if (guardPeriodeTerkunci(item.tanggal) || (lama && guardPeriodeTerkunci(lama.tanggal))) return;
   // Anti-dobel (pola yang sama dengan termin): belanja BARU berstatus
   // "Dibeli" yang totalnya sama dengan transaksi Kas keluar yang sudah ada
   // di proyek ini kemungkinan besar belanja yang sama diinput dua kali --
@@ -14579,6 +14656,8 @@ document.getElementById("pd_belanjaTable").addEventListener("click", e => {
     const item = (p.belanjaMaterial || []).find(b => b.id === editBtn.dataset.editBelanja);
     if (item) openBelanjaModal(item);
   } else if (delBtn) {
+    const itemHapus = (p.belanjaMaterial || []).find(b => b.id === delBtn.dataset.deleteBelanja);
+    if (itemHapus && guardPeriodeTerkunci(itemHapus.tanggal)) return;
     if (confirm("Hapus item belanja ini? Transaksi Kas Perusahaan/Stok yang otomatis tercatat dari item ini akan ikut terhapus.")) {
       const bid = delBtn.dataset.deleteBelanja;
       p.belanjaMaterial = (p.belanjaMaterial || []).filter(b => b.id !== bid);
@@ -14648,6 +14727,7 @@ document.getElementById("subkonBayarForm").addEventListener("submit", e => {
   const sk = (p.subkontraktor || []).find(s => s.id === subkonId);
   if (!sk) { closeModals(); return; }
   const jumlahBayar = parseNumberInput(document.getElementById("skb_jumlah").value);
+  if (guardPeriodeTerkunci(document.getElementById("skb_tanggal").value)) return;
   // Kelebihan bayar jangan lolos diam-diam (kasus nyata: Dibayar 2x lipat
   // Nilai Kontrak karena tercatat dobel) -- boleh dilanjutkan sadar
   // (mis. ada pekerjaan tambahan), tapi harus lewat konfirmasi dulu.
