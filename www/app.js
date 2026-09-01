@@ -6527,10 +6527,13 @@ function renderKlienDetail() {
   document.querySelector("#kld_kontakTable tbody").innerHTML = kontakRows.length ? kontakRows.map(r => `
     <tr>
       <td>${formatTanggal(r.tanggal)}</td>
-      <td>${escapeHtml(r.jenis || "-")}</td>
+      <td>${escapeHtml(r.jenis || "-")}${r.jenis === "Komplain" ? `<br>${r.statusKomplain === "selesai" ? '<span class="badge badge-lunas">Selesai</span>' : '<span class="badge badge-pending">Belum Selesai</span>'}` : ""}${r.jenis === "Survey Kepuasan" && r.rating ? `<br><span title="Nilai kepuasan ${r.rating}/5">${"★".repeat(r.rating)}</span>` : ""}</td>
       <td>${escapeHtml(r.catatan)}</td>
       <td><small>${escapeHtml(r.petugas || "-")}</small></td>
-      <td><div class="row-actions">${bolehHapusRiwayat ? `<button class="icon-btn" data-delete-kontak="${r.id}" title="Hapus">🗑️</button>` : ""}</div></td>
+      <td><div class="row-actions">
+        ${r.jenis === "Komplain" && r.statusKomplain !== "selesai" ? `<button class="icon-btn" data-selesai-komplain="${r.id}" title="Tandai komplain selesai ditangani">✔️</button>` : ""}
+        ${bolehHapusRiwayat ? `<button class="icon-btn" data-delete-kontak="${r.id}" title="Hapus">🗑️</button>` : ""}
+      </div></td>
     </tr>
   `).join("") : '<tr class="empty-row"><td colspan="5">Belum ada riwayat kontak</td></tr>';
 
@@ -6572,7 +6575,10 @@ const SEGMEN_BABAT_ALAS = [
   "", "Instansi Pemerintah / BUMN", "Developer & Kontraktor", "Pabrik / Kawasan Industri",
   "RS / Klinik / Sekolah / Kampus", "Ritel / F&B / Hotel", "Perorangan", "Lainnya"
 ];
-const JENIS_KONTAK = ["Telepon", "WhatsApp", "Kunjungan", "Meeting", "Email", "Lainnya"];
+// B-G4: "Komplain" dan "Survey Kepuasan" ikut dicatat lewat riwayat kontak
+// yang sama (satu pintu input di detail Klien) lalu direkap otomatis di
+// sub-menu KPI Komplain Klien & KPI Kepuasan Klien.
+const JENIS_KONTAK = ["Telepon", "WhatsApp", "Kunjungan", "Meeting", "Email", "Komplain", "Survey Kepuasan", "Lainnya"];
 // Identitas penginput untuk jejak "siapa mengerjakan apa" -- dari akun
 // login (email); sesi lokal tanpa login dianggap Owner.
 function petugasSaatIni() {
@@ -6706,6 +6712,14 @@ document.getElementById("kld_picTable").addEventListener("click", e => {
     renderKlienDetail();
   }
 });
+// Field tambahan riwayat kontak mengikuti jenisnya: Komplain punya status
+// penyelesaian, Survey Kepuasan punya nilai bintang 1-5.
+function refreshRkJenisFields() {
+  const jenis = document.getElementById("rk_jenis").value;
+  document.getElementById("rk_komplainWrap").style.display = jenis === "Komplain" ? "flex" : "none";
+  document.getElementById("rk_ratingWrap").style.display = jenis === "Survey Kepuasan" ? "flex" : "none";
+}
+document.getElementById("rk_jenis").addEventListener("change", refreshRkJenisFields);
 document.getElementById("rk_addBtn").addEventListener("click", () => {
   const k = state.klien.find(x => x.id === currentKlienId);
   if (!k) return;
@@ -6718,7 +6732,10 @@ document.getElementById("rk_addBtn").addEventListener("click", () => {
   if (!k.riwayatKontak) k.riwayatKontak = [];
   // Petugas dipatri otomatis (bukan diketik) supaya jejak kerja marketing
   // tidak bisa dipalsukan atas nama orang lain.
-  k.riwayatKontak.push({ id: uid(), tanggal, jenis: jenisSel.value || "Lainnya", catatan, petugas: petugasSaatIni() });
+  const entry = { id: uid(), tanggal, jenis: jenisSel.value || "Lainnya", catatan, petugas: petugasSaatIni() };
+  if (entry.jenis === "Komplain") entry.statusKomplain = document.getElementById("rk_komplainStatus").value;
+  if (entry.jenis === "Survey Kepuasan") entry.rating = parseInt(document.getElementById("rk_rating").value, 10) || 0;
+  k.riwayatKontak.push(entry);
   // Sekali input: jadwal follow-up berikutnya langsung memperbarui klien
   // (muncul di daftar, Dashboard, dan Kalender tanpa input ulang).
   if (followUp) k.followUpTanggal = followUp;
@@ -6731,7 +6748,19 @@ document.getElementById("rk_addBtn").addEventListener("click", () => {
 });
 document.getElementById("kld_kontakTable").addEventListener("click", e => {
   const delBtn = e.target.closest("[data-delete-kontak]");
+  const selesaiBtn = e.target.closest("[data-selesai-komplain]");
   const k = state.klien.find(x => x.id === currentKlienId);
+  if (selesaiBtn && k) {
+    const r = (k.riwayatKontak || []).find(x => x.id === selesaiBtn.dataset.selesaiKomplain);
+    if (r && confirm(`Tandai komplain "${r.catatan}" sudah SELESAI ditangani?`)) {
+      r.statusKomplain = "selesai";
+      r.selesaiTanggal = hariIniIso();
+      saveState();
+      mirrorKlienUpsert(k);
+      renderKlienDetail();
+    }
+    return;
+  }
   if (delBtn && currentTeamRole === "marketing") { alert("Role Marketing tidak dapat menghapus riwayat kontak."); return; }
   if (delBtn && k && confirm("Hapus riwayat kontak ini?")) {
     k.riwayatKontak = (k.riwayatKontak || []).filter(r => r.id !== delBtn.dataset.deleteKontak);
@@ -7624,6 +7653,144 @@ function renderKpiOperasional() {
     <div class="summary-row"><span>Item Stok di Bawah Minimum</span><strong>${k.stokDiBawahMin} item</strong></div>
   `;
 }
+// ===== KPI B-G4 (poin 1 Owner): Kinerja Divisi, Komplain, Kepuasan, Klien Utama =====
+// Divisi = Posisi/Jabatan karyawan (satu sumber dengan format perekrutan).
+function computeKpiDivisi(mulai, selesai) {
+  const grup = {};
+  state.karyawan.filter(k => k.aktif !== false).forEach(k => {
+    const divisi = (k.jabatan || "").trim() || "(Tanpa Divisi)";
+    if (!grup[divisi]) grup[divisi] = { divisi, anggota: 0, hadir: 0, totalAbsen: 0, lembur: 0, namaSet: new Set(), idSet: new Set(), prestasi: 0, teguran: 0 };
+    const g = grup[divisi];
+    g.anggota++;
+    g.namaSet.add(k.nama);
+    g.idSet.add(k.id);
+    (k.absensi || []).forEach(a => {
+      if (!a.tanggal || a.tanggal < mulai || a.tanggal > selesai) return;
+      g.totalAbsen++;
+      if (a.hadir) g.hadir++;
+      g.lembur += a.jamLembur || 0;
+    });
+    (k.pembinaan || []).forEach(pb => {
+      if (!pb.tanggal || pb.tanggal < mulai || pb.tanggal > selesai) return;
+      if (pb.jenis === "Prestasi") g.prestasi++;
+      else if (["Teguran Lisan", "SP1", "SP2", "SP3"].includes(pb.jenis)) g.teguran++;
+    });
+  });
+  return Object.values(grup).map(g => ({
+    divisi: g.divisi,
+    anggota: g.anggota,
+    kehadiran: g.totalAbsen ? (g.hadir / g.totalAbsen) * 100 : null,
+    lembur: g.lembur,
+    proyekTerlibat: state.proyek.filter(p => !p.arsip && (p.karyawanIds || []).some(id => g.idSet.has(id))).length,
+    laporanKerja: (state.laporanKerja || []).filter(l => l.tanggal >= mulai && l.tanggal <= selesai && g.namaSet.has((l.petugas || "").trim())).length,
+    prestasi: g.prestasi,
+    teguran: g.teguran
+  })).sort((a, b) => b.anggota - a.anggota || a.divisi.localeCompare(b.divisi));
+}
+function renderKpiDivisi() {
+  const { mulai, selesai } = kpiPeriode();
+  const rows = computeKpiDivisi(mulai, selesai);
+  document.querySelector("#kpi_divisiTable tbody").innerHTML = rows.length ? rows.map(r => `
+    <tr>
+      <td><strong>${escapeHtml(r.divisi)}</strong></td>
+      <td class="num">${r.anggota}</td>
+      <td class="num">${r.kehadiran == null ? "-" : pct1(r.kehadiran)}</td>
+      <td class="num">${r.lembur.toLocaleString("id-ID")} jam</td>
+      <td class="num">${r.proyekTerlibat}</td>
+      <td class="num">${r.laporanKerja}</td>
+      <td class="num">${r.prestasi || "-"}</td>
+      <td class="num">${r.teguran ? `<span class="bad">${r.teguran}</span>` : "-"}</td>
+    </tr>
+  `).join("") : '<tr class="empty-row"><td colspan="8">Belum ada karyawan aktif — isi Posisi/Jabatan di menu Karyawan agar divisinya terbentuk.</td></tr>';
+}
+// Komplain & Survey Kepuasan diambil dari riwayat kontak klien (satu pintu
+// input di detail Klien), difilter periode KPI.
+function daftarKontakJenis(jenis, mulai, selesai) {
+  const hasil = [];
+  state.klien.forEach(k => (k.riwayatKontak || []).forEach(r => {
+    if (r.jenis !== jenis) return;
+    if (mulai && (!r.tanggal || r.tanggal < mulai || r.tanggal > selesai)) return;
+    hasil.push({ klien: k, entry: r });
+  }));
+  return hasil.sort((a, b) => (b.entry.tanggal || "").localeCompare(a.entry.tanggal || ""));
+}
+function renderKpiKomplain() {
+  const { mulai, selesai } = kpiPeriode();
+  const rows = daftarKontakJenis("Komplain", mulai, selesai);
+  const open = rows.filter(x => x.entry.statusKomplain !== "selesai");
+  document.getElementById("kpi_komplainTotal").textContent = rows.length;
+  document.getElementById("kpi_komplainOpen").textContent = open.length;
+  document.getElementById("kpi_komplainSelesai").textContent = rows.length - open.length;
+  document.querySelector("#kpi_komplainTable tbody").innerHTML = rows.length ? rows.map(x => `
+    <tr>
+      <td>${formatTanggal(x.entry.tanggal)}</td>
+      <td><strong>${escapeHtml(x.klien.nama)}</strong></td>
+      <td>${escapeHtml(x.entry.catatan)}</td>
+      <td><small>${escapeHtml(x.entry.petugas || "-")}</small></td>
+      <td>${x.entry.statusKomplain === "selesai" ? '<span class="badge badge-lunas">Selesai</span>' : '<span class="badge badge-pending">Belum Selesai</span>'}</td>
+      <td>${x.entry.statusKomplain !== "selesai" ? `<button class="icon-btn" data-kpi-selesai-komplain="${x.klien.id}:${x.entry.id}" title="Tandai selesai ditangani">✔️</button>` : ""}</td>
+    </tr>
+  `).join("") : '<tr class="empty-row"><td colspan="6">Tidak ada komplain pada periode ini. 👍</td></tr>';
+}
+function renderKpiKepuasan() {
+  const { mulai, selesai } = kpiPeriode();
+  const rows = daftarKontakJenis("Survey Kepuasan", mulai, selesai).filter(x => x.entry.rating > 0);
+  const total = rows.reduce((s, x) => s + x.entry.rating, 0);
+  const puas = rows.filter(x => x.entry.rating >= 4).length;
+  document.getElementById("kpi_kepuasanRata").textContent = rows.length ? `${(total / rows.length).toFixed(2)} ★` : "-";
+  document.getElementById("kpi_kepuasanJumlah").textContent = rows.length;
+  document.getElementById("kpi_kepuasanPuas").textContent = rows.length ? pct1((puas / rows.length) * 100) : "-";
+  document.getElementById("kpi_kepuasanDistribusi").innerHTML = [5, 4, 3, 2, 1].map(n => {
+    const c = rows.filter(x => x.entry.rating === n).length;
+    return `<div class="summary-row"><span>${"★".repeat(n)} (${n})</span><strong>${c} survei</strong></div>`;
+  }).join("");
+  document.querySelector("#kpi_kepuasanTable tbody").innerHTML = rows.length ? rows.map(x => `
+    <tr>
+      <td>${formatTanggal(x.entry.tanggal)}</td>
+      <td><strong>${escapeHtml(x.klien.nama)}</strong></td>
+      <td>${"★".repeat(x.entry.rating)} (${x.entry.rating})</td>
+      <td>${escapeHtml(x.entry.catatan)}</td>
+      <td><small>${escapeHtml(x.entry.petugas || "-")}</small></td>
+    </tr>
+  `).join("") : '<tr class="empty-row"><td colspan="5">Belum ada survei kepuasan pada periode ini — catat lewat detail Klien setelah proyek selesai.</td></tr>';
+}
+function computeKpiKlienUtama(mulai, selesai) {
+  return state.klien.map(k => {
+    const proyekK = state.proyek.filter(p => p.klienId === k.id);
+    const proyekIds = new Set(proyekK.map(p => p.id));
+    const pendapatan = state.kasUsaha.transactions
+      .filter(t => t.tipe === "Masuk" && (t.status || "lunas") === "lunas" && t.proyekId && proyekIds.has(t.proyekId) &&
+        t.tanggal >= mulai && t.tanggal <= selesai)
+      .reduce((s, t) => s + Math.max(0, t.jumlah || 0), 0);
+    const komplain = (k.riwayatKontak || []).filter(r => r.jenis === "Komplain").length;
+    const ratings = (k.riwayatKontak || []).filter(r => r.jenis === "Survey Kepuasan" && r.rating > 0).map(r => r.rating);
+    return {
+      klien: k,
+      proyekCount: proyekK.length,
+      nilaiKontrak: proyekK.reduce((s, p) => s + (p.nilaiKontrak || 0), 0),
+      pendapatan,
+      komplain,
+      rating: ratings.length ? ratings.reduce((s, r) => s + r, 0) / ratings.length : null
+    };
+  }).filter(x => x.proyekCount || x.pendapatan || x.komplain || x.rating != null)
+    .sort((a, b) => b.pendapatan - a.pendapatan || b.nilaiKontrak - a.nilaiKontrak)
+    .slice(0, 10);
+}
+function renderKpiKlienUtama() {
+  const { mulai, selesai } = kpiPeriode();
+  const rows = computeKpiKlienUtama(mulai, selesai);
+  document.querySelector("#kpi_klienUtamaTable tbody").innerHTML = rows.length ? rows.map((r, i) => `
+    <tr>
+      <td>${i < 3 ? "🏆 " : ""}${i + 1}</td>
+      <td><strong>${escapeHtml(r.klien.nama)}</strong></td>
+      <td class="num">${r.proyekCount}</td>
+      <td class="num">${rupiah(r.nilaiKontrak)}</td>
+      <td class="num"><strong>${rupiah(r.pendapatan)}</strong></td>
+      <td class="num">${r.komplain ? `<span class="bad">${r.komplain}</span>` : "-"}</td>
+      <td class="num">${r.rating == null ? "-" : `${r.rating.toFixed(1)} ★`}</td>
+    </tr>
+  `).join("") : '<tr class="empty-row"><td colspan="7">Belum ada klien dengan proyek/pendapatan — kaitkan proyek ke klien (field Klien Terkait di Proyek) supaya rekap ini terisi.</td></tr>';
+}
 function renderKpiActiveSubtab() {
   const activeSubtab = document.querySelector('.subtab-item[data-subtab-page="kpi"].active');
   const name = activeSubtab ? activeSubtab.dataset.subtab : "penjualan";
@@ -7633,7 +7800,27 @@ function renderKpiActiveSubtab() {
   else if (name === "penagihan") renderKpiPenagihan();
   else if (name === "tim") renderKpiTim();
   else if (name === "operasional") renderKpiOperasional();
+  else if (name === "divisi") renderKpiDivisi();
+  else if (name === "komplain") renderKpiKomplain();
+  else if (name === "kepuasan") renderKpiKepuasan();
+  else if (name === "klienutama") renderKpiKlienUtama();
 }
+// Tandai selesai langsung dari rekap KPI Komplain (tanpa harus membuka
+// detail kliennya satu-satu).
+document.getElementById("kpi_komplainTable").addEventListener("click", e => {
+  const btn = e.target.closest("[data-kpi-selesai-komplain]");
+  if (!btn) return;
+  const [klienId, entryId] = btn.dataset.kpiSelesaiKomplain.split(":");
+  const k = state.klien.find(x => x.id === klienId);
+  const r = k && (k.riwayatKontak || []).find(x => x.id === entryId);
+  if (!r) return;
+  if (!confirm(`Tandai komplain ${k.nama} ("${r.catatan}") sudah SELESAI ditangani?`)) return;
+  r.statusKomplain = "selesai";
+  r.selesaiTanggal = hariIniIso();
+  saveState();
+  mirrorKlienUpsert(k);
+  renderKpiKomplain();
+});
 document.getElementById("kpi_mulai").addEventListener("change", renderKpiActiveSubtab);
 document.getElementById("kpi_selesai").addEventListener("change", renderKpiActiveSubtab);
 document.getElementById("kpi_exportExcelBtn").addEventListener("click", () => {
