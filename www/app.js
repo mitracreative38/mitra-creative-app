@@ -2762,7 +2762,7 @@ function computeKalenderEvents(bulan) {
   (state.proyek || []).forEach(p => {
     if (p.status === "berjalan" && !p.arsip) tambah(p.tanggalSelesai, "🏗️", `Target selesai ${p.nama}`, "proyek");
   });
-  (state.alat || []).forEach(a => tambah(a.servisBerikutnya, "🔧", `Servis ${a.nama}`, "stok"));
+  (state.alat || []).forEach(a => tambah(a.servisBerikutnya, "🔧", `Servis ${a.nama}`, "alat"));
   (state.penawaran || []).forEach(pw => {
     if (["draft", "terkirim"].includes(pw.status) && pw.tanggal) tambah(addDaysIso(pw.tanggal, 14), "📄", `Penawaran ${pw.nomor} kadaluarsa`, "penawaran");
   });
@@ -4204,7 +4204,7 @@ function renderDashboard() {
     klienFollowUp ? { icon: "📞", label: "Klien follow-up jatuh tempo", value: `${klienFollowUp} klien`, page: "klien" } : null,
     klienMandek ? { icon: "⚠️", label: "Klien mandek (>21 hari tanpa perubahan tahap)", value: `${klienMandek} klien`, page: "klien" } : null,
     pwKadaluarsa ? { icon: "📄", label: "Penawaran kadaluarsa", value: `${pwKadaluarsa} penawaran`, page: "penawaran" } : null,
-    alatPerluServis ? { icon: "🔧", label: "Alat jatuh tempo servis (lewat atau ≤ 14 hari lagi)", value: `${alatPerluServis} alat`, page: "stok" } : null,
+    alatPerluServis ? { icon: "🔧", label: "Alat jatuh tempo servis (lewat atau ≤ 14 hari lagi)", value: `${alatPerluServis} alat`, page: "alat" } : null,
     proyekMacet ? { icon: "🚧", label: "Proyek macet di satu tahap administrasi (>14 hari)", value: `${proyekMacet} proyek`, page: "proyek" } : null,
     sewaBerakhir ? { icon: "🏠", label: "Kontrak sewa aset berakhir ≤ 14 hari lagi", value: `${sewaBerakhir} kontrak`, page: "sewaAset" } : null,
     qcPerluPerhatianCount() ? { icon: "🧪", label: "Inspeksi QC dengan temuan perlu perbaikan", value: `${qcPerluPerhatianCount()} inspeksi`, page: "qc" } : null,
@@ -4567,6 +4567,45 @@ function renderProyekDetail() {
   const pulihkanBtn = document.getElementById("pd_pulihkanBelanjaBtn");
   if (pulihkanBtn) pulihkanBtn.style.display = belanjaYatimDariKas(p).length && !p.arsip ? "" : "none";
   syncUndoKaitanButton();
+
+  // 📦 Stok Keluar milik proyek ini -- inilah rincian angka "Material dari
+  // Stok gudang" (bahanDariStok) yang ikut Realisasi Bahan di projectCalc.
+  const stokKeluarRows = [];
+  state.stok.forEach(s => (s.transactions || []).forEach(t => {
+    if (t.tipe === "Keluar" && t.proyekId === p.id) stokKeluarRows.push({ s, t });
+  }));
+  stokKeluarRows.sort((a, b) => (b.t.tanggal || "").localeCompare(a.t.tanggal || ""));
+  document.querySelector("#pd_stokKeluarTable tbody").innerHTML = stokKeluarRows.length ? stokKeluarRows.map(({ s, t }) => `
+    <tr>
+      <td>${escapeHtml(s.nama)}</td>
+      <td class="num">${t.qty || 0} ${escapeHtml(s.satuan || "")}</td>
+      <td class="num">${rupiah((t.qty || 0) * (t.hargaSatuan || s.hargaSatuan || 0))}</td>
+      <td>${t.tanggal ? formatTanggal(t.tanggal) : "-"}</td>
+      <td>${escapeHtml((state.gudang.find(g => g.id === t.gudangId) || {}).nama || "-")}</td>
+      <td>${escapeHtml(t.keterangan || "-")}</td>
+    </tr>`).join("") : '<tr class="empty-row"><td colspan="6">Belum ada material yang diambil dari stok untuk proyek ini</td></tr>';
+
+  // 🔧 Alat kerja yang dibawa/dipakai di proyek ini (catatan peminjaman)
+  const alatDibawaRows = [];
+  (state.alat || []).forEach(a => (a.peminjaman || []).forEach(pj => {
+    if (pj.proyekId === p.id) alatDibawaRows.push({ a, pj });
+  }));
+  alatDibawaRows.sort((x, y) => (y.pj.tanggalPinjam || "").localeCompare(x.pj.tanggalPinjam || ""));
+  const todayAlatProyek = hariIniIso();
+  document.querySelector("#pd_alatTable tbody").innerHTML = alatDibawaRows.length ? alatDibawaRows.map(({ a, pj }) => {
+    const kar = state.karyawan.find(k => k.id === pj.karyawanId);
+    const telat = !pj.tanggalKembali && pj.rencanaKembali && pj.rencanaKembali < todayAlatProyek;
+    const label = pj.tanggalKembali ? "Sudah Kembali" : (telat ? "Terlambat" : "Dipinjam");
+    return `
+    <tr>
+      <td>${escapeHtml(a.nama)}</td>
+      <td class="num">${pj.jumlah || 0}</td>
+      <td>${escapeHtml(kar ? kar.nama : "-")}</td>
+      <td>${pj.tanggalPinjam ? formatTanggal(pj.tanggalPinjam) : "-"}</td>
+      <td>${pj.rencanaKembali ? formatTanggal(pj.rencanaKembali) : "-"}</td>
+      <td><span class="badge ${pj.tanggalKembali ? "badge-lunas" : "badge-pending"}">${label}</span></td>
+    </tr>`;
+  }).join("") : '<tr class="empty-row"><td colspan="6">Belum ada alat yang tercatat dibawa ke proyek ini — catat lewat peminjaman di halaman Alat Kerja (pilih proyeknya)</td></tr>';
 
   const subkonTbody = document.querySelector("#pd_subkonTable tbody");
   subkonTbody.innerHTML = p.subkontraktor.length ? p.subkontraktor.map(sk => {
@@ -8126,7 +8165,6 @@ function showSubtab(pagePrefix, name) {
   if (pagePrefix === "kpi") renderKpiActiveSubtab();
   if (pagePrefix === "pm" && name === "performa") renderVendorPerforma();
   if (pagePrefix === "stok") {
-    if (name === "alat") showAlatList();
     if (name === "opname") renderOpnameRiwayat();
   }
 }
@@ -13595,7 +13633,7 @@ function renderAll() {
 // hanya halaman yang terdaftar di sini yang boleh diakses.
 const ROLE_PAGE_ACCESS = {
   owner: null,
-  admin: ["dashboard", "kalender", "sop", "klien", "kasUsaha", "laporan", "kpi", "proyek", "laporanKerja", "qc", "sewaAset", "asetTetap", "karyawan", "lokasi", "stok", "pemasok", "ahsp", "rab", "penawaran", "pengaturan"],
+  admin: ["dashboard", "kalender", "sop", "klien", "kasUsaha", "laporan", "kpi", "proyek", "laporanKerja", "qc", "sewaAset", "asetTetap", "karyawan", "lokasi", "stok", "alat", "pemasok", "ahsp", "rab", "penawaran", "pengaturan"],
   // Marketing dapat Laporan Kerja untuk survey lapangan (babat alas) --
   // boleh buat & perbarui, tapi TIDAK boleh hapus (guard anti-fraud di
   // masing-masing handler hapus, pola yang sama dengan data Klien).
@@ -14566,6 +14604,71 @@ document.getElementById("rr_lepasBtn").addEventListener("click", () => {
     `\n\nSalah lepas? Klik "↩️ Batalkan Kaitan/Lepas Terakhir" di sebelah tombol Kaitkan.`
   );
 });
+
+// ----- Ambil material dari Stok gudang untuk proyek (Stok Keluar) -----
+// Kebutuhan Owner: dari halaman proyek langsung bisa memakai barang yang
+// SUDAH ada di gudang -- nilai stoknya terhitung di Realisasi Bahan
+// (non-tunai) lewat bahanDariStok di projectCalc, tanpa transaksi Kas baru.
+function asStokTersedia(item, gudangId) {
+  const txns = item.transactions || [];
+  return gudangId
+    ? txns.filter(t => t.gudangId === gudangId).reduce((s, t) => s + (t.tipe === "Masuk" ? (t.qty || 0) : -(t.qty || 0)), 0)
+    : (item.stokAwal || 0) + txns.reduce((s, t) => s + (t.tipe === "Masuk" ? (t.qty || 0) : -(t.qty || 0)), 0);
+}
+function asUpdateTersediaInfo() {
+  const item = state.stok.find(s => s.id === document.getElementById("as_stokId").value);
+  const gid = document.getElementById("as_gudangId").value;
+  document.getElementById("as_tersediaInfo").textContent = item
+    ? `Tersedia: ${asStokTersedia(item, gid)} ${item.satuan || ""}${gid ? " di gudang terpilih" : ""} • nilai satuan ${rupiah(item.hargaSatuan || 0)}`
+    : "";
+}
+document.getElementById("pd_ambilStokBtn").addEventListener("click", () => {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p || proyekArsipGuard(p)) return;
+  if (!state.stok.length) { alert("Belum ada barang di Stok Material — tambahkan dulu di halaman Stok Material."); return; }
+  document.getElementById("as_stokId").innerHTML = state.stok.slice().sort((a, b) => a.nama.localeCompare(b.nama))
+    .map(s => `<option value="${s.id}">${escapeHtml(s.nama)}</option>`).join("");
+  document.getElementById("as_gudangId").innerHTML = '<option value="">Tidak ditentukan</option>' +
+    state.gudang.map(g => `<option value="${g.id}">${escapeHtml(g.nama)}</option>`).join("");
+  document.getElementById("as_qty").value = "";
+  document.getElementById("as_tanggal").value = hariIniIso();
+  document.getElementById("as_keterangan").value = "";
+  asUpdateTersediaInfo();
+  document.getElementById("ambilStokModal").classList.add("open");
+});
+["as_stokId", "as_gudangId"].forEach(id => document.getElementById(id).addEventListener("change", asUpdateTersediaInfo));
+document.getElementById("ambilStokForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) { closeModals(); return; }
+  if (proyekArsipGuard(p)) return;
+  const item = state.stok.find(s => s.id === document.getElementById("as_stokId").value);
+  if (!item) return;
+  const qty = parseFloat((document.getElementById("as_qty").value || "").replace(",", ".")) || 0;
+  if (!(qty > 0)) { alert("Qty harus lebih dari 0."); return; }
+  const gudangId = document.getElementById("as_gudangId").value || "";
+  const tersedia = asStokTersedia(item, gudangId);
+  if (qty > tersedia) {
+    alert(`Qty keluar (${qty}) melebihi stok tersedia${gudangId ? " di gudang ini" : ""} (${tersedia}).`);
+    return;
+  }
+  if (!item.transactions) item.transactions = [];
+  item.transactions.push({
+    id: uid(),
+    tipe: "Keluar",
+    tanggal: document.getElementById("as_tanggal").value || hariIniIso(),
+    qty, gudangId,
+    proyekId: p.id,
+    hargaSatuan: item.hargaSatuan || 0,
+    keterangan: document.getElementById("as_keterangan").value.trim() || `Dipakai proyek ${p.nama}`
+  });
+  saveState();
+  mirrorStokUpsert(item);
+  renderAll();
+  closeModals();
+  alert(`${qty} ${item.satuan || ""} ${item.nama} tercatat keluar untuk proyek "${p.nama}" — nilai stoknya langsung terhitung di Realisasi Bahan (non-tunai, tidak menyentuh Kas).`);
+});
+document.getElementById("pd_bukaAlatBtn").addEventListener("click", () => showPage("alat"));
 
 const belanjaModal = document.getElementById("belanjaModal");
 function openBelanjaModal(existing) {

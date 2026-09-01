@@ -161,7 +161,11 @@
       <div class="nav-sep"></div>
       <button class="nav-item" data-page="stok">
         <svg viewBox="0 0 24 24"><path d="M12 2L2 7v10l10 5 10-5V7L12 2zm0 2.18L18.82 7 12 10.18 5.18 7 12 4.18zM4 8.82l7 3.5v7.86l-7-3.5V8.82zm9 11.36v-7.86l7-3.5v7.86l-7 3.5z"/></svg>
-        Stok Material &amp; Alat
+        Stok Material
+      </button>
+      <button class="nav-item" data-page="alat">
+        <svg viewBox="0 0 24 24"><path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z"/></svg>
+        Alat Kerja
       </button>
       <button class="nav-item" data-page="pemasok">
         <svg viewBox="0 0 24 24"><path d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.3 3.5A1 1 0 005.5 18H17M17 18a1.5 1.5 0 100 3 1.5 1.5 0 000-3zM8 18a1.5 1.5 0 100 3 1.5 1.5 0 000-3z"/></svg>
@@ -1537,6 +1541,36 @@
         </div>
 
         <div class="panel">
+          <div class="toolbar">
+            <div class="muted" style="flex:1">📦 Material dari Stok Gudang — nilai stok terhitung otomatis di Realisasi Bahan (non-tunai, tidak membuat transaksi Kas baru)</div>
+            <button class="btn-primary" id="pd_ambilStokBtn">📦 Ambil dari Stok</button>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="pd_stokKeluarTable">
+              <thead><tr>
+                <th>Material</th><th class="num">Qty</th><th class="num">Nilai</th><th>Tanggal</th><th>Gudang</th><th>Keterangan</th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="toolbar">
+            <div class="muted" style="flex:1">🔧 Alat Kerja yang Dibawa/Dipakai di Proyek Ini — dari catatan peminjaman alat</div>
+            <button class="btn-ghost" id="pd_bukaAlatBtn">🔧 Kelola di Halaman Alat Kerja</button>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="pd_alatTable">
+              <thead><tr>
+                <th>Alat</th><th class="num">Jumlah</th><th>Dibawa Oleh</th><th>Tgl Pinjam</th><th>Rencana Kembali</th><th>Status</th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
           <div class="muted" style="margin-bottom:10px;">Biaya Operasional &amp; Lain-lain (bensin/transport, sewa alat, dll) — otomatis tercatat ke Kas Perusahaan dengan tautan proyek ini. Material dari stok gudang: pakai Stok Keluar dengan pilihan proyek.</div>
           <div class="form-grid" style="margin-bottom:12px;">
             <div class="field"><label>Tanggal</label><input type="date" id="bo_tanggal"></div>
@@ -1985,7 +2019,6 @@
     <section class="page" id="page-stok">
       <div class="subtabs">
         <button class="subtab-item active" data-subtab="material" data-subtab-page="stok">Stok Material</button>
-        <button class="subtab-item" data-subtab="alat" data-subtab-page="stok">Alat</button>
         <button class="subtab-item" data-subtab="opname" data-subtab-page="stok">Opname Harian</button>
       </div>
 
@@ -2130,7 +2163,42 @@
       </div>
       </div>
 
-      <div class="subtab-panel" id="stok_alatPanel">
+
+      <div class="subtab-panel" id="stok_opnamePanel">
+        <div class="panel">
+          <div class="form-grid">
+            <div class="field"><label>Tanggal Opname</label><input type="date" id="opname_tanggal"></div>
+            <div class="field" style="justify-content:flex-end;">
+              <button type="button" class="btn-primary" id="opname_muatBtn">Muat Data untuk Dihitung</button>
+            </div>
+          </div>
+          <p class="muted" style="font-size:12px;">Hitung fisik langsung di lapangan/gudang, lalu isi kolom "Jumlah Fisik" di bawah. Selisih dihitung otomatis dan tersimpan di riwayat sebagai jejak audit -- tidak langsung mengubah stok tercatat (kalau memang ada selisih nyata, sesuaikan lewat transaksi Stok/Alat seperti biasa setelah tahu penyebabnya).</p>
+        </div>
+        <div class="panel" id="opname_inputPanelWrap" style="display:none;">
+          <div class="table-wrap">
+            <table class="tbl" id="opname_inputTable">
+              <thead><tr><th>Jenis</th><th>Nama</th><th class="num">Tercatat</th><th class="num">Jumlah Fisik</th><th>Catatan</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="modal-actions" style="justify-content:flex-end; margin-top:12px;">
+            <button type="button" class="btn-primary" id="opname_simpanBtn">Simpan Opname</button>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Riwayat Opname</h3>
+          <div class="table-wrap">
+            <table class="tbl" id="opname_riwayatTable">
+              <thead><tr><th>Tanggal</th><th class="num">Jumlah Item Dicek</th><th class="num">Jumlah Selisih</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="page-alat">
+      <div id="stok_alatPanel">
         <div id="alat_listView">
           <header class="page-header">
             <div>
@@ -2209,38 +2277,6 @@
                 <tbody></tbody>
               </table>
             </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="subtab-panel" id="stok_opnamePanel">
-        <div class="panel">
-          <div class="form-grid">
-            <div class="field"><label>Tanggal Opname</label><input type="date" id="opname_tanggal"></div>
-            <div class="field" style="justify-content:flex-end;">
-              <button type="button" class="btn-primary" id="opname_muatBtn">Muat Data untuk Dihitung</button>
-            </div>
-          </div>
-          <p class="muted" style="font-size:12px;">Hitung fisik langsung di lapangan/gudang, lalu isi kolom "Jumlah Fisik" di bawah. Selisih dihitung otomatis dan tersimpan di riwayat sebagai jejak audit -- tidak langsung mengubah stok tercatat (kalau memang ada selisih nyata, sesuaikan lewat transaksi Stok/Alat seperti biasa setelah tahu penyebabnya).</p>
-        </div>
-        <div class="panel" id="opname_inputPanelWrap" style="display:none;">
-          <div class="table-wrap">
-            <table class="tbl" id="opname_inputTable">
-              <thead><tr><th>Jenis</th><th>Nama</th><th class="num">Tercatat</th><th class="num">Jumlah Fisik</th><th>Catatan</th></tr></thead>
-              <tbody></tbody>
-            </table>
-          </div>
-          <div class="modal-actions" style="justify-content:flex-end; margin-top:12px;">
-            <button type="button" class="btn-primary" id="opname_simpanBtn">Simpan Opname</button>
-          </div>
-        </div>
-        <div class="panel">
-          <h3>Riwayat Opname</h3>
-          <div class="table-wrap">
-            <table class="tbl" id="opname_riwayatTable">
-              <thead><tr><th>Tanggal</th><th class="num">Jumlah Item Dicek</th><th class="num">Jumlah Selisih</th><th></th></tr></thead>
-              <tbody></tbody>
-            </table>
           </div>
         </div>
       </div>
@@ -4096,6 +4132,33 @@
       <button type="button" class="btn-ghost" data-close-modal>Batal</button>
       <button type="button" class="btn-primary" id="kt_simpanBtn">Kaitkan yang Dicentang</button>
     </div>
+  </div>
+</div>
+
+<!-- Modal: ambil material dari stok gudang untuk proyek (Stok Keluar ber-proyek) -->
+<div class="modal-backdrop" id="ambilStokModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>📦 Ambil Material dari Stok</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <p class="muted" style="font-size:12px; margin:-4px 0 10px;">Mencatat Stok Keluar yang langsung terkait proyek ini. Nilai stoknya otomatis terhitung di <strong>Realisasi Bahan</strong> proyek (biaya non-tunai — uangnya sudah keluar waktu stok dibeli dulu, jadi TIDAK membuat transaksi Kas baru dan tidak dobel dengan Belanja Material).</p>
+    <form id="ambilStokForm">
+      <div class="form-grid">
+        <div class="field" style="grid-column:1/-1;"><label>Barang</label>
+          <select id="as_stokId" required></select>
+        </div>
+        <div class="field"><label>Qty</label><input type="number" id="as_qty" min="0" step="any" required></div>
+        <div class="field"><label>Dari Gudang</label><select id="as_gudangId"></select></div>
+        <div class="field"><label>Tanggal</label><input type="date" id="as_tanggal" required></div>
+        <div class="field" style="grid-column:1/-1;"><label>Keterangan</label><input type="text" id="as_keterangan" placeholder="mis. dipakai pasang rangka lantai 2"></div>
+      </div>
+      <p class="muted" style="font-size:11.5px;" id="as_tersediaInfo"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Catat Stok Keluar</button>
+      </div>
+    </form>
   </div>
 </div>
 
