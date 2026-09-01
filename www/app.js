@@ -8208,7 +8208,7 @@ function renderKaryawanList() {
     tr.innerHTML = `
       <td>${escapeHtml(k.nama)}</td>
       <td>${escapeHtml(k.jabatan || "-")}</td>
-      <td>${isBulanan ? "Bulanan" : "Harian"}</td>
+      <td>${isBulanan ? "Bulanan" : "Harian"}${currentTeamRole === "owner" ? ` <span class="muted" style="font-size:11px;">· gajian ${escapeHtml(periodeGajiKaryawan(k))}</span>` : ""}</td>
       <td class="num">${rateText}</td>
       <td class="num">${canSeePinjaman ? rupiah(sisaPinjaman(k)) : "-"}</td>
       <td>${aktifBadge}</td>
@@ -8439,7 +8439,25 @@ function toggleKaryawanTipeFields() {
   const metode = document.getElementById("kym_bayarMetode").value;
   document.getElementById("kym_bayarDetailFields").style.display = metode === "Tunai" ? "none" : "grid";
 }
-document.getElementById("kym_tipeGaji").addEventListener("change", toggleKaryawanTipeFields);
+document.getElementById("kym_tipeGaji").addEventListener("change", () => {
+  // Tipe gaji diganti manual -> periode pembayaran ikut menyesuaikan ke
+  // bawaan tipe itu (Bulanan -> Bulanan, Harian -> Mingguan); tetap bisa
+  // diubah lagi setelahnya.
+  document.getElementById("kym_periodeGaji").value = document.getElementById("kym_tipeGaji").value === "Bulanan" ? "Bulanan" : "Mingguan";
+  toggleKaryawanTipeFields();
+});
+document.getElementById("kym_jabatan").addEventListener("change", () => {
+  // Format perekrutan per posisi: memilih posisi standar saat MENAMBAH
+  // karyawan baru langsung mengisi skema penggajian bawaan posisi itu
+  // (tipe gaji + periode). Saat mengedit karyawan lama, skema yang sudah
+  // tersimpan tidak disentuh.
+  if (document.getElementById("kym_id").value) return;
+  const posisi = posisiKaryawanByNama(document.getElementById("kym_jabatan").value);
+  if (!posisi) return;
+  document.getElementById("kym_tipeGaji").value = posisi.tipeGaji;
+  document.getElementById("kym_periodeGaji").value = posisi.periode;
+  toggleKaryawanTipeFields();
+});
 document.getElementById("kym_bayarMetode").addEventListener("change", toggleKaryawanTipeFields);
 // Label ringkas metode pembayaran gaji untuk ringkasan Penggajian & slip:
 // "Tunai" atau "Transfer Bank — BCA 1234567890 (a.n. Budi)".
@@ -8450,6 +8468,61 @@ function formatPembayaranGaji(pb) {
   if (rincian) s += ` — ${rincian}`;
   if (pb.atasNama) s += ` (a.n. ${pb.atasNama})`;
   return s;
+}
+// ----- Format perekrutan per posisi (G4 poin 4+5 Owner) -----
+// Daftar posisi standar perusahaan kontraktor + skema penggajian bawaan
+// masing-masing: tipe gaji (Harian/Bulanan) dan periode pembayarannya
+// (Mingguan tiap Sabtu / 2 Mingguan / Bulanan). Dipakai di 3 tempat:
+// saran posisi di modal Tambah/Edit Karyawan (skema terisi otomatis untuk
+// karyawan baru), Formulir Perekrutan cetak, dan pengisian periode
+// otomatis di Penggajian. Posisi di luar daftar tetap boleh (input bebas).
+const POSISI_KARYAWAN = [
+  { nama: "Tim Pelaksana", tipeGaji: "Harian", periode: "Mingguan", tugas: "Melaksanakan pekerjaan proyek di lapangan sesuai arahan kepala tukang/pengawas." },
+  { nama: "Kepala Tukang", tipeGaji: "Harian", periode: "Mingguan", tugas: "Memimpin tim tukang, membagi pekerjaan harian, dan menjaga mutu hasil pekerjaan." },
+  { nama: "Tukang", tipeGaji: "Harian", periode: "Mingguan", tugas: "Mengerjakan pekerjaan teknis (las, pasang, finishing) sesuai keahlian." },
+  { nama: "Helper / Kenek", tipeGaji: "Harian", periode: "Mingguan", tugas: "Membantu tukang: angkat material, persiapan alat, dan kebersihan lokasi kerja." },
+  { nama: "Mandor / Pengawas Lapangan", tipeGaji: "Harian", periode: "Mingguan", tugas: "Mengawasi jalannya proyek, absensi pekerja, dan laporan progres harian." },
+  { nama: "Operator Alat", tipeGaji: "Harian", periode: "Mingguan", tugas: "Mengoperasikan dan merawat mesin/alat kerja perusahaan." },
+  { nama: "Admin", tipeGaji: "Bulanan", periode: "Bulanan", tugas: "Administrasi kantor: input data, arsip dokumen, dan dukungan operasional harian." },
+  { nama: "Keuangan", tipeGaji: "Bulanan", periode: "Bulanan", tugas: "Mencatat kas, tagihan, dan pembayaran; menyiapkan laporan keuangan rutin." },
+  { nama: "Marketing", tipeGaji: "Bulanan", periode: "Bulanan", tugas: "Mencari klien baru, follow-up penawaran, dan menjaga hubungan klien (target bulanan)." },
+  { nama: "Drafter / Estimator", tipeGaji: "Bulanan", periode: "Bulanan", tugas: "Membuat gambar kerja, RAB, dan estimasi biaya penawaran." },
+  { nama: "Logistik / Gudang", tipeGaji: "Bulanan", periode: "Bulanan", tugas: "Mengelola stok material, penerimaan/pengeluaran barang, dan opname gudang." },
+  { nama: "Divisi Advertising", tipeGaji: "Harian", periode: "Mingguan", tugas: "Produksi & pemasangan produk advertising (neon box, papan nama, huruf timbul)." }
+];
+function posisiKaryawanByNama(nama) {
+  const cari = (nama || "").trim().toLowerCase();
+  return POSISI_KARYAWAN.find(p => p.nama.toLowerCase() === cari) || null;
+}
+(function isiDatalistPosisi() {
+  const dl = document.getElementById("posisiStandarList");
+  if (dl) dl.innerHTML = POSISI_KARYAWAN.map(p => `<option value="${escapeHtml(p.nama)}">${p.tipeGaji} · gajian ${p.periode}</option>`).join("");
+})();
+// Skema penggajian karyawan: tipe gaji sudah lama ada (Harian/Bulanan);
+// periode pembayarannya disimpan di pembayaranGaji.periode (ikut kolom
+// jsonb karyawan_gaji.pembayaran yang sudah ada, Owner-only) supaya tidak
+// butuh kolom database baru.
+function periodeGajiKaryawan(k) {
+  if (!k) return "Mingguan";
+  if (k.pembayaranGaji && ["Mingguan", "2 Mingguan", "Bulanan"].includes(k.pembayaranGaji.periode)) return k.pembayaranGaji.periode;
+  return k.tipeGaji === "Bulanan" ? "Bulanan" : "Mingguan";
+}
+// Rentang periode gajian berjalan: Mingguan = Minggu s.d. Sabtu minggu ini
+// (siklus gajian Sabtu Owner), 2 Mingguan = Minggu pekan lalu s.d. Sabtu
+// minggu ini, Bulanan = tanggal 1 s.d. akhir bulan berjalan.
+function rentangPeriodeGaji(periode) {
+  const today = new Date();
+  if (periode === "Bulanan") {
+    const awal = new Date(today.getFullYear(), today.getMonth(), 1);
+    const akhir = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    return { mulai: isoTanggalLokal(awal), selesai: isoTanggalLokal(akhir) };
+  }
+  const sunday = new Date(today);
+  sunday.setDate(today.getDate() - today.getDay());
+  if (periode === "2 Mingguan") sunday.setDate(sunday.getDate() - 7);
+  const saturday = new Date(sunday);
+  saturday.setDate(sunday.getDate() + (periode === "2 Mingguan" ? 13 : 6));
+  return { mulai: isoTanggalLokal(sunday), selesai: isoTanggalLokal(saturday) };
 }
 function openKaryawanModal(existing) {
   document.getElementById("kym_id").value = existing ? existing.id : "";
@@ -8466,6 +8539,7 @@ function openKaryawanModal(existing) {
   document.getElementById("kym_persenBonus").value = existing ? (existing.persenBonus || 0) : 0;
   document.getElementById("kym_pinjamanAwal").value = existing ? formatNumberInput(existing.pinjamanAwal || 0) : "";
   const pb = (existing && existing.pembayaranGaji) || {};
+  document.getElementById("kym_periodeGaji").value = periodeGajiKaryawan(existing);
   document.getElementById("kym_bayarMetode").value = ["Tunai", "Transfer Bank", "E-Wallet"].includes(pb.metode) ? pb.metode : "Tunai";
   document.getElementById("kym_bayarBank").value = pb.bank || "";
   document.getElementById("kym_bayarNoRek").value = pb.noRek || "";
@@ -8482,6 +8556,98 @@ function recalcTarifLemburOtomatis() {
 }
 ["kym_upahHarian", "kym_uangMakanHarian"].forEach(id => document.getElementById(id).addEventListener("input", recalcTarifLemburOtomatis));
 document.getElementById("ky_addBtn").addEventListener("click", () => openKaryawanModal(null));
+
+// ----- Formulir Perekrutan Karyawan Baru (G4 poin 5) -----
+// Format standar per posisi: dicetak berkop untuk diisi tangan saat
+// wawancara (data diri + kesepakatan gaji), atau langsung membuka modal
+// Tambah Karyawan dengan posisi & skema gaji bawaan posisi sudah terisi.
+const rekrutModal = document.getElementById("rekrutModal");
+function rkPosisiTerpilih() {
+  return posisiKaryawanByNama(document.getElementById("rk_posisi").value);
+}
+function refreshRkSkemaInfo() {
+  const p = rkPosisiTerpilih();
+  const el = document.getElementById("rk_skemaInfo");
+  if (!p) {
+    el.textContent = "Posisi di luar daftar standar: skema gaji diisi manual di formulir / saat input ke sistem.";
+    return;
+  }
+  el.innerHTML = `<b>${escapeHtml(p.nama)}</b> — ${escapeHtml(p.tugas)}<br>Skema gaji standar: <b>${p.tipeGaji}</b>, dibayar per <b>${p.periode}</b>${p.periode === "Mingguan" ? " (gajian tiap Sabtu)" : ""}.`;
+}
+document.getElementById("ky_formulirBtn").addEventListener("click", () => {
+  const sel = document.getElementById("rk_posisi");
+  if (!sel.options.length) {
+    sel.innerHTML = POSISI_KARYAWAN.map(p => `<option value="${escapeHtml(p.nama)}">${escapeHtml(p.nama)} (${p.tipeGaji} · ${p.periode})</option>`).join("") +
+      `<option value="">Posisi Lain (isi manual)</option>`;
+  }
+  refreshRkSkemaInfo();
+  rekrutModal.classList.add("open");
+});
+document.getElementById("rk_posisi").addEventListener("change", refreshRkSkemaInfo);
+document.getElementById("rk_inputBtn").addEventListener("click", () => {
+  const p = rkPosisiTerpilih();
+  closeModals();
+  openKaryawanModal(null);
+  if (p) {
+    document.getElementById("kym_jabatan").value = p.nama;
+    document.getElementById("kym_tipeGaji").value = p.tipeGaji;
+    document.getElementById("kym_periodeGaji").value = p.periode;
+    toggleKaryawanTipeFields();
+  }
+});
+function buildFormulirRekrutHtml(posisi) {
+  const isian = label => `
+    <tr><td style="width:34%;">${label}</td><td style="border-bottom:1px dotted #888;">&nbsp;</td></tr>`;
+  const namaPosisi = posisi ? posisi.nama : "................................";
+  const skemaText = posisi
+    ? `${posisi.tipeGaji} — dibayar per ${posisi.periode}${posisi.periode === "Mingguan" ? " (gajian tiap Sabtu)" : ""}`
+    : "Harian / Bulanan (lingkari) — dibayar per Mingguan / 2 Mingguan / Bulanan (lingkari)";
+  return `
+    <div class="letterhead">
+      <div class="letterhead-logo">${LOGO_SVG}</div>
+      <div class="letterhead-text">
+        <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+      </div>
+    </div>
+    <div class="letterhead-rule"></div>
+    <h3 style="text-align:center; margin:6px 0 2px; letter-spacing:.5px;">FORMULIR PEREKRUTAN KARYAWAN BARU</h3>
+    <p style="text-align:center; margin:0 0 14px; font-size:13px;">Posisi: <b>${escapeHtml(namaPosisi)}</b></p>
+    ${posisi ? `<p class="doc-p" style="margin-bottom:10px;"><b>Uraian tugas:</b> ${escapeHtml(posisi.tugas)}</p>` : ""}
+    <h4 style="margin:12px 0 4px;">A. Data Diri Calon Karyawan</h4>
+    <table class="doc-items" style="font-size:12.5px;">
+      ${isian("Nama Lengkap")}
+      ${isian("NIK (No. KTP)")}
+      ${isian("Tempat / Tanggal Lahir")}
+      ${isian("Alamat Tinggal")}
+      ${isian("No. HP / WhatsApp")}
+      ${isian("Kontak Darurat (nama & no. HP)")}
+      ${isian("Pendidikan Terakhir")}
+      ${isian("Pengalaman Kerja (posisi & lama)")}
+      ${isian("Tanggal Mulai Bekerja")}
+    </table>
+    <h4 style="margin:14px 0 4px;">B. Kesepakatan Skema Penggajian</h4>
+    <table class="doc-items" style="font-size:12.5px;">
+      <tr><td style="width:34%;">Skema Gaji Standar Posisi</td><td>${escapeHtml(skemaText)}</td></tr>
+      ${isian("Upah / Gaji Disepakati (Rp)")}
+      ${isian("Uang Makan per Hari (Rp)")}
+      ${isian("Metode Pembayaran (Tunai / Transfer / E-Wallet)")}
+      ${isian("No. Rekening / E-Wallet & Atas Nama")}
+    </table>
+    <p class="doc-p" style="margin-top:12px; font-size:12px;">Dengan menandatangani formulir ini, calon karyawan menyatakan data di atas benar dan bersedia mengikuti peraturan serta SOP ${escapeHtml(state.company || "CV. Mitra Creative")}. Kesepakatan gaji bersifat rahasia antara karyawan dan pemilik perusahaan.</p>
+    <div style="display:flex; justify-content:space-between; margin-top:28px; font-size:12.5px; text-align:center;">
+      <div style="width:30%;">Calon Karyawan,<br><br><br><br>( .......................... )</div>
+      <div style="width:30%;">Pewawancara,<br><br><br><br>( .......................... )</div>
+      <div style="width:30%;">Pemilik,<br><br><br><br>( ${escapeHtml(state.ownerNama || "..........................")} )</div>
+    </div>
+    <p class="doc-p" style="margin-top:16px; font-size:11px;">Dicetak ${formatTanggal(hariIniIso())} — setelah disepakati, masukkan data ini ke menu Karyawan &rarr; + Tambah Karyawan (posisi &amp; skema gaji standar terisi otomatis).</p>
+  `;
+}
+document.getElementById("rk_cetakBtn").addEventListener("click", () => {
+  document.getElementById("printArea").innerHTML = buildFormulirRekrutHtml(rkPosisiTerpilih());
+  cetakPrintArea();
+});
 document.getElementById("karyawanForm").addEventListener("submit", e => {
   e.preventDefault();
   const id = document.getElementById("kym_id").value;
@@ -8511,6 +8677,9 @@ document.getElementById("karyawanForm").addEventListener("submit", e => {
       noRek: document.getElementById("kym_bayarNoRek").value.trim(),
       atasNama: document.getElementById("kym_bayarAtasNama").value.trim()
     };
+    // Skema penggajian (periode pembayaran) ikut tersimpan di jsonb
+    // pembayaran karyawan_gaji (Owner-only) -- tidak butuh kolom DB baru.
+    k.pembayaranGaji.periode = document.getElementById("kym_periodeGaji").value;
   } else if (existing) {
     // Field nominal disembunyikan dari non-Owner (Fix 30) -- pertahankan
     // nilai yang sudah ada di state, jangan ditimpa 0 dari input kosong.
@@ -8981,16 +9150,13 @@ function renderPenggajianPanel() {
     .map(k => `<option value="${k.id}">${escapeHtml(k.nama)}</option>`).join("");
   if (prevValue && state.karyawan.some(k => k.id === prevValue)) sel.value = prevValue;
   if (!document.getElementById("pg_mulai").value) {
-    // Gajian mingguan jatuh tiap Sabtu, jadi periode berjalan Minggu s.d.
-    // SABTU minggu ini (bukan s.d. hari ini) — sesuai siklus gajian Owner.
-    const today = new Date();
-    const sunday = new Date(today);
-    sunday.setDate(today.getDate() - today.getDay());
-    const saturday = new Date(sunday);
-    saturday.setDate(sunday.getDate() + 6);
-    document.getElementById("pg_mulai").value = isoTanggalLokal(sunday);
-    document.getElementById("pg_selesai").value = isoTanggalLokal(saturday);
+    // Periode berjalan diisi otomatis sesuai SKEMA GAJI karyawan terpilih:
+    // Mingguan = Minggu s.d. Sabtu minggu ini (gajian tiap Sabtu, siklus
+    // Owner), 2 Mingguan = 14 hari berakhir Sabtu ini, Bulanan = bulan
+    // berjalan penuh. Lihat rentangPeriodeGaji().
+    isiPeriodePenggajianSesuaiSkema();
   }
+  refreshSkemaGajiInfo();
   computePayrollFromAbsensi(true);
   renderPenggajianRiwayat();
   renderRekapPendapatan();
@@ -9133,7 +9299,28 @@ function refreshPenggajianSummary() {
   document.getElementById("pg_metodeBayar").textContent = k ? formatPembayaranGaji(k.pembayaranGaji) : "Tunai";
   document.getElementById("pg_gajiBersih").textContent = rupiah(gajiBersih);
 }
-document.getElementById("pg_karyawan").addEventListener("change", () => computePayrollFromAbsensi(true));
+// Skema penggajian per karyawan (G4 poin 4): periode diisi otomatis sesuai
+// skema karyawan terpilih, dan keterangan skemanya ditampilkan supaya
+// Owner langsung tahu siklus gajian orang itu.
+function isiPeriodePenggajianSesuaiSkema() {
+  const k = currentKaryawanForPayroll();
+  const r = rentangPeriodeGaji(periodeGajiKaryawan(k));
+  document.getElementById("pg_mulai").value = r.mulai;
+  document.getElementById("pg_selesai").value = r.selesai;
+}
+function refreshSkemaGajiInfo() {
+  const k = currentKaryawanForPayroll();
+  const el = document.getElementById("pg_skemaInfo");
+  if (!k) { el.textContent = ""; return; }
+  const periode = periodeGajiKaryawan(k);
+  const tipe = k.tipeGaji === "Bulanan" ? "Bulanan (gaji tetap + bonus target)" : "Harian (upah harian + lembur)";
+  el.textContent = `Skema gaji ${k.nama}: ${tipe} — dibayar per ${periode}${periode === "Mingguan" ? " (gajian tiap Sabtu)" : ""}. Periode di atas terisi otomatis mengikuti skema ini, tetap bisa diubah manual.`;
+}
+document.getElementById("pg_karyawan").addEventListener("change", () => {
+  isiPeriodePenggajianSesuaiSkema();
+  refreshSkemaGajiInfo();
+  computePayrollFromAbsensi(true);
+});
 document.getElementById("pg_mulai").addEventListener("change", () => computePayrollFromAbsensi(false));
 document.getElementById("pg_selesai").addEventListener("change", () => computePayrollFromAbsensi(false));
 document.getElementById("pg_hitungBtn").addEventListener("click", () => computePayrollFromAbsensi(false));
