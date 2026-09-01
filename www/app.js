@@ -766,6 +766,8 @@ function ahspToRow(a) {
     harga_manual: a.hargaManual || 0,
     overhead: a.overhead || 0,
     referensi: a.referensi || "",
+    golongan_klien: a.golonganKlien || "",
+    harga_terkunci: a.hargaTerkunci === true,
     komponen: a.komponen || [],
     riwayat_harga: a.riwayatHarga || [],
     updated_at: new Date().toISOString()
@@ -1069,6 +1071,7 @@ function karyawanToRow(k) {
       return copy;
     }),
     pembinaan: k.pembinaan || [],
+    biodata: k.biodata || {},
     updated_at: new Date().toISOString()
   };
 }
@@ -1814,6 +1817,7 @@ function rowToAhsp(r) {
     id: r.id, kategori: r.kategori || "", kode: r.kode || "", uraian: r.uraian || "",
     satuan: r.satuan || "", mode: r.mode || "", hargaManual: r.harga_manual || 0,
     overhead: r.overhead || 0, referensi: r.referensi || "", komponen: r.komponen || [],
+    golonganKlien: r.golongan_klien || "", hargaTerkunci: r.harga_terkunci === true,
     riwayatHarga: r.riwayat_harga || []
   };
 }
@@ -1866,6 +1870,7 @@ function rowToKaryawan(r) {
     targetBulanan: r.target_bulanan || 0, persenBonus: r.persen_bonus || 0,
     pinjamanAwal: r.pinjaman_awal || 0, absensi: r.absensi || [],
     pembinaan: r.pembinaan || [],
+    biodata: r.biodata || {},
     slipGaji: [] // diisi belakangan oleh hydrateSensitiveFields()
   };
 }
@@ -6119,9 +6124,17 @@ function statusTindakLanjutBadge(status) {
 function isiAhspPickerOptions(selectEl, selectedId) {
   const sorted = state.ahsp.slice().sort((a, b) =>
     (a.kategori || "").localeCompare(b.kategori || "") || (a.uraian || "").localeCompare(b.uraian || ""));
-  selectEl.innerHTML = '<option value="">— Isi manual —</option>' + sorted.map(a =>
-    `<option value="${a.id}">${escapeHtml(a.kategori || "")} — ${escapeHtml(a.uraian)} (${rupiah(ahspHarga(a))}/${escapeHtml(a.satuan)})</option>`
-  ).join("");
+  // AHSP dikelompokkan per golongan klien (optgroup) supaya daftar harga
+  // tiap klien tidak tercampur saat memilih item di RAB/Penawaran/Survey.
+  const opsi = list => list.map(a =>
+    `<option value="${a.id}">${escapeHtml(a.kategori || "")} — ${escapeHtml(a.uraian)} (${rupiah(ahspHarga(a))}/${escapeHtml(a.satuan)})</option>`).join("");
+  const umum = sorted.filter(a => !(a.golonganKlien || "").trim());
+  const perGolongan = daftarGolonganAhsp().map(g => {
+    const anggota = sorted.filter(a => (a.golonganKlien || "").trim() === g);
+    return anggota.length ? `<optgroup label="🏷️ ${escapeHtml(g)}">${opsi(anggota)}</optgroup>` : "";
+  }).join("");
+  selectEl.innerHTML = '<option value="">— Isi manual —</option>' +
+    (perGolongan ? `<optgroup label="AHSP Umum">${opsi(umum)}</optgroup>${perGolongan}` : opsi(umum));
   selectEl.value = selectedId || "";
 }
 function nilaiTindakLanjut(item) {
@@ -8308,7 +8321,7 @@ function renderKaryawanList() {
         ? `${rupiah(k.gajiBulanan)} / bulan`
         : `${rupiah(k.upahHarian)} / hari + ${rupiah(k.tarifLembur)} / jam lembur`;
     tr.innerHTML = `
-      <td>${escapeHtml(k.nama)}</td>
+      <td>${escapeHtml(k.nama)}${(k.biodata && k.biodata.telepon) ? `<br><span class="muted" style="font-size:11px;">📞 ${escapeHtml(k.biodata.telepon)}</span>` : ""}</td>
       <td>${escapeHtml(k.jabatan || "-")}</td>
       <td>${isBulanan ? "Bulanan" : "Harian"}${currentTeamRole === "owner" ? ` <span class="muted" style="font-size:11px;">· gajian ${escapeHtml(periodeGajiKaryawan(k))}</span>` : ""}</td>
       <td class="num">${rateText}</td>
@@ -8640,6 +8653,20 @@ function openKaryawanModal(existing) {
   document.getElementById("kym_targetBulanan").value = existing ? formatNumberInput(existing.targetBulanan || 0) : "";
   document.getElementById("kym_persenBonus").value = existing ? (existing.persenBonus || 0) : 0;
   document.getElementById("kym_pinjamanAwal").value = existing ? formatNumberInput(existing.pinjamanAwal || 0) : "";
+  // Data diri karyawan (poin 7 Owner: semua karyawan terdata lengkap) --
+  // bukan data gaji, jadi terlihat & bisa diisi semua peran yang boleh
+  // membuka modal ini. Terisi dari formulir perekrutan saat wawancara.
+  const bio = (existing && existing.biodata) || {};
+  document.getElementById("kym_nik").value = bio.nik || "";
+  document.getElementById("kym_ttl").value = bio.ttl || "";
+  document.getElementById("kym_alamat").value = bio.alamat || "";
+  document.getElementById("kym_telepon").value = bio.telepon || "";
+  document.getElementById("kym_kontakDarurat").value = bio.kontakDarurat || "";
+  document.getElementById("kym_pendidikan").value = bio.pendidikan || "";
+  document.getElementById("kym_tanggalMasuk").value = bio.tanggalMasuk || "";
+  // Karyawan baru: kotak data diri langsung terbuka (alur perekrutan);
+  // saat edit, terbuka hanya bila sudah pernah diisi.
+  document.getElementById("kym_biodataBox").open = !existing || !!(bio.nik || bio.alamat || bio.telepon);
   const pb = (existing && existing.pembayaranGaji) || {};
   document.getElementById("kym_periodeGaji").value = periodeGajiKaryawan(existing);
   document.getElementById("kym_bayarMetode").value = ["Tunai", "Transfer Bank", "E-Wallet"].includes(pb.metode) ? pb.metode : "Tunai";
@@ -8761,6 +8788,15 @@ document.getElementById("karyawanForm").addEventListener("submit", e => {
     jabatan: document.getElementById("kym_jabatan").value.trim(),
     tipeGaji: document.getElementById("kym_tipeGaji").value,
     aktif: document.getElementById("kym_aktif").value === "1",
+    biodata: {
+      nik: document.getElementById("kym_nik").value.trim(),
+      ttl: document.getElementById("kym_ttl").value.trim(),
+      alamat: document.getElementById("kym_alamat").value.trim(),
+      telepon: document.getElementById("kym_telepon").value.trim(),
+      kontakDarurat: document.getElementById("kym_kontakDarurat").value.trim(),
+      pendidikan: document.getElementById("kym_pendidikan").value.trim(),
+      tanggalMasuk: document.getElementById("kym_tanggalMasuk").value
+    },
     absensi: existing ? existing.absensi : [],
     slipGaji: existing ? existing.slipGaji : []
   };
@@ -11027,18 +11063,31 @@ async function cetakPrintArea() {
 }
 
 // ===== Rendering: AHSP =====
+// Poin 6 Owner: AHSP tiap klien digolongkan supaya tidak tercampur aduk.
+// Golongan = teks bebas (mis. "NSS", "Gadai Sakti"); kosong = AHSP umum.
+function daftarGolonganAhsp() {
+  return [...new Set(state.ahsp.map(a => (a.golonganKlien || "").trim()).filter(Boolean))].sort((x, y) => x.localeCompare(y));
+}
 function renderAhsp() {
   const filterSel = document.getElementById("ah_filterKategori");
   if (filterSel.options.length <= 1) {
     KATEGORI_PEKERJAAN.forEach(k => filterSel.insertAdjacentHTML("beforeend", `<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`));
   }
+  const golSel = document.getElementById("ah_filterGolongan");
+  const golSebelum = golSel.value;
+  golSel.innerHTML = '<option value="">Semua Golongan</option><option value="__umum__">AHSP Umum (tanpa golongan)</option>' +
+    daftarGolonganAhsp().map(g => `<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`).join("");
+  if ([...golSel.options].some(o => o.value === golSebelum)) golSel.value = golSebelum;
   document.getElementById("ah_totalItem").textContent = state.ahsp.length;
   document.getElementById("ah_totalKategori").textContent = new Set(state.ahsp.map(a => a.kategori)).size;
   document.getElementById("ah_totalResmi").textContent = state.ahsp.filter(a => (a.kode || "").startsWith("PUPR-")).length;
   const search = (document.getElementById("ah_search").value || "").toLowerCase();
   const filterKategori = filterSel.value;
+  const filterGolongan = golSel.value;
   let rows = state.ahsp.slice().sort((a, b) => a.kategori.localeCompare(b.kategori) || a.uraian.localeCompare(b.uraian));
   if (filterKategori) rows = rows.filter(a => a.kategori === filterKategori);
+  if (filterGolongan === "__umum__") rows = rows.filter(a => !(a.golonganKlien || "").trim());
+  else if (filterGolongan) rows = rows.filter(a => (a.golonganKlien || "").trim() === filterGolongan);
   if (search) rows = rows.filter(a => (a.uraian || "").toLowerCase().includes(search) || (a.kode || "").toLowerCase().includes(search));
 
   const tbody = document.querySelector("#ah_table tbody");
@@ -11050,15 +11099,17 @@ function renderAhsp() {
   rows.forEach(a => {
     const tr = document.createElement("tr");
     const stale = ahspStaleCount(a);
+    const gol = (a.golonganKlien || "").trim();
     tr.innerHTML = `
-      <td>${escapeHtml(a.kategori)}</td>
+      <td>${escapeHtml(a.kategori)}${gol ? `<br><span class="badge status-draft" style="font-size:10.5px;">🏷️ ${escapeHtml(gol)}</span>` : ""}</td>
       <td>${escapeHtml(a.kode || "-")}</td>
       <td>${escapeHtml(a.uraian)}</td>
       <td>${escapeHtml(a.satuan)}</td>
-      <td class="num">${rupiah(ahspHarga(a))}${stale ? ` <span title="${stale} komponen harganya sudah beda dengan harga sumber (Stok/Upah) terkini — buka Edit lalu Refresh Harga, atau pakai tombol Sinkronkan di atas" style="cursor:help">⚠️</span>` : ""}</td>
+      <td class="num">${rupiah(ahspHarga(a))}${a.hargaTerkunci ? ` <span title="Harga DIKUNCI — tidak bisa diubah manual maupun sinkron massal sampai dibuka Owner (klik 🔒 di kanan)" style="cursor:help">🔒</span>` : ""}${stale ? ` <span title="${stale} komponen harganya sudah beda dengan harga sumber (Stok/Upah) terkini — buka Edit lalu Refresh Harga, atau pakai tombol Sinkronkan di atas" style="cursor:help">⚠️</span>` : ""}</td>
       <td>${a.mode === "manual" ? "Manual" : "Rincian Komponen"}</td>
       <td>
         <div class="row-actions">
+          <button class="icon-btn" data-lock-ahsp="${a.id}" title="${a.hargaTerkunci ? "Buka kunci harga (Owner)" : "Kunci harga supaya tidak naik/turun sesuka hati (Owner)"}">${a.hargaTerkunci ? "🔒" : "🔓"}</button>
           <button class="icon-btn" data-riwayat-ahsp="${a.id}" title="Riwayat Harga">👁️</button>
           <button class="icon-btn" data-dup-ahsp="${a.id}" title="Duplikat">📄</button>
           <button class="icon-btn" data-edit-ahsp="${a.id}" title="Edit">✏️</button>
@@ -11124,8 +11175,10 @@ document.getElementById("ah_syncUpahBtn").addEventListener("click", syncAllUpahH
 document.getElementById("ah_syncStokBtn").addEventListener("click", () => {
   let itemBerubah = 0;
   let komponenBerubah = 0;
+  let terkunciStok = 0;
   state.ahsp.forEach(a => {
     if (a.mode !== "detail" || !Array.isArray(a.komponen)) return;
+    if (a.hargaTerkunci) { terkunciStok++; return; }
     const hargaLama = ahspHarga(a);
     let changed = false;
     a.komponen.forEach(k => {
@@ -11150,9 +11203,10 @@ document.getElementById("ah_syncStokBtn").addEventListener("click", () => {
     saveState();
     renderAhsp();
   }
-  alert(itemBerubah
+  alert((itemBerubah
     ? `${komponenBerubah} komponen Bahan/Alat di ${itemBerubah} item AHSP disinkronkan ke harga Stok Material terkini.`
-    : "Semua komponen yang tertaut Stok Material sudah memakai harga terkini -- tidak ada yang perlu diubah.\n\nCatatan: hanya komponen dengan Sumber Harga tertaut ke Stok yang ikut disinkronkan.");
+    : "Semua komponen yang tertaut Stok Material sudah memakai harga terkini -- tidak ada yang perlu diubah.\n\nCatatan: hanya komponen dengan Sumber Harga tertaut ke Stok yang ikut disinkronkan.")
+    + (terkunciStok ? `\n\n🔒 ${terkunciStok} item dilewati karena harganya dikunci (penjaga harga).` : ""));
 });
 document.getElementById("ah_exportCsvBtn").addEventListener("click", () => {
   const lines = [["Kategori", "Kode", "Uraian", "Satuan", "Harga Satuan", "Mode", "Overhead %", "Referensi"].join(",")];
@@ -11198,8 +11252,10 @@ function syncAllUpahHarga() {
   }
   let itemBerubah = 0;
   let komponenBerubah = 0;
+  let terkunci = 0;
   state.ahsp.forEach(a => {
     if (a.mode !== "detail" || !Array.isArray(a.komponen)) return;
+    if (a.hargaTerkunci) { terkunci++; return; }
     const hargaLama = ahspHarga(a);
     let changed = false;
     a.komponen.forEach(k => {
@@ -11237,9 +11293,10 @@ function syncAllUpahHarga() {
     saveState();
     renderAhsp();
   }
-  alert(itemBerubah
+  alert((itemBerubah
     ? `${komponenBerubah} komponen Upah di ${itemBerubah} item AHSP disinkronkan.\nUpah tanpa sumber tertentu memakai "Upah Tertinggi Mitra +20%" = ${rupiah(maxUpah)}/OH.\n\nCatatan: item mode "Manual" (harga borongan gabungan, mis. Neon Box/Baliho bawaan) tidak punya rincian Upah tersendiri, jadi dilewati -- cek & sesuaikan manual kalau perlu.`
-    : "Semua komponen Upah yang punya rincian sudah sesuai dengan sumber harga terkini -- tidak ada yang perlu diubah.");
+    : "Semua komponen Upah yang punya rincian sudah sesuai dengan sumber harga terkini -- tidak ada yang perlu diubah.")
+    + (terkunci ? `\n\n🔒 ${terkunci} item dilewati karena harganya dikunci (penjaga harga).` : ""));
 }
 function sumberOptionsForJenis(jenis) {
   if (jenis === "Upah") {
@@ -11280,6 +11337,12 @@ function openAhspModal(existing) {
   document.getElementById("satuanList").innerHTML = SATUAN_LIST.map(s => `<option value="${escapeHtml(s)}">`).join("");
 
   kategoriSel.value = existing ? existing.kategori : KATEGORI_PEKERJAAN[0];
+  // Saran golongan: golongan yang sudah dipakai + nama-nama klien, supaya
+  // penulisan konsisten (tidak "NSS" vs "nss" vs "N.S.S").
+  document.getElementById("golonganKlienList").innerHTML =
+    [...new Set([...daftarGolonganAhsp(), ...state.klien.map(k => k.nama)])].sort((x, y) => x.localeCompare(y))
+      .map(g => `<option value="${escapeHtml(g)}">`).join("");
+  document.getElementById("ah_golonganKlien").value = existing ? (existing.golonganKlien || "") : (document.getElementById("ah_filterGolongan").value && document.getElementById("ah_filterGolongan").value !== "__umum__" ? document.getElementById("ah_filterGolongan").value : "");
   document.getElementById("ah_kode").value = existing ? (existing.kode || "") : "";
   document.getElementById("ah_uraian").value = existing ? existing.uraian : "";
   document.getElementById("ah_satuan").value = existing ? existing.satuan : "";
@@ -11414,6 +11477,7 @@ attachNumberFormatting(document.getElementById("ah_hargaManual"));
 document.querySelector("[data-open-modal='ahsp']").addEventListener("click", () => openAhspModal(null));
 document.getElementById("ah_search").addEventListener("input", renderAhsp);
 document.getElementById("ah_filterKategori").addEventListener("change", renderAhsp);
+document.getElementById("ah_filterGolongan").addEventListener("change", renderAhsp);
 document.getElementById("ahspForm").addEventListener("submit", e => {
   e.preventDefault();
   const id = document.getElementById("ah_id").value;
@@ -11429,12 +11493,20 @@ document.getElementById("ahspForm").addEventListener("submit", e => {
     hargaManual: parseNumberInput(document.getElementById("ah_hargaManual").value),
     overhead: parseFloat(document.getElementById("ah_overhead").value) || 0,
     referensi: document.getElementById("ah_referensi").value.trim(),
+    golonganKlien: document.getElementById("ah_golonganKlien").value.trim(),
+    hargaTerkunci: existing ? existing.hargaTerkunci === true : false,
     komponen: JSON.parse(JSON.stringify(ahspKomponenRows)),
     riwayatHarga: existing ? (existing.riwayatHarga || []) : []
   };
   const hargaBaru = ahspHarga(item);
   if (existing) {
     const hargaLama = ahspHarga(existing);
+    // Penjaga harga: item terkunci tidak boleh berubah harganya lewat
+    // edit manual -- buka kuncinya dulu (🔒 di daftar AHSP, Owner-only).
+    if (existing.hargaTerkunci && hargaBaru !== hargaLama) {
+      alert(`Harga item ini DIKUNCI (${rupiah(hargaLama)}) dan tidak bisa diubah menjadi ${rupiah(hargaBaru)}.\n\nMinta Owner membuka kuncinya lewat tombol 🔒 di daftar AHSP, baru harga bisa diubah.`);
+      return;
+    }
     if (hargaBaru !== hargaLama) {
       item.riwayatHarga.push({ id: uid(), tanggal: hariIniIso(), hargaLama, hargaBaru });
     }
@@ -11463,6 +11535,26 @@ document.getElementById("ah_table").addEventListener("click", e => {
   const editBtn = e.target.closest("[data-edit-ahsp]");
   const delBtn = e.target.closest("[data-delete-ahsp]");
   const riwayatBtn = e.target.closest("[data-riwayat-ahsp]");
+  const lockBtn = e.target.closest("[data-lock-ahsp]");
+  if (lockBtn) {
+    // Penjaga harga (poin 6 Owner): kunci/buka kunci harga item -- cuma
+    // Owner yang boleh, supaya harga tidak diubah-ubah sesuka hati.
+    if (currentTeamRole !== "owner") { alert("Hanya Owner yang bisa mengunci/membuka kunci harga AHSP."); return; }
+    const a = state.ahsp.find(x => x.id === lockBtn.dataset.lockAhsp);
+    if (!a) return;
+    const sebelum = { ...a };
+    if (a.hargaTerkunci) {
+      if (!confirm(`Buka kunci harga "${a.uraian}"?\n\nSetelah dibuka, harganya bisa diubah lagi (manual maupun sinkron massal).`)) return;
+      a.hargaTerkunci = false;
+    } else {
+      if (!confirm(`Kunci harga "${a.uraian}" di ${rupiah(ahspHarga(a))}?\n\nSelama terkunci: edit harga & sinkron harga massal DITOLAK untuk item ini — harga tidak bisa naik/turun sampai Owner membukanya lagi. Perubahan tetap tercatat di Riwayat Harga & Aktivitas Tim.`)) return;
+      a.hargaTerkunci = true;
+    }
+    saveState();
+    mirrorAhspUpsert(a, sebelum);
+    renderAhsp();
+    return;
+  }
   if (editBtn) {
     const a = state.ahsp.find(x => x.id === editBtn.dataset.editAhsp);
     if (a) openAhspModal(a);

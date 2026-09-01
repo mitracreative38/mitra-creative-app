@@ -2418,6 +2418,9 @@
           <select id="ah_filterKategori">
             <option value="">Semua Kategori</option>
           </select>
+          <select id="ah_filterGolongan" title="Golongkan AHSP per klien supaya daftar harga tiap klien tidak tercampur">
+            <option value="">Semua Golongan</option>
+          </select>
         </div>
         <div class="table-wrap">
           <table class="tbl" id="ah_table">
@@ -4443,7 +4446,12 @@
             <option value="detail">Rincian Komponen (otomatis)</option>
           </select>
         </div>
-        <div class="field full">
+        <div class="field">
+          <label>Golongan Klien (opsional)</label>
+          <input type="text" id="ah_golonganKlien" list="golonganKlienList" placeholder="mis. NSS / Gadai Sakti — kosong = AHSP umum">
+          <datalist id="golonganKlienList"></datalist>
+        </div>
+        <div class="field">
           <label>Referensi Standar (opsional)</label>
           <input type="text" id="ah_referensi" placeholder="mis. Permen PUPR No. 1/2022, atau SNI 2837:2008">
         </div>
@@ -5117,6 +5125,40 @@
           </select>
         </div>
       </div>
+
+      <details id="kym_biodataBox" style="margin-top:8px;">
+        <summary style="cursor:pointer; font-weight:600; font-size:13px;">🪪 Data Diri Karyawan (NIK, alamat, kontak — sesuai formulir perekrutan)</summary>
+        <div class="form-grid" style="margin-top:8px;">
+          <div class="field">
+            <label>NIK (No. KTP)</label>
+            <input type="text" id="kym_nik" inputmode="numeric" placeholder="16 digit">
+          </div>
+          <div class="field">
+            <label>Tempat / Tanggal Lahir</label>
+            <input type="text" id="kym_ttl" placeholder="mis. Tegal, 17-08-1995">
+          </div>
+          <div class="field full">
+            <label>Alamat Tinggal</label>
+            <input type="text" id="kym_alamat" placeholder="alamat lengkap">
+          </div>
+          <div class="field">
+            <label>No. HP / WhatsApp</label>
+            <input type="text" id="kym_telepon" inputmode="tel" placeholder="08xxxxxxxxxx">
+          </div>
+          <div class="field">
+            <label>Kontak Darurat (nama & no. HP)</label>
+            <input type="text" id="kym_kontakDarurat" placeholder="mis. Ibu Siti — 08xxxx">
+          </div>
+          <div class="field">
+            <label>Pendidikan Terakhir</label>
+            <input type="text" id="kym_pendidikan" placeholder="mis. SMK Bangunan">
+          </div>
+          <div class="field">
+            <label>Tanggal Mulai Bekerja</label>
+            <input type="date" id="kym_tanggalMasuk">
+          </div>
+        </div>
+      </details>
 
       <div class="form-grid" id="kym_harianFields" style="margin-top:6px;">
         <div class="field">
