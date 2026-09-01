@@ -6260,7 +6260,69 @@ function renderPekerjaanSusulan(p) {
       </div></td>
     </tr>
   `).join("") : '<tr class="empty-row"><td colspan="8">Belum ada catatan pekerjaan susulan. Catat di sini setiap ada pekerjaan tambahan yang muncul belakangan supaya tidak terlewat.</td></tr>';
+  // Poin 5 Owner: jumlah keseluruhan nominal addendum terlihat global +
+  // rinciannya per status (sub-anggaran), tidak perlu menjumlah manual.
+  const ringkasEl = document.getElementById("pj_susulanRingkas");
+  if (ringkasEl) {
+    if (!rows.length) { ringkasEl.textContent = ""; }
+    else {
+      const totalPer = status => rows.filter(x => (x.status || "rencana") === status).reduce((s, x) => s + nilaiTindakLanjut(x), 0);
+      const total = rows.reduce((s, x) => s + nilaiTindakLanjut(x), 0);
+      const bagian = [["rencana", "Rencana"], ["penawaran", "Sudah Dibuat Penawaran"], ["dikerjakan", "Dikerjakan"], ["selesai", "Selesai"]]
+        .map(([st, label]) => ({ label, jumlah: totalPer(st) }))
+        .filter(b => b.jumlah > 0)
+        .map(b => `${b.label}: ${rupiah(b.jumlah)}`)
+        .join(" • ");
+      ringkasEl.innerHTML = `<strong>Total nilai addendum (${rows.length} catatan): ${rupiah(total)}</strong>${bagian ? ` — ${bagian}` : ""}`;
+    }
+  }
 }
+// Poin 4 Owner: harga acuan addendum mengikuti HARGA SATUAN penawaran yang
+// sudah di-ACC klien untuk proyek ini -- item addendum dicocokkan ke item
+// dokumen sumber proyek (penawaran/RAB asal) lewat ahspId, atau uraian yang
+// sama persis bila tidak ber-AHSP. Tagihan addendum terpisah, tapi harganya
+// tidak boleh beda dari yang sudah disepakati.
+function hargaAcuanAddendum(p, item) {
+  const dok = dokSumberProyek(p);
+  if (!dok || !Array.isArray(dok.items)) return null;
+  const cocok = dok.items.find(di =>
+    (item.ahspId && di.ahspId && di.ahspId === item.ahspId) ||
+    ((di.uraian || "").trim().toLowerCase() === (item.uraian || "").trim().toLowerCase()));
+  if (!cocok || !(cocok.hargaSatuan > 0)) return null;
+  return { harga: cocok.hargaSatuan, nomor: dok.nomor || "", uraian: cocok.uraian || "" };
+}
+document.getElementById("ps_pwAddendumBtn").addEventListener("click", () => {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) return;
+  const siap = (p.pekerjaanTambahan || []).filter(x => (x.status || "rencana") === "rencana");
+  if (!siap.length) {
+    alert('Tidak ada catatan addendum berstatus "Rencana" yang siap dibuatkan penawaran.\n\nCatatan yang sudah pernah ditransfer (status Penawaran/Dikerjakan/Selesai) tidak diikutkan lagi — anti dobel.');
+    return;
+  }
+  // Harga tiap item dipatok ke harga acuan penawaran ACC bila pekerjaannya
+  // cocok; sisanya memakai harga perkiraan di catatan.
+  const itemsFinal = siap.map(x => {
+    const acuan = hargaAcuanAddendum(p, x);
+    return { item: x, acuan, hargaFinal: acuan ? acuan.harga : (x.hargaSatuan || 0) };
+  });
+  const total = itemsFinal.reduce((s, f) => s + (f.item.volume || 1) * f.hargaFinal, 0);
+  const nomorAcuan = (itemsFinal.find(f => f.acuan) || { acuan: null }).acuan;
+  if (!confirm(`Buat SATU Penawaran Addendum untuk proyek "${p.nama}" berisi ${siap.length} catatan?\n\n${itemsFinal.map(f =>
+    `- ${f.item.uraian}${f.item.volume ? ` (${f.item.volume} ${f.item.satuan || ""})` : ""} @ ${rupiah(f.hargaFinal)}${f.acuan ? " ← harga penawaran ACC" : ""}`).join("\n")}\n\nPerkiraan total item: ${rupiah(total)} (belum diskon/PPN). Tagihan addendum ini terpisah dari kontrak utama${nomorAcuan ? `, harga satuan mengikuti ${nomorAcuan.nomor}` : ""}.`)) return;
+  const pw = buatPenawaranDariTindakLanjut({
+    kepada: p.klien || "", klienId: p.klienId || "",
+    perihal: `Addendum Pekerjaan Tambahan — ${p.nama}`,
+    items: itemsFinal.map(f => Object.assign({}, f.item, { hargaSatuan: f.hargaFinal }))
+  });
+  if (nomorAcuan && nomorAcuan.nomor) {
+    pw.syarat = `${pw.syarat}\nHarga satuan addendum mengikuti Penawaran ${nomorAcuan.nomor} yang telah disetujui; tagihan addendum ini terpisah dari kontrak utama.`;
+    mirrorPenawaranUpsert(pw);
+  }
+  siap.forEach(x => { x.status = "penawaran"; x.penawaranId = pw.id; });
+  saveState();
+  mirrorProyekUpsert(p);
+  goToDoc("pw", pw.id);
+});
 
 // ===== Klien (CRM/Pipeline) =====
 function klienDerived(k) {
