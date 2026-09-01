@@ -335,6 +335,7 @@ async function hydrateSensitiveFields(data) {
           sumberUtangId: t.sumber_utang_id || "",
           sumberInvoiceId: t.sumber_invoice_id || "",
           sumberAsetTetapId: t.sumber_aset_tetap_id || "",
+          sumberPribadiId: t.sumber_pribadi_id || "",
           tipe: t.tipe, status: t.status, tanggal: t.tanggal, jumlah: t.jumlah,
           keterangan: t.keterangan || "", kategori: t.kategori || "", extra: t.extra || "", catatan: t.catatan || "",
           lampiranPath: t.lampiran_path || ""
@@ -1647,6 +1648,7 @@ function kasUsahaTxnToRow(t) {
     sumber_utang_id: t.sumberUtangId || null,
     sumber_invoice_id: t.sumberInvoiceId || null,
     sumber_aset_tetap_id: t.sumberAsetTetapId || null,
+    sumber_pribadi_id: t.sumberPribadiId || null,
     tipe: t.tipe || "",
     status: t.status || "lunas",
     tanggal: t.tanggal || null,
@@ -4060,6 +4062,21 @@ function computePemeriksaanIntegrasi() {
     });
   }
 
+  // 12. Kas Pribadi "Masuk" bersumber "Kas Usaha" (prive/penarikan Owner)
+  // yang belum punya pasangan Kas Keluar di Kas Perusahaan — data lama
+  // sebelum sinkron otomatis dibuat (bug yang dilaporkan Owner: input di
+  // Kas Pribadi tidak muncul di laporan Kas Perusahaan).
+  const priveTerputus = (state.kasPribadi.transactions || []).filter(t =>
+    kasPribadiButuhTautan(t) && !tautanUsahaDariPribadi(t.id));
+  if (priveTerputus.length) {
+    temuan.push({
+      icon: "👤", page: "kasUsaha", fix: "kasPribadiTerputus",
+      judul: `${priveTerputus.length} penarikan dana pribadi belum tercatat di Kas Perusahaan`,
+      detail: `Total ${rupiah(priveTerputus.reduce((s, t) => s + (t.jumlah || 0), 0))} tercatat Masuk di Kas Pribadi (sumber "Kas Usaha") tapi tidak ada pasangan Kas Keluar di Kas Perusahaan — saldo & laporan perusahaan jadi kelebihan. Klik "Catat ke Kas Perusahaan" untuk membuat pasangannya otomatis.`,
+      data: priveTerputus
+    });
+  }
+
   return temuan;
 }
 function renderPemeriksaanIntegrasi() {
@@ -4078,6 +4095,7 @@ function renderPemeriksaanIntegrasi() {
             ${t.fix === "invoiceKas" ? `<button class="btn-ghost" data-fix-invoice-kas="${i}">⚡ Catat ke Kas</button>` : ""}
             ${t.fix === "invoiceManualOk" ? `<button class="btn-ghost" data-fix-invoice-manual-ok="${i}">✔️ Tandai Sudah Cocok</button>` : ""}
             ${t.fix === "proyekHilang" ? `<button class="btn-ghost" data-fix-proyek-hilang="${i}">🧹 Lepas Kaitan</button>` : ""}
+            ${t.fix === "kasPribadiTerputus" ? `<button class="btn-ghost" data-fix-kas-pribadi="${i}">👤 Catat ke Kas Perusahaan</button>` : ""}
             <button class="btn-ghost" data-goto-page="${t.page}">Buka</button>
           </span>
         </div>
@@ -4089,7 +4107,25 @@ document.getElementById("dash_integrasiHasil").addEventListener("click", e => {
   const fixBtn = e.target.closest("[data-fix-invoice-kas]");
   const okBtn = e.target.closest("[data-fix-invoice-manual-ok]");
   const lepasBtn = e.target.closest("[data-fix-proyek-hilang]");
+  const priveBtn = e.target.closest("[data-fix-kas-pribadi]");
   const gotoBtn = e.target.closest("[data-goto-page]");
+  if (priveBtn) {
+    const temuan = computePemeriksaanIntegrasi().find(t => t.fix === "kasPribadiTerputus");
+    if (!temuan || !temuan.data.length) { renderPemeriksaanIntegrasi(); return; }
+    if (!confirm(`Catat ${temuan.data.length} penarikan dana pribadi (total ${rupiah(temuan.data.reduce((s, t) => s + (t.jumlah || 0), 0))}) sebagai Kas Keluar di Kas Perusahaan?\n\nSetiap transaksi dibuatkan pasangan otomatis berkategori "Biaya Lain-lain" dengan tanggal & jumlah yang sama, sehingga saldo dan laporan perusahaan kembali benar.`)) return;
+    let terkunci = 0;
+    temuan.data.forEach(t => {
+      if (state.periodeTerkunci && (t.tanggal || "").slice(0, 7) <= state.periodeTerkunci) { terkunci++; return; }
+      const baru = buatTxnUsahaDariPribadi(t);
+      state.kasUsaha.transactions.push(baru);
+      mirrorKasUsahaUpsert(baru, null);
+    });
+    saveState();
+    renderAll();
+    renderPemeriksaanIntegrasi();
+    if (terkunci) alert(`${terkunci} transaksi dilewati karena tanggalnya di periode yang sudah ditutup bukunya — buka kunci periode dulu bila ingin mencatatnya.`);
+    return;
+  }
   if (lepasBtn) {
     const temuan = computePemeriksaanIntegrasi().find(t => t.fix === "proyekHilang");
     if (!temuan || !temuan.data.length) { renderPemeriksaanIntegrasi(); return; }
@@ -6179,20 +6215,24 @@ document.getElementById("pj_susulanTable").addEventListener("click", e => {
 // Laporan Kerja -- membuat draft Penawaran berisi 1 item LENGKAP (uraian,
 // satuan, volume, harga satuan, tetap tertaut ahspId-nya) dari catatan itu,
 // jadi tidak perlu isi ulang manual di editor Penawaran.
-function buatPenawaranDariTindakLanjut({ kepada, klienId, perihal, item }) {
+function buatPenawaranDariTindakLanjut({ kepada, klienId, perihal, item, items }) {
+  // Bisa 1 catatan (tombol 📄 per baris, perilaku lama) atau SEMUA catatan
+  // survey sekaligus (tombol "Buat 1 Penawaran dari Semua Catatan") --
+  // supaya hasil survey tidak perlu diketik ulang manual satu-satu.
+  const sumber = (items && items.length) ? items : [item];
   const pw = {
     id: uid(), nomor: nextPenawaranNomor(), tanggal: hariIniIso(),
     kepada: kepada || "", klienId: klienId || "", alamatKlien: "", perihal: perihal || "",
     kategori: KATEGORI_PEKERJAAN[0], status: "draft",
     diskon: 0, ppn: 11, pph: 0.5, biayaLain: 0,
-    items: [{
+    items: sumber.map(it => ({
       id: uid(),
-      uraian: (item && item.uraian) || perihal || "",
-      satuan: (item && item.satuan) || "ls",
-      volume: (item && item.volume) || 1,
-      hargaSatuan: (item && (item.hargaSatuan || item.nilai)) || 0,
-      ahspId: (item && item.ahspId) || ""
-    }],
+      uraian: (it && it.uraian) || perihal || "",
+      satuan: (it && it.satuan) || "ls",
+      volume: (it && it.volume) || 1,
+      hargaSatuan: (it && (it.hargaSatuan || it.nilai)) || 0,
+      ahspId: (it && it.ahspId) || ""
+    })),
     syarat: defaultSyarat(), penutup: defaultPenutup(),
     ttdNama: state.ownerNama, ttdJabatan: state.ownerJabatan
   };
@@ -14046,6 +14086,55 @@ document.getElementById("txn_tipe").addEventListener("change", refreshTxnStatusO
 document.getElementById("txn_tipe").addEventListener("change", maybeSuggestApprovalStatus);
 attachNumberFormatting(document.getElementById("txn_jumlah"));
 
+// ----- Sinkron Kas Pribadi -> Kas Perusahaan (fix bug Owner) -----
+// Transaksi Kas Pribadi "Masuk" dengan Sumber Dana "Kas Usaha" artinya
+// uang KELUAR dari kas perusahaan (prive/penarikan Owner). Sebelumnya
+// hal ini tidak pernah tercatat di Kas Perusahaan sama sekali, jadi
+// laporan perusahaan tidak menunjukkan uangnya keluar. Sekarang otomatis
+// dibuatkan transaksi Kas Keluar berpasangan (tertaut via sumberPribadiId,
+// pola yang sama dengan slip gaji/sewa/aset tetap) dan ikut diperbarui/
+// terhapus saat transaksi pribadinya diubah/dihapus.
+function kasPribadiButuhTautan(t) {
+  return t.tipe === "Masuk" && (t.extra || "") === "Kas Usaha";
+}
+function tautanUsahaDariPribadi(pribadiId) {
+  return state.kasUsaha.transactions.find(t => t.sumberPribadiId === pribadiId);
+}
+function buatTxnUsahaDariPribadi(t) {
+  return {
+    id: uid(),
+    sumberPribadiId: t.id,
+    tipe: "Keluar",
+    status: "lunas",
+    tanggal: t.tanggal,
+    jumlah: t.jumlah,
+    kategori: "Biaya Lain-lain",
+    keterangan: `Prive/penarikan dana pribadi Owner${t.keterangan ? ` — ${t.keterangan}` : ""}`,
+    extra: "Owner",
+    catatan: "Otomatis dari Kas Pribadi"
+  };
+}
+function syncKasPribadiKeUsaha(t) {
+  const tautan = tautanUsahaDariPribadi(t.id);
+  if (kasPribadiButuhTautan(t)) {
+    if (tautan) {
+      const sebelum = { ...tautan };
+      tautan.tanggal = t.tanggal;
+      tautan.jumlah = t.jumlah;
+      tautan.keterangan = `Prive/penarikan dana pribadi Owner${t.keterangan ? ` — ${t.keterangan}` : ""}`;
+      mirrorKasUsahaUpsert(tautan, sebelum);
+    } else {
+      const baru = buatTxnUsahaDariPribadi(t);
+      state.kasUsaha.transactions.push(baru);
+      mirrorKasUsahaUpsert(baru, null);
+    }
+  } else if (tautan) {
+    // Sumber dana diganti bukan lagi "Kas Usaha" -> pasangan di Kas
+    // Perusahaan tidak relevan lagi, ikut dihapus.
+    state.kasUsaha.transactions = state.kasUsaha.transactions.filter(x => x.id !== tautan.id);
+    mirrorKasUsahaDelete(tautan.id, tautan);
+  }
+}
 document.getElementById("txnForm").addEventListener("submit", async e => {
   e.preventDefault();
   const jumlah = parseNumberInput(document.getElementById("txn_jumlah").value);
@@ -14057,6 +14146,13 @@ document.getElementById("txnForm").addEventListener("submit", async e => {
   // Tutup Buku: transaksi Kas Perusahaan di periode terkunci tidak bisa
   // ditambah/diubah (cek tanggal baru MAUPUN tanggal lama saat edit).
   if (book === "kasUsaha" && (guardPeriodeTerkunci(document.getElementById("txn_tanggal").value) || (existing && guardPeriodeTerkunci(existing.tanggal)))) return;
+  // Kas Pribadi ber-sumber "Kas Usaha" ikut memutasi Kas Perusahaan
+  // (pasangan otomatis) -- kena aturan kunci periode yang sama.
+  if (book === "kasPribadi") {
+    const akanTerkait = document.getElementById("txn_tipe").value === "Masuk" && document.getElementById("txn_extra").value.trim() === "Kas Usaha";
+    const tautanLama = existing ? tautanUsahaDariPribadi(existing.id) : null;
+    if ((akanTerkait || tautanLama) && (guardPeriodeTerkunci(document.getElementById("txn_tanggal").value) || (tautanLama && guardPeriodeTerkunci(tautanLama.tanggal)))) return;
+  }
   const txn = {
     ...existing,
     id: id || uid(),
@@ -14079,6 +14175,7 @@ document.getElementById("txnForm").addEventListener("submit", async e => {
   }
   const idx = arr.findIndex(t => t.id === id);
   if (idx >= 0) arr[idx] = txn; else arr.push(txn);
+  if (book === "kasPribadi") syncKasPribadiKeUsaha(txn);
   saveState();
   mirrorKasTxnUpsert(book, txn, existing);
   renderAll();
@@ -14099,9 +14196,19 @@ document.getElementById("txnForm").addEventListener("submit", async e => {
       const book = delBtn.dataset.book;
       const target = state[book].transactions.find(x => x.id === delBtn.dataset.delete);
       if (book === "kasUsaha" && target && guardPeriodeTerkunci(target.tanggal)) return;
-      if (confirm("Hapus transaksi ini?")) {
+      // Kas Pribadi bertautan ke Kas Perusahaan (prive otomatis): pasangan
+      // usahanya ikut terhapus, jadi kena guard kunci periode juga.
+      const tautanUsaha = book === "kasPribadi" && target ? tautanUsahaDariPribadi(target.id) : null;
+      if (tautanUsaha && guardPeriodeTerkunci(tautanUsaha.tanggal)) return;
+      if (confirm(tautanUsaha
+        ? `Hapus transaksi ini?\n\nTransaksi Kas Keluar otomatis berpasangan di Kas Perusahaan (${rupiah(tautanUsaha.jumlah)}) juga akan ikut terhapus.`
+        : "Hapus transaksi ini?")) {
         const deleted = state[book].transactions.find(x => x.id === delBtn.dataset.delete);
         state[book].transactions = state[book].transactions.filter(x => x.id !== delBtn.dataset.delete);
+        if (tautanUsaha) {
+          state.kasUsaha.transactions = state.kasUsaha.transactions.filter(x => x.id !== tautanUsaha.id);
+          mirrorKasUsahaDelete(tautanUsaha.id, tautanUsaha);
+        }
         saveState();
         mirrorKasTxnDelete(book, delBtn.dataset.delete, deleted);
         renderAll();
@@ -14702,6 +14809,7 @@ function rrSumberTxn(t) {
   if (t.sumberBelanjaId) return { label: "🛒 Belanja Material (otomatis)", lepas: false };
   if (t.sumberSlipId) return { label: "💰 Slip Gaji (otomatis)", lepas: false };
   if (t.sumberSewaId) return { label: "🏠 Sewa Aset (otomatis)", lepas: false };
+  if (t.sumberPribadiId) return { label: "👤 Kas Pribadi Owner (otomatis)", lepas: false };
   return { label: "✍️ Manual / hasil Kaitkan", lepas: true };
 }
 function rrTxnsKomponen(p, komponen) {
@@ -16334,6 +16442,30 @@ async function simpanVideoLaporan(laporanId, file) {
   return { path, nama: file.name || "video" };
 }
 document.getElementById("lkr_addTindakLanjutBtn").addEventListener("click", () => openTindakLanjutModal(null));
+// Transfer massal hasil survey -> SATU Penawaran Harga (poin 2 Owner):
+// semua catatan tindak lanjut berstatus "rencana" dengan rencana "Dibuat
+// Penawaran" digabung jadi satu dokumen penawaran sekaligus, lengkap
+// dengan volume/satuan/harga/AHSP-nya -- tidak perlu diketik ulang manual.
+document.getElementById("lkr_pwSemuaBtn").addEventListener("click", () => {
+  const l = state.laporanKerja.find(x => x.id === currentLaporanKerjaId);
+  if (!l) return;
+  const siap = (l.tindakLanjut || []).filter(x => x.status === "rencana" && x.rencana === "Dibuat Penawaran");
+  if (!siap.length) {
+    alert('Tidak ada catatan yang siap dibuatkan penawaran.\n\nCatatan harus berstatus "Rencana" dengan tindak lanjut "Dibuat Penawaran". Catatan yang sudah pernah ditransfer tidak diikutkan lagi (anti dobel).');
+    return;
+  }
+  const total = siap.reduce((s, x) => s + nilaiTindakLanjut(x), 0);
+  if (!confirm(`Buat SATU Penawaran Harga berisi ${siap.length} catatan survey ini?\n\n${siap.map(x => `- ${x.uraian}${x.volume ? ` (${x.volume} ${x.satuan || ""})` : ""}`).join("\n")}\n\nPerkiraan total item: ${rupiah(total)} (belum diskon/PPN). Semua catatan otomatis ditandai "penawaran" dan tertaut ke dokumennya.`)) return;
+  const klien = l.klienId ? state.klien.find(k => k.id === l.klienId) : null;
+  const pw = buatPenawaranDariTindakLanjut({
+    kepada: klien ? klien.nama : (l.judul || ""), klienId: l.klienId || "",
+    perihal: l.judul || `Hasil survey ${formatTanggal(l.tanggal)}`, items: siap
+  });
+  siap.forEach(x => { x.status = "penawaran"; x.penawaranId = pw.id; });
+  saveState();
+  mirrorLaporanKerjaUpsert(l, l);
+  goToDoc("pw", pw.id);
+});
 document.getElementById("tindakLanjutForm").addEventListener("submit", async e => {
   e.preventDefault();
   const l = state.laporanKerja.find(x => x.id === currentLaporanKerjaId);
