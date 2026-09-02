@@ -2929,6 +2929,12 @@
           </div>
           <div class="summary-rows" style="margin-top:8px;">
             <div class="summary-row total"><span>Harga Akhir (Deal) Setelah Nego</span><strong id="pw_negoDeal">-</strong></div>
+            <div class="summary-row"><span>Perkiraan Harga Modal (dari rincian AHSP)</span><strong id="pw_negoModal">-</strong></div>
+            <div class="summary-row"><span>Perkiraan Margin pada Harga Deal</span><strong id="pw_negoMargin">-</strong></div>
+          </div>
+          <p class="muted" style="font-size:11px; margin:6px 0 0;">Modal dihitung dari komponen AHSP tiap item (tanpa overhead); item yang tidak terkait AHSP dihitung tanpa margin (konservatif). Angka ini pegangan internal saat nego — jangan turunkan harga di bawah ambang margin minimum.</p>
+          <div class="modal-actions" style="justify-content:flex-start; margin-top:10px;">
+            <button type="button" class="btn-ghost" id="pw_baNegoBtn">🖨️ Cetak Berita Acara Negosiasi</button>
           </div>
           <div id="pw_alasanKalahBox" style="display:none; margin-top:10px;">
             <div class="summary-row"><span>📉 Alasan Kalah Tender</span><strong id="pw_alasanKalahRingkas">Belum diisi</strong></div>
@@ -4755,9 +4761,13 @@
           <label>Uraian Pekerjaan</label>
           <input type="text" id="it_uraian" required placeholder="mis. Pemasangan Plafon Gypsum">
         </div>
+        <div class="field full">
+          <label>Spesifikasi (opsional — tampil di dokumen cetak)</label>
+          <input type="text" id="it_spesifikasi" placeholder="mis. Gypsum 9mm, rangka hollow galvanis 4x4, finishing cat">
+        </div>
         <div class="field full" id="it_kelompokField">
           <label>Kelompok / Sub-Kategori (opsional)</label>
-          <input type="text" id="it_kelompok" list="kelompokList" placeholder="mis. II. Pekerjaan Pondasi">
+          <input type="text" id="it_kelompok" list="kelompokList" placeholder="mis. I. Pekerjaan Lantai 1">
           <datalist id="kelompokList">
             <option value="I. Pekerjaan Persiapan">
             <option value="II. Pekerjaan Pondasi">
