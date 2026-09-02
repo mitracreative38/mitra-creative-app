@@ -459,6 +459,9 @@ body.printing-quote #printArea {
 .pwmc-table td { padding: 7px 10px; border-bottom: 1px solid #e6e7e9; vertical-align: top; }
 .pwmc-table th.c, .pwmc-table td.c { text-align: center; }
 .pwmc-table th.r, .pwmc-table td.r { text-align: right; }
+/* Baris kelompok (I. / II. / ...) di cetak penawaran: bagian bernomor
+   romawi dengan SUB TOTAL di kolom kanan, latar navy lembut. */
+.pwmc-group-row td { background: #ecedf7; color: #25256F; border-bottom: 1px solid #c9cbe4; font-size: 12px; }
 
 .pwmc-summary { width: 320px; margin-left: auto; font-size: 12.5px; border-collapse: collapse; }
 .pwmc-summary td { padding: 4px 6px; }

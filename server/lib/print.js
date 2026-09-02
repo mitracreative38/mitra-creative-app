@@ -98,15 +98,26 @@ function buildPenawaranPrintHtml(pw, profilMitra) {
   // Harga Satuan SENGAJA tidak dicetak (cukup Volume + Jumlah) -- sama
   // seperti buildPenawaranPrintHtml di www/app.js: dokumen ini keluar ke
   // pihak luar, harga satuan internal jangan ikut bocor.
-  const itemsRows = items.map((it, i) => `
-    <tr>
-      <td class="c">${i + 1}</td>
-      <td>${escapeHtml(it.uraian)}</td>
-      <td class="c">${escapeHtml(it.satuan)}</td>
-      <td class="r">${it.volume}</td>
-      <td class="r">${rupiah((it.volume || 0) * (it.hargaSatuan || 0))}</td>
-    </tr>
-  `).join("") || `<tr><td colspan="5" class="c">Belum ada item</td></tr>`;
+  // Sama seperti www/app.js: item dikelompokkan per bagian (I./II./...)
+  // dengan sub-huruf a./b./c., SUB TOTAL per bagian, dan kolom Spesifikasi.
+  const adaKelompok = items.some(it => it.kelompok);
+  let nomorUrut = 0;
+  const itemsRows = groupItemsByKelompok(items).map(group => {
+    const header = group.kelompok ? `
+      <tr class="pwmc-group-row"><td colspan="5"><strong>${escapeHtml(group.kelompok)}</strong></td><td class="r"><strong>${rupiah(group.subtotal)}</strong></td></tr>
+    ` : "";
+    const rows = group.items.map((it, i) => `
+      <tr>
+        <td class="c">${group.kelompok ? String.fromCharCode(97 + (i % 26)) + "." : ++nomorUrut}</td>
+        <td>${escapeHtml(it.uraian)}</td>
+        <td>${escapeHtml(it.spesifikasi || "-")}</td>
+        <td class="c">${escapeHtml(it.satuan)}</td>
+        <td class="r">${it.volume}</td>
+        <td class="r">${rupiah((it.volume || 0) * (it.hargaSatuan || 0))}</td>
+      </tr>
+    `).join("");
+    return header + rows;
+  }).join("") || `<tr><td colspan="6" class="c">Belum ada item</td></tr>`;
 
   const todayIso = new Date().toISOString().slice(0, 10);
   let statusText, statusCls;
@@ -166,17 +177,17 @@ function buildPenawaranPrintHtml(pw, profilMitra) {
 
       <div class="pwmc-section-label">Rincian Lingkup Pekerjaan</div>
       <table class="pwmc-table">
-        <thead><tr><th>No</th><th>Uraian Pekerjaan</th><th class="c">Satuan</th><th class="r">Volume</th><th class="r">Jumlah</th></tr></thead>
+        <thead><tr><th>No</th><th>Uraian Pekerjaan</th><th>Spesifikasi</th><th class="c">Satuan</th><th class="r">Volume</th><th class="r">Jumlah</th></tr></thead>
         <tbody>${itemsRows}</tbody>
       </table>
 
       <table class="pwmc-summary">
-        <tr><td>Subtotal</td><td class="r">${rupiah(subtotal)}</td></tr>
+        <tr><td>${adaKelompok ? "Jumlah Seluruh Bagian Pekerjaan" : "Subtotal"}</td><td class="r">${rupiah(subtotal)}</td></tr>
         ${pw.diskon ? `<tr><td>Diskon (${pw.diskon}%)</td><td class="r">- ${rupiah(diskonValue)}</td></tr>` : ""}
         ${pw.ppn ? `<tr><td>PPN (${pw.ppn}%)</td><td class="r">${rupiah(ppnValue)}</td></tr>` : ""}
         ${pw.pph ? `<tr><td>PPh Final (${pw.pph}%)</td><td class="r">${rupiah(pphValue)}</td></tr>` : ""}
         ${pw.biaya_lain ? `<tr><td>Biaya Lain-lain</td><td class="r">${rupiah(pw.biaya_lain)}</td></tr>` : ""}
-        <tr class="pwmc-total-row"><td>Total Penawaran</td><td class="r">${rupiah(total)}</td></tr>
+        <tr class="pwmc-total-row"><td>${adaKelompok ? "Grand Total Penawaran" : "Total Penawaran"}</td><td class="r">${rupiah(total)}</td></tr>
       </table>
 
       <div class="pwmc-syarat-label">Syarat &amp; Ketentuan</div>
@@ -322,7 +333,7 @@ function buildRabPrintHtml(rab, profil) {
   let rowNum = 0;
   const itemsRows = groupItemsByKelompok(items).map(group => {
     const header = group.kelompok ? `
-      <tr><td colspan="5" style="background:#f3f3f3;"><strong>${escapeHtml(group.kelompok)}</strong></td><td class="r" style="background:#f3f3f3;"><strong>${rupiah(group.subtotal)}</strong></td></tr>
+      <tr><td colspan="6" style="background:#f3f3f3;"><strong>${escapeHtml(group.kelompok)}</strong></td><td class="r" style="background:#f3f3f3;"><strong>${rupiah(group.subtotal)}</strong></td></tr>
     ` : "";
     const rows = group.items.map(it => {
       rowNum++;
@@ -330,6 +341,7 @@ function buildRabPrintHtml(rab, profil) {
         <tr>
           <td class="c">${rowNum}</td>
           <td>${escapeHtml(it.uraian)}</td>
+          <td>${escapeHtml(it.spesifikasi || "-")}</td>
           <td class="c">${escapeHtml(it.satuan)}</td>
           <td class="r">${it.volume}</td>
           <td class="r">${rupiah(it.hargaSatuan)}</td>
@@ -338,7 +350,7 @@ function buildRabPrintHtml(rab, profil) {
       `;
     }).join("");
     return header + rows;
-  }).join("") || `<tr><td colspan="6" class="c">Belum ada item</td></tr>`;
+  }).join("") || `<tr><td colspan="7" class="c">Belum ada item</td></tr>`;
 
   return `
     <div class="letterhead">
@@ -363,7 +375,7 @@ function buildRabPrintHtml(rab, profil) {
     </table>
 
     <table class="doc-items" style="margin-top:16px;">
-      <thead><tr><th>No</th><th>Uraian Pekerjaan</th><th class="c">Satuan</th><th class="r">Volume</th><th class="r">Harga Satuan</th><th class="r">Jumlah</th></tr></thead>
+      <thead><tr><th>No</th><th>Uraian Pekerjaan</th><th>Spesifikasi</th><th class="c">Satuan</th><th class="r">Volume</th><th class="r">Harga Satuan</th><th class="r">Jumlah</th></tr></thead>
       <tbody>${itemsRows}</tbody>
     </table>
 

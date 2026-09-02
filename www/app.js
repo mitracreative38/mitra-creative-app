@@ -11368,6 +11368,33 @@ function hargaDealPenawaran(pw) {
   const n = negoTerakhir(pw);
   return n && n.nilai > 0 ? n.nilai : penawaranTotals(pw).total;
 }
+// Ambang margin minimum saat negosiasi (persen terhadap harga deal).
+// Turun di bawah ini memicu peringatan; di bawah modal memicu peringatan
+// keras -- supaya nego tidak kebablasan jadi proyek rugi.
+const MARGIN_MINIMUM_PERSEN = 10;
+// Perkiraan biaya produksi (modal) penawaran: item ber-AHSP dihitung dari
+// komponen AHSP-nya TANPA overhead; item tanpa AHSP tidak diketahui
+// modalnya sehingga dihitung sebesar harga jualnya sendiri (konservatif:
+// dianggap tanpa margin). Ditambah biaya lain-lain dokumen.
+function perkiraanModalPenawaran(pw) {
+  let modal = 0, cakupanAhsp = 0;
+  (pw.items || []).forEach(it => {
+    const a = it.ahspId ? state.ahsp.find(x => x.id === it.ahspId) : null;
+    if (a && a.mode !== "manual") {
+      modal += (it.volume || 0) * (a.komponen || []).reduce((s, k) => s + (k.koefisien || 0) * (k.harga || 0), 0);
+      cakupanAhsp++;
+    } else {
+      modal += (it.volume || 0) * (it.hargaSatuan || 0);
+    }
+  });
+  modal += pw.biayaLain || 0;
+  return { modal, cakupanAhsp, totalItem: (pw.items || []).length };
+}
+function marginPadaHarga(pw, harga) {
+  const { modal } = perkiraanModalPenawaran(pw);
+  if (!(harga > 0)) return null;
+  return { modal, marginRp: harga - modal, marginPct: (harga - modal) / harga * 100 };
+}
 const ROMAWI_BULAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
 function nextPenawaranNomor() {
   state.penawaranCounter = (state.penawaranCounter || 0) + 1;
@@ -12495,20 +12522,15 @@ function openItemModal(ctx, existing) {
   document.getElementById("satuanList2").innerHTML = SATUAN_LIST.map(s => `<option value="${escapeHtml(s)}">`).join("");
 
   document.getElementById("it_uraian").value = existing ? existing.uraian : "";
+  document.getElementById("it_spesifikasi").value = existing ? (existing.spesifikasi || "") : "";
   document.getElementById("it_satuan").value = existing ? existing.satuan : "";
   document.getElementById("it_volume").value = existing ? String(existing.volume) : "";
   document.getElementById("it_harga").value = existing ? formatNumberInput(existing.hargaSatuan) : "";
   itemModalCtx.ahspId = existing ? (existing.ahspId || "") : "";
-  // Pengelompokan section (kelompok) cuma dipakai di RAB -- Penawaran tetap
-  // daftar flat seperti sebelumnya, jadi field ini disembunyikan untuk itu.
-  const kelompokField = document.getElementById("it_kelompokField");
-  if (ctx.kind === "rab") {
-    kelompokField.style.display = "";
-    document.getElementById("it_kelompok").value = existing ? (existing.kelompok || "") : "";
-  } else {
-    kelompokField.style.display = "none";
-    document.getElementById("it_kelompok").value = "";
-  }
+  // Kelompok (sub-kategori romawi) kini dipakai RAB DAN Penawaran --
+  // cetak penawaran menampilkan tiap kelompok sebagai bagian I./II./III.
+  // dengan item bersub-huruf a./b./c. plus sub total per kelompok.
+  document.getElementById("it_kelompok").value = existing ? (existing.kelompok || "") : "";
   updateItemJumlahPreview();
   itemModal.classList.add("open");
 }
@@ -12540,12 +12562,13 @@ document.getElementById("itemForm").addEventListener("submit", e => {
   const item = {
     id: itemModalCtx.itemId || uid(),
     uraian: document.getElementById("it_uraian").value.trim(),
+    spesifikasi: document.getElementById("it_spesifikasi").value.trim(),
     satuan: document.getElementById("it_satuan").value.trim(),
     volume,
     hargaSatuan: parseNumberInput(document.getElementById("it_harga").value),
-    ahspId: itemModalCtx.ahspId || ""
+    ahspId: itemModalCtx.ahspId || "",
+    kelompok: document.getElementById("it_kelompok").value.trim()
   };
-  if (itemModalCtx.kind === "rab") item.kelompok = document.getElementById("it_kelompok").value.trim();
   const idx = doc.items.findIndex(x => x.id === item.id);
   if (idx >= 0) doc.items[idx] = item; else doc.items.push(item);
   saveState();
@@ -13441,7 +13464,7 @@ function renderRabEditor() {
         const jumlah = (it.volume || 0) * (it.hargaSatuan || 0);
         return `
           <tr>
-            <td>${escapeHtml(it.uraian)}</td>
+            <td>${escapeHtml(it.uraian)}${it.spesifikasi ? `<div class="muted" style="font-size:11px;">${escapeHtml(it.spesifikasi)}</div>` : ""}</td>
             <td>${escapeHtml(it.satuan)}</td>
             <td class="num">${it.volume}</td>
             <td class="num">${rupiah(it.hargaSatuan)}</td>
@@ -13499,7 +13522,7 @@ function buildRabPrintHtml(rab) {
   let rowNum = 0;
   const itemsRows = groupItemsByKelompok(rab.items).map(group => {
     const header = group.kelompok ? `
-      <tr><td colspan="5" style="background:#f3f3f3;"><strong>${escapeHtml(group.kelompok)}</strong></td><td class="r" style="background:#f3f3f3;"><strong>${rupiah(group.subtotal)}</strong></td></tr>
+      <tr><td colspan="6" style="background:#f3f3f3;"><strong>${escapeHtml(group.kelompok)}</strong></td><td class="r" style="background:#f3f3f3;"><strong>${rupiah(group.subtotal)}</strong></td></tr>
     ` : "";
     const rows = group.items.map(it => {
       rowNum++;
@@ -13507,6 +13530,7 @@ function buildRabPrintHtml(rab) {
         <tr>
           <td class="c">${rowNum}</td>
           <td>${escapeHtml(it.uraian)}</td>
+          <td>${escapeHtml(it.spesifikasi || "-")}</td>
           <td class="c">${escapeHtml(it.satuan)}</td>
           <td class="r">${it.volume}</td>
           <td class="r">${rupiah(it.hargaSatuan)}</td>
@@ -13515,7 +13539,7 @@ function buildRabPrintHtml(rab) {
       `;
     }).join("");
     return header + rows;
-  }).join("") || `<tr><td colspan="6" class="c">Belum ada item</td></tr>`;
+  }).join("") || `<tr><td colspan="7" class="c">Belum ada item</td></tr>`;
 
   return `
     <div class="letterhead">
@@ -13540,7 +13564,7 @@ function buildRabPrintHtml(rab) {
     </table>
 
     <table class="doc-items" style="margin-top:16px;">
-      <thead><tr><th>No</th><th>Uraian Pekerjaan</th><th class="c">Satuan</th><th class="r">Volume</th><th class="r">Harga Satuan</th><th class="r">Jumlah</th></tr></thead>
+      <thead><tr><th>No</th><th>Uraian Pekerjaan</th><th>Spesifikasi</th><th class="c">Satuan</th><th class="r">Volume</th><th class="r">Harga Satuan</th><th class="r">Jumlah</th></tr></thead>
       <tbody>${itemsRows}</tbody>
     </table>
 
@@ -13904,24 +13928,36 @@ function renderPwEditor() {
   if (!pw.items.length) {
     tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Belum ada item</td></tr>';
   } else {
-    pw.items.forEach(it => {
-      const jumlah = (it.volume || 0) * (it.hargaSatuan || 0);
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${escapeHtml(it.uraian)}</td>
-        <td>${escapeHtml(it.satuan)}</td>
-        <td class="num">${it.volume}</td>
-        <td class="num">${rupiah(it.hargaSatuan)}</td>
-        <td class="num">${rupiah(jumlah)}</td>
-        <td>
-          <div class="row-actions">
-            <button class="icon-btn" data-edit-item="${it.id}" title="Edit">✏️</button>
-            <button class="icon-btn" data-delete-item="${it.id}" title="Hapus">🗑️</button>
-          </div>
-        </td>
-      `;
-      tbody.appendChild(tr);
-    });
+    // Dikelompokkan seperti RAB: header kelompok (I., II., ...) + sub total
+    // per kelompok, supaya editor mencerminkan tampilan dokumen cetak.
+    tbody.innerHTML = groupItemsByKelompok(pw.items).map(group => {
+      const header = group.kelompok ? `
+        <tr class="kelompok-row">
+          <td colspan="4"><strong>${escapeHtml(group.kelompok)}</strong></td>
+          <td class="num"><strong>${rupiah(group.subtotal)}</strong></td>
+          <td></td>
+        </tr>
+      ` : "";
+      const rows = group.items.map(it => {
+        const jumlah = (it.volume || 0) * (it.hargaSatuan || 0);
+        return `
+          <tr>
+            <td>${escapeHtml(it.uraian)}${it.spesifikasi ? `<div class="muted" style="font-size:11px;">${escapeHtml(it.spesifikasi)}</div>` : ""}</td>
+            <td>${escapeHtml(it.satuan)}</td>
+            <td class="num">${it.volume}</td>
+            <td class="num">${rupiah(it.hargaSatuan)}</td>
+            <td class="num">${rupiah(jumlah)}</td>
+            <td>
+              <div class="row-actions">
+                <button class="icon-btn" data-edit-item="${it.id}" title="Edit">✏️</button>
+                <button class="icon-btn" data-delete-item="${it.id}" title="Hapus">🗑️</button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join("");
+      return header + rows;
+    }).join("");
   }
   SKEMA_STATE.pw = (pw.skemaPembayaran || []).map(r => ({ ...r }));
   renderSkemaEditor("pw");
@@ -13945,6 +13981,19 @@ function renderPwNego(pw) {
   }).join("") : '<tr class="empty-row"><td colspan="5">Belum ada catatan negosiasi</td></tr>';
   const deal = negoTerakhir(pw);
   document.getElementById("pw_negoDeal").textContent = deal ? rupiah(deal.nilai) : "— (belum ada nego, memakai Total Penawaran)";
+  // Pegangan internal saat nego: perkiraan modal dari AHSP + margin pada
+  // harga deal saat ini, diwarnai merah bila di bawah ambang minimum.
+  const m = marginPadaHarga(pw, hargaDealPenawaran(pw));
+  const { cakupanAhsp, totalItem } = perkiraanModalPenawaran(pw);
+  document.getElementById("pw_negoModal").textContent = m ? `${rupiah(m.modal)} (${cakupanAhsp}/${totalItem} item ber-AHSP)` : "-";
+  const marginEl = document.getElementById("pw_negoMargin");
+  if (m) {
+    marginEl.textContent = `${rupiah(m.marginRp)} (${m.marginPct.toFixed(1)}%)`;
+    marginEl.className = m.marginPct < MARGIN_MINIMUM_PERSEN ? "bad" : "good";
+  } else {
+    marginEl.textContent = "-";
+    marginEl.className = "";
+  }
   if (!document.getElementById("pw_negoTanggal").value) document.getElementById("pw_negoTanggal").value = hariIniIso();
   document.getElementById("pw_alasanKalahBox").style.display = pw.status === "ditolak" ? "block" : "none";
   const aspek = (pw.alasanKalah && pw.alasanKalah.aspek) || [];
@@ -13956,6 +14005,15 @@ document.getElementById("pw_negoAddBtn").addEventListener("click", () => {
   if (!pw) return;
   const nilai = parseNumberInput(document.getElementById("pw_negoNilai").value);
   if (!(nilai > 0)) { alert("Isi nilai nego lebih dari 0."); return; }
+  // Guard margin: bandingkan nilai nego dengan perkiraan modal AHSP
+  // sebelum dicatat -- di bawah ambang minta konfirmasi, rugi minta
+  // konfirmasi keras. Tetap boleh lanjut (keputusan bisnis di Owner).
+  const mg = marginPadaHarga(pw, nilai);
+  if (mg && mg.marginRp < 0) {
+    if (!confirm(`⛔ PERINGATAN KERAS: nilai nego ${rupiah(nilai)} DI BAWAH perkiraan modal ${rupiah(mg.modal)} — proyek diperkirakan RUGI ${rupiah(-mg.marginRp)}.\n\nTetap catat nego ini?`)) return;
+  } else if (mg && mg.marginPct < MARGIN_MINIMUM_PERSEN) {
+    if (!confirm(`⚠️ Margin pada nilai nego ini hanya ${mg.marginPct.toFixed(1)}% (${rupiah(mg.marginRp)}) — di bawah ambang minimum ${MARGIN_MINIMUM_PERSEN}%.\nPerkiraan modal dari AHSP: ${rupiah(mg.modal)}.\n\nDaripada menurunkan harga lagi, pertimbangkan memperbaiki aspek lain (waktu, kualitas, kelengkapan dokumen).\n\nTetap catat nego ini?`)) return;
+  }
   const tanggal = document.getElementById("pw_negoTanggal").value || hariIniIso();
   const catatan = document.getElementById("pw_negoCatatan").value.trim();
   if (!pw.nego) pw.nego = [];
@@ -14009,6 +14067,76 @@ document.getElementById("pwKalahForm").addEventListener("submit", e => {
   saveState();
   mirrorPenawaranUpsert(pw, false);
   renderPwNego(pw);
+});
+// Berita Acara Negosiasi: dokumen resmi hasil kesepakatan harga untuk
+// ditandatangani kedua pihak SEBELUM SPK -- mengunci angka deal hitam di
+// atas putih supaya tidak ada tarik-ulur lagi setelahnya.
+function buildBaNegosiasiPrintHtml(pw) {
+  const total = penawaranTotals(pw).total;
+  const deal = hargaDealPenawaran(pw);
+  const selisih = total - deal;
+  const negoRows = (pw.nego || []).map((n, i) => `
+    <tr>
+      <td class="c">${i + 1}</td>
+      <td>${formatTanggal(n.tanggal)}</td>
+      <td class="r">${rupiah(n.nilai)}</td>
+      <td>${escapeHtml(n.catatan || "-")}</td>
+    </tr>
+  `).join("");
+  return `
+    <div class="letterhead">
+      <div class="letterhead-logo">${LOGO_SVG}</div>
+      <div class="letterhead-text">
+        <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL • ADVERTISING • KONSTRUKSI • PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} • ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+      </div>
+    </div>
+    <div class="letterhead-rule"></div>
+    <h3 style="text-align:center; margin:6px 0 16px; letter-spacing:.5px;">BERITA ACARA NEGOSIASI HARGA</h3>
+    <table class="meta-table" style="margin-bottom:14px;">
+      <tr><td>Nomor</td><td>:</td><td><strong>BA-NEGO/${escapeHtml(pw.nomor || "-")}</strong></td></tr>
+      <tr><td>Tanggal</td><td>:</td><td>${formatTanggal(hariIniIso())}</td></tr>
+      <tr><td>Referensi Penawaran</td><td>:</td><td>${escapeHtml(pw.nomor || "-")} tanggal ${formatTanggal(pw.tanggal)}</td></tr>
+      <tr><td>Pekerjaan</td><td>:</td><td>${escapeHtml(pw.perihal || "-")}</td></tr>
+      <tr><td>Pihak Pertama</td><td>:</td><td>${escapeHtml(state.company || "CV. Mitra Creative")} (penyedia jasa)</td></tr>
+      <tr><td>Pihak Kedua</td><td>:</td><td>${escapeHtml(pw.kepada || "-")}${pw.alamatKlien ? ", " + escapeHtml(pw.alamatKlien) : ""} (pemberi kerja)</td></tr>
+    </table>
+    <p class="doc-p">Pada hari ini kedua belah pihak telah melakukan pembahasan dan negosiasi harga atas penawaran tersebut di atas, dengan riwayat sebagai berikut:</p>
+    <table class="doc-items">
+      <thead><tr><th>No</th><th>Tanggal</th><th class="r">Nilai Negosiasi</th><th>Catatan</th></tr></thead>
+      <tbody>${negoRows || '<tr><td colspan="4" class="c">-</td></tr>'}</tbody>
+    </table>
+    <table class="doc-summary-table" style="width:380px;">
+      <tr><td>Harga Penawaran Semula</td><td class="r">${rupiah(total)}</td></tr>
+      ${selisih ? `<tr><td>Penyesuaian Hasil Negosiasi</td><td class="r">${selisih > 0 ? "-" : "+"} ${rupiah(Math.abs(selisih))}</td></tr>` : ""}
+      <tr class="total-row"><td>Harga Final Disepakati</td><td class="r">${rupiah(deal)}</td></tr>
+    </table>
+    <p class="doc-p">Terbilang: <em>${terbilangRupiah(deal)}</em></p>
+    <p class="doc-p">Dengan ditandatanganinya berita acara ini, kedua belah pihak sepakat bahwa harga final tersebut di atas mengikat sebagai dasar penerbitan SPK/kontrak kerja, dengan lingkup pekerjaan serta syarat &amp; ketentuan sesuai penawaran referensi. Hal-hal yang belum diatur akan dituangkan dalam SPK/kontrak.</p>
+    <div style="display:flex; justify-content:space-between; gap:24px; margin-top:26px; font-size:12.5px; text-align:center;">
+      <div style="flex:1;">
+        PIHAK PERTAMA,<br>${escapeHtml(state.company || "CV. Mitra Creative")}
+        ${(pw.ttdNama || state.ownerNama) === OWNER_TTD_NAMA ? `<img class="ttd-img" src="${OWNER_TTD_DATA_URI}" alt="tanda tangan">` : `<div class="sign-space"></div>`}
+        <strong>${escapeHtml(pw.ttdNama || state.ownerNama)}</strong><br>${escapeHtml(pw.ttdJabatan || state.ownerJabatan)}
+      </div>
+      <div style="flex:1;">
+        PIHAK KEDUA,<br>${escapeHtml(pw.kepada || "-")}
+        <div class="sign-space"></div>
+        <strong>( ................................ )</strong><br>&nbsp;
+      </div>
+    </div>
+  `;
+}
+document.getElementById("pw_baNegoBtn").addEventListener("click", () => {
+  const pw = state.penawaran.find(p => p.id === currentPwId);
+  if (!pw) return;
+  if (!(pw.nego || []).length) {
+    alert("Belum ada catatan negosiasi — catat minimal satu ronde nego dulu sebelum mencetak Berita Acara Negosiasi.");
+    return;
+  }
+  document.getElementById("printArea").innerHTML = buildBaNegosiasiPrintHtml(pw);
+  cetakPrintArea();
 });
 function refreshPwTotals() {
   const pw = state.penawaran.find(p => p.id === currentPwId);
@@ -14207,7 +14335,7 @@ document.getElementById("pw_importRab").addEventListener("change", () => {
   const pw = state.penawaran.find(p => p.id === currentPwId);
   if (!rab || !pw) { sel.value = ""; return; }
   if (!confirm(`Impor ${rab.items.length} item dari RAB "${rab.nama || "(Tanpa nama)"}"? Item akan ditambahkan ke daftar item penawaran ini.`)) { sel.value = ""; return; }
-  rab.items.forEach(it => pw.items.push({ id: uid(), uraian: it.uraian, satuan: it.satuan, volume: it.volume, hargaSatuan: it.hargaSatuan, ahspId: it.ahspId || "" }));
+  rab.items.forEach(it => pw.items.push({ id: uid(), uraian: it.uraian, spesifikasi: it.spesifikasi || "", satuan: it.satuan, volume: it.volume, hargaSatuan: it.hargaSatuan, ahspId: it.ahspId || "", kelompok: it.kelompok || "" }));
   if (!pw.perihal) pw.perihal = rab.nama;
   if (!pw.kepada) pw.kepada = rab.klien;
   saveState();
@@ -14242,15 +14370,29 @@ function buildPenawaranPrintHtml(pw) {
   // Harga Satuan SENGAJA tidak dicetak (cukup Volume + Jumlah) -- dokumen
   // ini keluar ke pihak luar; harga satuan internal jangan ikut bocor
   // supaya tidak bisa dipermainkan/dibanding-bandingkan oleh oknum.
-  const itemsRows = pw.items.map((it, i) => `
-    <tr>
-      <td class="c">${i + 1}</td>
-      <td>${escapeHtml(it.uraian)}</td>
-      <td class="c">${escapeHtml(it.satuan)}</td>
-      <td class="r">${it.volume}</td>
-      <td class="r">${rupiah((it.volume || 0) * (it.hargaSatuan || 0))}</td>
-    </tr>
-  `).join("") || `<tr><td colspan="5" class="c">Belum ada item</td></tr>`;
+  // Item dikelompokkan per bagian ("I. Pekerjaan Lantai 1", "IV. Jasa", ...)
+  // dengan sub-huruf a./b./c., SUB TOTAL per bagian, dan kolom Spesifikasi
+  // -- supaya klien membaca sendiri rincian & harga tiap bagian tanpa
+  // perlu dijelaskan ulang secara lisan/tertulis. Item tanpa kelompok
+  // tetap bernomor angka biasa seperti sebelumnya.
+  const adaKelompok = pw.items.some(it => it.kelompok);
+  let nomorUrut = 0;
+  const itemsRows = groupItemsByKelompok(pw.items).map(group => {
+    const header = group.kelompok ? `
+      <tr class="pwmc-group-row"><td colspan="5"><strong>${escapeHtml(group.kelompok)}</strong></td><td class="r"><strong>${rupiah(group.subtotal)}</strong></td></tr>
+    ` : "";
+    const rows = group.items.map((it, i) => `
+      <tr>
+        <td class="c">${group.kelompok ? String.fromCharCode(97 + (i % 26)) + "." : ++nomorUrut}</td>
+        <td>${escapeHtml(it.uraian)}</td>
+        <td>${escapeHtml(it.spesifikasi || "-")}</td>
+        <td class="c">${escapeHtml(it.satuan)}</td>
+        <td class="r">${it.volume}</td>
+        <td class="r">${rupiah((it.volume || 0) * (it.hargaSatuan || 0))}</td>
+      </tr>
+    `).join("");
+    return header + rows;
+  }).join("") || `<tr><td colspan="6" class="c">Belum ada item</td></tr>`;
 
   const todayIso = hariIniIso();
   let statusText, statusCls;
@@ -14310,17 +14452,17 @@ function buildPenawaranPrintHtml(pw) {
 
       <div class="pwmc-section-label">Rincian Lingkup Pekerjaan</div>
       <table class="pwmc-table">
-        <thead><tr><th>No</th><th>Uraian Pekerjaan</th><th class="c">Satuan</th><th class="r">Volume</th><th class="r">Jumlah</th></tr></thead>
+        <thead><tr><th>No</th><th>Uraian Pekerjaan</th><th>Spesifikasi</th><th class="c">Satuan</th><th class="r">Volume</th><th class="r">Jumlah</th></tr></thead>
         <tbody>${itemsRows}</tbody>
       </table>
 
       <table class="pwmc-summary">
-        <tr><td>Subtotal</td><td class="r">${rupiah(subtotal)}</td></tr>
+        <tr><td>${adaKelompok ? "Jumlah Seluruh Bagian Pekerjaan" : "Subtotal"}</td><td class="r">${rupiah(subtotal)}</td></tr>
         ${pw.diskon ? `<tr><td>Diskon (${pw.diskon}%)</td><td class="r">- ${rupiah(diskonValue)}</td></tr>` : ""}
         ${pw.ppn ? `<tr><td>PPN (${pw.ppn}%)</td><td class="r">${rupiah(ppnValue)}</td></tr>` : ""}
         ${pw.pph ? `<tr><td>PPh Final (${pw.pph}%)</td><td class="r">${rupiah(pphValue)}</td></tr>` : ""}
         ${pw.biayaLain ? `<tr><td>Biaya Lain-lain</td><td class="r">${rupiah(pw.biayaLain)}</td></tr>` : ""}
-        <tr class="pwmc-total-row"><td>Total Penawaran</td><td class="r">${rupiah(total)}</td></tr>
+        <tr class="pwmc-total-row"><td>${adaKelompok ? "Grand Total Penawaran" : "Total Penawaran"}</td><td class="r">${rupiah(total)}</td></tr>
       </table>
 
       <div class="pwmc-syarat-label">Syarat &amp; Ketentuan</div>
@@ -14355,7 +14497,7 @@ function buildMataResolusiPenawaranHtml(pw) {
   const itemsRows = pw.items.map((it, i) => `
     <tr>
       <td class="c">${i + 1}</td>
-      <td>${escapeHtml(it.uraian)}<div class="mr-item-sub">${it.volume} ${escapeHtml(it.satuan)}</div></td>
+      <td>${escapeHtml(it.uraian)}<div class="mr-item-sub">${it.spesifikasi ? escapeHtml(it.spesifikasi) + " — " : ""}${it.volume} ${escapeHtml(it.satuan)}</div></td>
       <td class="r">${rupiah((it.volume || 0) * (it.hargaSatuan || 0))}</td>
     </tr>
   `).join("") || `<tr><td colspan="3" class="c">Belum ada item</td></tr>`;
