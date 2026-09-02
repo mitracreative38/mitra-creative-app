@@ -2730,6 +2730,7 @@ function buildTutupBukuPrintHtml(bulan) {
       <tr><td>Total Gaji Dibayarkan</td><td class="r">${rupiah(t.gaji)}</td></tr>
       <tr><td>Pendapatan Sewa Aset</td><td class="r">${rupiah(t.sewa)}</td></tr>
     </table>
+    ${buildKpiBulananHtml(t.mulai, t.selesai, namaBulan)}
     <p class="doc-p">Periode: ${formatTanggal(t.mulai)} — ${formatTanggal(t.selesai)}. Dicetak ${formatTanggal(hariIniIso())}.</p>
     <div style="display:flex; justify-content:flex-end; margin-top:30px; font-size:12.5px;">
       <div style="text-align:right;">
@@ -2738,6 +2739,73 @@ function buildTutupBukuPrintHtml(bulan) {
         <strong>${escapeHtml(state.ownerNama)}</strong><br>${escapeHtml(state.ownerJabatan)}
       </div>
     </div>
+  `;
+}
+// Halaman lanjutan Paket Laporan Bulanan: Neraca akhir bulan + ringkasan
+// KPI (penjualan, proyek, klien utama, komplain/kepuasan, kinerja divisi)
+// -- satu dokumen utuh untuk arsip/rapat Owner, tanpa membuka layar KPI
+// satu-satu. Semua angka memakai fungsi hitung yang sama dengan layar KPI
+// & Neraca supaya tidak pernah beda.
+function buildKpiBulananHtml(mulai, selesai, namaBulan) {
+  const n = computeNeraca(selesai);
+  const pj = computeKpiPenjualan(mulai, selesai);
+  const pr = computeKpiProyek(mulai, selesai);
+  const klienUtama = computeKpiKlienUtama(mulai, selesai).slice(0, 5);
+  const komplain = daftarKontakJenis("Komplain", mulai, selesai);
+  const komplainOpen = komplain.filter(x => x.entry.statusKomplain !== "selesai").length;
+  const survei = daftarKontakJenis("Survey Kepuasan", mulai, selesai).filter(x => x.entry.rating > 0);
+  const rataRating = survei.length ? (survei.reduce((s, x) => s + x.entry.rating, 0) / survei.length).toFixed(2) : null;
+  const puasPct = survei.length ? (survei.filter(x => x.entry.rating >= 4).length / survei.length) * 100 : null;
+  const divisi = computeKpiDivisi(mulai, selesai);
+  return `
+    <div style="page-break-before:always;"></div>
+    <h3 style="text-align:center; margin:6px 0 4px; letter-spacing:.5px;">NERACA &amp; KPI — ${escapeHtml(namaBulan.toUpperCase())}</h3>
+    <p class="doc-p" style="text-align:center; margin-top:0;">Lampiran Paket Laporan Bulanan</p>
+
+    <h4 style="margin:14px 0 4px;">1. Neraca per ${formatTanggal(selesai)}</h4>
+    <table class="doc-summary-table">
+      <tr><td>Saldo Kas Perusahaan</td><td class="r">${rupiah(n.saldoKas)}</td></tr>
+      <tr><td>Piutang Usaha</td><td class="r">${rupiah(n.piutangUsaha)}</td></tr>
+      <tr><td>Nilai Stok Material &amp; Alat</td><td class="r">${rupiah(n.nilaiStok)}</td></tr>
+      <tr><td>Piutang Karyawan</td><td class="r">${rupiah(n.piutangKaryawan)}</td></tr>
+      <tr><td>Aset Tetap (nilai buku)</td><td class="r">${rupiah(Math.round(n.asetTetapNilaiBuku))}</td></tr>
+      <tr class="total-row"><td>Total Aset</td><td class="r">${rupiah(n.totalAset)}</td></tr>
+      <tr><td>Utang Usaha</td><td class="r">${rupiah(n.utangUsaha)}</td></tr>
+      <tr class="total-row"><td>Modal Pemilik</td><td class="r">${rupiah(n.modalPemilik)}</td></tr>
+    </table>
+
+    <h4 style="margin:14px 0 4px;">2. KPI Penjualan &amp; Proyek</h4>
+    <table class="doc-summary-table">
+      <tr><td>Penawaran terkirim / disetujui / ditolak</td><td class="r">${pj.terkirim} / ${pj.disetujui} / ${pj.ditolak}</td></tr>
+      <tr><td>Win rate</td><td class="r">${pct1(pj.winRate)}</td></tr>
+      <tr><td>Nilai penawaran disetujui (periode)</td><td class="r">${rupiah(pj.nilaiDisetujui)}</td></tr>
+      <tr><td>Pipeline aktif (draft + terkirim)</td><td class="r">${pj.pipelineCount} penawaran — ${rupiah(pj.nilaiPipeline)}</td></tr>
+      <tr><td>Proyek baru mulai (periode)</td><td class="r">${pr.baruPeriode}</td></tr>
+      <tr><td>Margin proyek rata-rata (tertimbang)</td><td class="r">${pct1(pr.marginRata)}</td></tr>
+      <tr><td>Proyek tepat waktu</td><td class="r">${pct1(pr.tepatWaktu)}</td></tr>
+    </table>
+
+    <h4 style="margin:14px 0 4px;">3. Klien Utama (pendapatan diterima periode ini)</h4>
+    <table class="doc-items">
+      <thead><tr><th>#</th><th>Klien</th><th class="r">Proyek</th><th class="r">Pendapatan</th><th class="r">Komplain</th><th class="r">Rating</th></tr></thead>
+      <tbody>${klienUtama.length ? klienUtama.map((r, i) => `
+        <tr><td>${i + 1}</td><td>${escapeHtml(r.klien.nama)}</td><td class="r">${r.proyekCount}</td><td class="r">${rupiah(r.pendapatan)}</td><td class="r">${r.komplain || "-"}</td><td class="r">${r.rating != null ? r.rating.toFixed(1) + " ★" : "-"}</td></tr>
+      `).join("") : '<tr><td colspan="6" class="c">Belum ada pendapatan klien pada periode ini</td></tr>'}</tbody>
+    </table>
+
+    <h4 style="margin:14px 0 4px;">4. Komplain &amp; Kepuasan Klien</h4>
+    <table class="doc-summary-table">
+      <tr><td>Komplain (periode)</td><td class="r">${komplain.length} — ${komplainOpen ? `${komplainOpen} BELUM selesai` : "semua selesai"}</td></tr>
+      <tr><td>Survei kepuasan</td><td class="r">${survei.length} survei${rataRating ? ` — rata-rata ${rataRating} ★ (${pct1(puasPct)} puas)` : ""}</td></tr>
+    </table>
+
+    <h4 style="margin:14px 0 4px;">5. Kinerja Divisi</h4>
+    <table class="doc-items">
+      <thead><tr><th>Divisi</th><th class="r">Anggota</th><th class="r">Kehadiran</th><th class="r">Lembur</th><th class="r">Proyek</th><th class="r">Laporan</th><th class="r">Prestasi</th><th class="r">Teguran</th></tr></thead>
+      <tbody>${divisi.length ? divisi.map(r => `
+        <tr><td>${escapeHtml(r.divisi)}</td><td class="r">${r.anggota}</td><td class="r">${r.kehadiran == null ? "-" : pct1(r.kehadiran)}</td><td class="r">${r.lembur.toLocaleString("id-ID")} jam</td><td class="r">${r.proyekTerlibat}</td><td class="r">${r.laporanKerja}</td><td class="r">${r.prestasi || "-"}</td><td class="r">${r.teguran || "-"}</td></tr>
+      `).join("") : '<tr><td colspan="8" class="c">Belum ada karyawan aktif</td></tr>'}</tbody>
+    </table>
   `;
 }
 document.getElementById("tb_printBtn").addEventListener("click", () => {
