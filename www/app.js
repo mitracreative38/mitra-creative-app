@@ -17858,3 +17858,29 @@ document.getElementById("appUpdateCloseBtn").addEventListener("click", () => {
 const appVersionLabel = document.getElementById("appVersionLabel");
 if (appVersionLabel) appVersionLabel.textContent = APP_VERSION;
 checkAppUpdate();
+
+// ===== Mode Offline tim lapangan (saran poin c) =====
+// 1) Service worker (www/sw.js) menyimpan salinan cangkang aplikasi supaya
+//    halaman tetap bisa DIBUKA tanpa sinyal — data memang sudah lokal
+//    (localStorage), tapi tanpa ini halamannya sendiri gagal dimuat.
+// 2) Banner status offline: pengguna lapangan tahu perubahannya aman
+//    tersimpan di perangkat dan akan tersinkron otomatis nanti.
+// 3) Saat sinyal kembali: dorong ulang state ke cloud otomatis (memakai
+//    scheduleCloudPush yang sudah ada), tidak perlu menunggu edit
+//    berikutnya atau reload.
+if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
+  navigator.serviceWorker.register("sw.js").catch(() => { /* browser lama / mode privat -- aplikasi tetap jalan normal tanpa cache offline */ });
+}
+function setOfflineBar(offline) {
+  const bar = document.getElementById("offlineBar");
+  if (bar) bar.style.display = offline ? "" : "none";
+}
+window.addEventListener("offline", () => setOfflineBar(true));
+window.addEventListener("online", () => {
+  setOfflineBar(false);
+  if (sb && currentSyncUser) {
+    setSyncStatus("🔄 Kembali online — menyinkronkan perubahan yang dibuat saat offline...");
+    scheduleCloudPush();
+  }
+});
+if (navigator.onLine === false) setOfflineBar(true);
