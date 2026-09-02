@@ -2293,6 +2293,19 @@ function waLink(nomor, text) {
   const base = `https://wa.me/${digits}`;
   return text ? `${base}?text=${encodeURIComponent(text)}` : base;
 }
+// Notifikasi WA ke klien (saran poin b): template pesan siap-kirim lewat
+// tombol 📲 di daftar Klien (follow-up jatuh tempo) dan rekap Komplain
+// (KPI & detail Klien). Memakai wa.me klik-untuk-chat, jadi jalan dari
+// perangkat mana pun tanpa server/API -- pelengkap pengingat WA otomatis
+// harian dari server (server/lib/reminders.js).
+function waFollowUpText(k) {
+  const sapaan = k.kontakNama ? `Bapak/Ibu ${k.kontakNama}` : `Bapak/Ibu ${k.nama}`;
+  return `Halo ${sapaan}, kami dari ${state.company || "CV. Mitra Creative"}. Menindaklanjuti komunikasi kita sebelumnya, apakah ada yang bisa kami bantu lebih lanjut? Kami siap membantu kapan saja. Terima kasih. 🙏`;
+}
+function waKomplainText(k, entry) {
+  const sapaan = k.kontakNama ? `Bapak/Ibu ${k.kontakNama}` : `Bapak/Ibu ${k.nama}`;
+  return `Halo ${sapaan}, kami dari ${state.company || "CV. Mitra Creative"} menindaklanjuti keluhan Anda${entry.tanggal ? ` pada ${formatTanggal(entry.tanggal)}` : ""}${entry.catatan ? ` mengenai "${entry.catatan}"` : ""}. Mohon maaf atas ketidaknyamanannya — tim kami sedang menanganinya dan akan segera memberi kabar. Terima kasih. 🙏`;
+}
 function buildInviteMessage(email, role) {
   const namaPeran = ROLE_LABELS[role] || role;
   const loginUrl = window.location.origin + window.location.pathname;
@@ -6615,7 +6628,7 @@ function renderKlienList() {
       <td>${escapeHtml(k.wilayah || "-")}${k.segmen ? `<br><small class="muted">${escapeHtml(k.segmen)}</small>` : ""}</td>
       <td><span class="badge-margin ${klienTahapBadge(k.tahap)}">${escapeHtml(k.tahap || "Leads")}</span>${stale ? ` <span class="bad" style="font-size:11px;" title="Sudah ${daysBetweenIso(k.tahapSejak, today)} hari tanpa perubahan tahap">⚠️ Mandek</span>` : ""}</td>
       <td>${escapeHtml(k.kontakNama || "-")}${k.telepon ? ` · ${escapeHtml(k.telepon)}` : ""}</td>
-      <td class="${overdue ? "bad" : ""}">${k.followUpTanggal ? formatTanggal(k.followUpTanggal) : "-"}${overdue ? " ⚠️" : ""}</td>
+      <td class="${overdue ? "bad" : ""}">${k.followUpTanggal ? formatTanggal(k.followUpTanggal) : "-"}${overdue ? " ⚠️" : ""}${overdue && k.telepon ? ` <a class="icon-btn" href="${waLink(k.telepon, waFollowUpText(k))}" target="_blank" rel="noopener" title="Kirim WA follow-up ke klien (pesan sudah disiapkan)">📲</a>` : ""}</td>
       <td class="num">${k.proyekTerkait.length}</td>
       <td>
         <div class="row-actions">
@@ -6717,6 +6730,7 @@ function renderKlienDetail() {
       <td>${escapeHtml(r.catatan)}</td>
       <td><small>${escapeHtml(r.petugas || "-")}</small></td>
       <td><div class="row-actions">
+        ${r.jenis === "Komplain" && r.statusKomplain !== "selesai" && k.telepon ? `<a class="icon-btn" href="${waLink(k.telepon, waKomplainText(k, r))}" target="_blank" rel="noopener" title="WA klien: tindak lanjut komplain (pesan sudah disiapkan)">📲</a>` : ""}
         ${r.jenis === "Komplain" && r.statusKomplain !== "selesai" ? `<button class="icon-btn" data-selesai-komplain="${r.id}" title="Tandai komplain selesai ditangani">✔️</button>` : ""}
         ${bolehHapusRiwayat ? `<button class="icon-btn" data-delete-kontak="${r.id}" title="Hapus">🗑️</button>` : ""}
       </div></td>
@@ -7939,7 +7953,7 @@ function renderKpiKomplain() {
       <td>${escapeHtml(x.entry.catatan)}</td>
       <td><small>${escapeHtml(x.entry.petugas || "-")}</small></td>
       <td>${x.entry.statusKomplain === "selesai" ? '<span class="badge badge-lunas">Selesai</span>' : '<span class="badge badge-pending">Belum Selesai</span>'}</td>
-      <td>${x.entry.statusKomplain !== "selesai" ? `<button class="icon-btn" data-kpi-selesai-komplain="${x.klien.id}:${x.entry.id}" title="Tandai selesai ditangani">✔️</button>` : ""}</td>
+      <td>${x.entry.statusKomplain !== "selesai" && x.klien.telepon ? `<a class="icon-btn" href="${waLink(x.klien.telepon, waKomplainText(x.klien, x.entry))}" target="_blank" rel="noopener" title="WA klien: tindak lanjut komplain (pesan sudah disiapkan)">📲</a>` : ""}${x.entry.statusKomplain !== "selesai" ? `<button class="icon-btn" data-kpi-selesai-komplain="${x.klien.id}:${x.entry.id}" title="Tandai selesai ditangani">✔️</button>` : ""}</td>
     </tr>
   `).join("") : '<tr class="empty-row"><td colspan="6">Tidak ada komplain pada periode ini. 👍</td></tr>';
 }
