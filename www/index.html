@@ -434,6 +434,23 @@
           <div class="form-grid" style="margin-bottom:12px;">
             <div class="field"><label>Tanggal</label><input type="date" id="rk_tanggal"></div>
             <div class="field"><label>Jenis</label><select id="rk_jenis"></select></div>
+            <div class="field" id="rk_komplainWrap" style="display:none;">
+              <label>Status Komplain</label>
+              <select id="rk_komplainStatus">
+                <option value="open">Belum Selesai</option>
+                <option value="selesai">Selesai</option>
+              </select>
+            </div>
+            <div class="field" id="rk_ratingWrap" style="display:none;">
+              <label>Nilai Kepuasan Klien</label>
+              <select id="rk_rating">
+                <option value="5">★★★★★ (5) Sangat Puas</option>
+                <option value="4">★★★★ (4) Puas</option>
+                <option value="3">★★★ (3) Cukup</option>
+                <option value="2">★★ (2) Kurang</option>
+                <option value="1">★ (1) Tidak Puas</option>
+              </select>
+            </div>
             <div class="field full"><label>Catatan</label><input type="text" id="rk_catatan" placeholder="mis. Telepon follow-up, klien minta revisi penawaran"></div>
             <div class="field"><label>Jadwalkan Follow-up Berikutnya (opsional)</label><input type="date" id="rk_followUp"></div>
             <div class="field" style="justify-content:flex-end;">
@@ -667,6 +684,10 @@
         <button class="subtab-item" data-subtab="penagihan" data-subtab-page="kpi">Penagihan/Piutang</button>
         <button class="subtab-item" data-subtab="tim" data-subtab-page="kpi">Tim/Karyawan</button>
         <button class="subtab-item" data-subtab="operasional" data-subtab-page="kpi">Operasional (Utang/QC/Aset/Stok)</button>
+        <button class="subtab-item" data-subtab="divisi" data-subtab-page="kpi">Kinerja Divisi</button>
+        <button class="subtab-item" data-subtab="komplain" data-subtab-page="kpi">Komplain Klien</button>
+        <button class="subtab-item" data-subtab="kepuasan" data-subtab-page="kpi">Kepuasan Klien</button>
+        <button class="subtab-item" data-subtab="klienutama" data-subtab-page="kpi">Klien Utama</button>
       </div>
 
       <div class="subtab-panel active" id="kpi_penjualanPanel">
@@ -882,6 +903,76 @@
         <div class="panel">
           <h3>Aset Tetap &amp; Stok (saat ini)</h3>
           <div class="summary-rows" id="kpi_opAsetStokRows"></div>
+        </div>
+      </div>
+
+      <!-- KPI Kinerja per Divisi -->
+      <div class="subtab-panel" id="kpi_divisiPanel">
+        <div class="panel">
+          <div class="toolbar"><div class="muted" style="flex:1">👷 Kinerja tiap divisi (dari Posisi/Jabatan karyawan) pada periode terpilih — kehadiran, lembur, keterlibatan proyek, laporan kerja, dan catatan pembinaan</div></div>
+          <div class="table-wrap">
+            <table class="tbl" id="kpi_divisiTable">
+              <thead><tr>
+                <th>Divisi</th><th class="num">Anggota Aktif</th><th class="num">Kehadiran</th><th class="num">Jam Lembur</th><th class="num">Proyek Terlibat</th><th class="num">Laporan Kerja</th><th class="num">Prestasi</th><th class="num">Teguran/SP</th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- KPI Komplain Klien -->
+      <div class="subtab-panel" id="kpi_komplainPanel">
+        <div class="stat-grid">
+          <div class="stat-card"><div class="stat-label">Komplain (periode)</div><div class="stat-value" id="kpi_komplainTotal">0</div></div>
+          <div class="stat-card accent"><div class="stat-label">Belum Selesai</div><div class="stat-value warn" id="kpi_komplainOpen">0</div></div>
+          <div class="stat-card"><div class="stat-label">Selesai Ditangani</div><div class="stat-value" id="kpi_komplainSelesai">0</div></div>
+        </div>
+        <div class="panel">
+          <div class="toolbar"><div class="muted" style="flex:1">🗣️ Komplain dicatat lewat Klien → detail → Riwayat Kontak (jenis "Komplain") — direkap otomatis di sini. Tandai selesai dari sini atau dari detail klien.</div></div>
+          <div class="table-wrap">
+            <table class="tbl" id="kpi_komplainTable">
+              <thead><tr><th>Tanggal</th><th>Klien</th><th>Komplain</th><th>Petugas</th><th>Status</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- KPI Kepuasan Klien -->
+      <div class="subtab-panel" id="kpi_kepuasanPanel">
+        <div class="stat-grid">
+          <div class="stat-card accent"><div class="stat-label">Rata-rata Kepuasan (periode)</div><div class="stat-value" id="kpi_kepuasanRata">-</div></div>
+          <div class="stat-card"><div class="stat-label">Jumlah Survei</div><div class="stat-value" id="kpi_kepuasanJumlah">0</div></div>
+          <div class="stat-card"><div class="stat-label">Klien Puas (★4-5)</div><div class="stat-value" id="kpi_kepuasanPuas">-</div></div>
+        </div>
+        <div class="panel narrow">
+          <h3>Distribusi Nilai</h3>
+          <div class="summary-rows" id="kpi_kepuasanDistribusi"></div>
+        </div>
+        <div class="panel">
+          <div class="toolbar"><div class="muted" style="flex:1">⭐ Survei kepuasan dicatat lewat Klien → detail → Riwayat Kontak (jenis "Survey Kepuasan") — isi nilai 1-5 setelah proyek selesai/BAST.</div></div>
+          <div class="table-wrap">
+            <table class="tbl" id="kpi_kepuasanTable">
+              <thead><tr><th>Tanggal</th><th>Klien</th><th>Nilai</th><th>Catatan</th><th>Petugas</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- KPI Klien Utama -->
+      <div class="subtab-panel" id="kpi_klienutamaPanel">
+        <div class="panel">
+          <div class="toolbar"><div class="muted" style="flex:1">🏆 Klien utama diurutkan dari pendapatan yang benar-benar diterima pada periode terpilih — lengkap dengan jumlah proyek, nilai kontrak, komplain, dan rata-rata kepuasannya</div></div>
+          <div class="table-wrap">
+            <table class="tbl" id="kpi_klienUtamaTable">
+              <thead><tr>
+                <th>#</th><th>Klien</th><th class="num">Proyek</th><th class="num">Nilai Kontrak Total</th><th class="num">Pendapatan Diterima (periode)</th><th class="num">Komplain</th><th class="num">Kepuasan</th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
       </div>
     </section>
