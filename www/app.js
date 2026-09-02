@@ -2722,8 +2722,8 @@ function buildTutupBukuPrintHtml(bulan) {
       <div class="letterhead-logo">${LOGO_SVG}</div>
       <div class="letterhead-text">
         <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
-        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
-        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL • ADVERTISING • KONSTRUKSI • PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} • ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
       </div>
     </div>
     <div class="letterhead-rule"></div>
@@ -3745,8 +3745,8 @@ function buildQcPrintHtml(p, q) {
       <div class="letterhead-logo">${LOGO_SVG}</div>
       <div class="letterhead-text">
         <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
-        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
-        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL • ADVERTISING • KONSTRUKSI • PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} • ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
       </div>
     </div>
     <div class="letterhead-rule"></div>
@@ -5380,8 +5380,8 @@ function invoiceLetterhead(judul) {
       <div class="letterhead-logo">${LOGO_SVG}</div>
       <div class="letterhead-text">
         <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
-        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
-        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL • ADVERTISING • KONSTRUKSI • PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} • ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
       </div>
     </div>
     <div class="letterhead-rule"></div>
@@ -6666,8 +6666,8 @@ function buildKlienListPrintHtml() {
       <div class="letterhead-logo">${LOGO_SVG}</div>
       <div class="letterhead-text">
         <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
-        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
-        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL • ADVERTISING • KONSTRUKSI • PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} • ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
       </div>
     </div>
     <div class="letterhead-rule"></div>
@@ -7338,8 +7338,8 @@ function buildLaporanKeuanganPrintHtml() {
       <div class="letterhead-logo">${LOGO_SVG}</div>
       <div class="letterhead-text">
         <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
-        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
-        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL • ADVERTISING • KONSTRUKSI • PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} • ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
       </div>
     </div>
     <div class="letterhead-rule"></div>
@@ -8461,8 +8461,8 @@ function buildStokListPrintHtml() {
       <div class="letterhead-logo">${LOGO_SVG}</div>
       <div class="letterhead-text">
         <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
-        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
-        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL • ADVERTISING • KONSTRUKSI • PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} • ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
       </div>
     </div>
     <div class="letterhead-rule"></div>
@@ -8894,8 +8894,8 @@ function buildSuratPembinaanPrintHtml(k, p) {
       <div class="letterhead-logo">${LOGO_SVG}</div>
       <div class="letterhead-text">
         <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
-        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
-        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL • ADVERTISING • KONSTRUKSI • PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} • ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
       </div>
     </div>
     <div class="letterhead-rule"></div>
@@ -9153,8 +9153,8 @@ function buildFormulirRekrutHtml(posisi) {
       <div class="letterhead-logo">${LOGO_SVG}</div>
       <div class="letterhead-text">
         <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
-        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
-        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL • ADVERTISING • KONSTRUKSI • PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} • ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
       </div>
     </div>
     <div class="letterhead-rule"></div>
@@ -10073,8 +10073,8 @@ function buildRekapPendapatanPrintHtml(mulai, selesai) {
       <div class="letterhead-logo">${LOGO_SVG}</div>
       <div class="letterhead-text">
         <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
-        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
-        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL • ADVERTISING • KONSTRUKSI • PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} • ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
       </div>
     </div>
     <div class="letterhead-rule"></div>
@@ -10519,8 +10519,8 @@ function buildSlipGajiPrintHtml(k, sl) {
       <div class="letterhead-logo">${LOGO_SVG}</div>
       <div class="letterhead-text">
         <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
-        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
-        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL • ADVERTISING • KONSTRUKSI • PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} • ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
       </div>
     </div>
     <div class="letterhead-rule"></div>
@@ -10620,8 +10620,8 @@ function buildProyekPrintHtml(p) {
       <div class="letterhead-logo">${LOGO_SVG}</div>
       <div class="letterhead-text">
         <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
-        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
-        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL • ADVERTISING • KONSTRUKSI • PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} • ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
       </div>
     </div>
     <div class="letterhead-rule"></div>
@@ -11231,8 +11231,8 @@ function buildPemasokListPrintHtml() {
       <div class="letterhead-logo">${LOGO_SVG}</div>
       <div class="letterhead-text">
         <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
-        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
-        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL • ADVERTISING • KONSTRUKSI • PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} • ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
       </div>
     </div>
     <div class="letterhead-rule"></div>
@@ -11463,7 +11463,7 @@ function wireSkemaEditor(ctx, onChange) {
 // LOGO_SVG dulu berisi pendekatan vektor (tiruan) logo. Sekarang diarahkan
 // ke logo ASLI (MITRA_LOGO_DATA_URI) supaya kop surat SEMUA dokumen cetak
 // memakai logo Mitra Creative yang sama dengan template Penawaran.
-const LOGO_SVG = `<img src="${MITRA_LOGO_DATA_URI}" alt="logo" width="52" height="52" style="display:block; width:52px; height:52px; object-fit:contain;">`;
+const LOGO_SVG = `<img src="${MITRA_LOGO_DATA_URI}" alt="logo" height="52" style="display:block; height:52px; width:auto;">`;
 // Logo asli berupa PNG (bukan lagi vektor inline) -- gambar data-URI yang
 // belum pernah ter-decode bisa tampil KOSONG di snapshot cetak pertama
 // karena window.print() dipanggil langsung setelah printArea diisi.
@@ -11567,8 +11567,8 @@ function buildAhspListPrintHtml() {
       <div class="letterhead-logo">${LOGO_SVG}</div>
       <div class="letterhead-text">
         <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
-        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
-        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL • ADVERTISING • KONSTRUKSI • PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} • ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
       </div>
     </div>
     <div class="letterhead-rule"></div>
@@ -13434,8 +13434,8 @@ function buildRabPrintHtml(rab) {
       <div class="letterhead-logo">${LOGO_SVG}</div>
       <div class="letterhead-text">
         <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
-        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
-        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL • ADVERTISING • KONSTRUKSI • PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} • ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
       </div>
     </div>
     <div class="letterhead-rule"></div>
@@ -14098,7 +14098,7 @@ function buildPenawaranPrintHtml(pw) {
         <img class="pwmc-logo" src="${MITRA_LOGO_DATA_URI}" alt="logo">
         <div>
           <div class="pwmc-company">${escapeHtml(profil.company || "CV. Mitra Creative")}</div>
-          <div class="pwmc-tagline">CONTRACTOR SIPIL &bull; ADVERTISING &bull; KONTRUKSI &bull; PENGADAAN BARANG DAN JASA</div>
+          <div class="pwmc-tagline">CONTRACTOR SIPIL &bull; ADVERTISING &bull; KONSTRUKSI &bull; PENGADAAN BARANG DAN JASA</div>
           <div class="pwmc-address">${escapeHtml(profil.alamat)} &bull; ${escapeHtml(profil.telepon)}</div>
         </div>
       </div>
@@ -14522,8 +14522,8 @@ function buildSopPrintHtml(perans, judul) {
       <div class="letterhead-logo">${LOGO_SVG}</div>
       <div class="letterhead-text">
         <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
-        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
-        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL • ADVERTISING • KONSTRUKSI • PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} • ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
       </div>
     </div>
     <div class="letterhead-rule"></div>
@@ -16002,8 +16002,8 @@ function buildKasPrintHtml(book) {
       <div class="letterhead-logo">${LOGO_SVG}</div>
       <div class="letterhead-text">
         <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
-        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
-        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL • ADVERTISING • KONSTRUKSI • PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} • ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
       </div>
     </div>
     <div class="letterhead-rule"></div>
@@ -17402,8 +17402,8 @@ function buildLaporanKerjaPrintHtml(laporanList, judulDok) {
       <div class="letterhead-logo">${LOGO_SVG}</div>
       <div class="letterhead-text">
         <div class="lh-name">${escapeHtml(state.company || "CV. Mitra Creative")}</div>
-        <div class="lh-tagline">CONTRACTOR SIPIL - ADVERTISING - KONTRUKSI - PENGADAAN BARANG DAN JASA</div>
-        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} - ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
+        <div class="lh-tagline">CONTRACTOR SIPIL • ADVERTISING • KONSTRUKSI • PENGADAAN BARANG DAN JASA</div>
+        <div class="lh-address">${escapeHtml(state.alamat || COMPANY_ADDRESS)} • ${escapeHtml(state.telepon || COMPANY_PHONE)}</div>
       </div>
     </div>
     <div class="letterhead-rule"></div>
