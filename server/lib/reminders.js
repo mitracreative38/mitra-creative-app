@@ -238,6 +238,27 @@ async function checkAndSendReminders(supabaseAdmin) {
         terkirim++;
       }
 
+      // ----- Komplain klien belum selesai (saran poin b) -- entry
+      // Riwayat Kontak berjenis "Komplain" yang belum ditandai selesai
+      // (satu pintu input yang sama dengan KPI Komplain di aplikasi).
+      // Dikirim ke Owner + seluruh tim aktif: siapa pun bisa menindak-
+      // lanjuti, dan komplain yang didiamkan merusak kepuasan klien. -----
+      const { data: klienKomplainRows } = await supabaseAdmin.from("klien")
+        .select("nama, telepon, riwayat_kontak")
+        .eq("company_id", c.company_id);
+      const komplainOpen = [];
+      (klienKomplainRows || []).forEach(k => (k.riwayat_kontak || []).forEach(r => {
+        if (r.jenis === "Komplain" && r.statusKomplain !== "selesai") komplainOpen.push({ klien: k.nama, tanggal: r.tanggal || "-", catatan: r.catatan || "-" });
+      }));
+      if (komplainOpen.length && await shouldSend(supabaseAdmin, c.company_id, "komplain_terbuka")) {
+        const daftar = komplainOpen.map(x => `- ${x.klien} (${x.tanggal}): ${x.catatan}`).join("\n");
+        const pesan = `📣 Komplain Klien Belum Selesai -- ${c.company || "Perusahaan Anda"}\n\nAda ${komplainOpen.length} komplain yang belum ditandai selesai:\n${daftar}\n\nSegera tindak lanjuti (tombol 📲 WA tersedia di aplikasi), lalu tandai selesai di KPI > Komplain Klien.`;
+        const recipients = await getRecipients(supabaseAdmin, c.company_id, true);
+        await notifyRecipients(recipients, "Komplain Klien Belum Selesai", pesan);
+        await markSent(supabaseAdmin, c.company_id, "komplain_terbuka");
+        terkirim++;
+      }
+
       // ----- Ringkasan harian Owner (Gelombang 3) -----
       if (await kirimRingkasanHarian(supabaseAdmin, c)) terkirim++;
     } catch (err) {
