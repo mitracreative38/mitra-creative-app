@@ -24,6 +24,13 @@
   <button id="appUpdateCloseBtn" type="button" aria-label="Tutup">&times;</button>
 </div>
 
+<!-- Banner Mode Offline: tampil selama perangkat tanpa koneksi (lihat
+     setOfflineBar() di app.js). Data tetap tersimpan lokal dan tersinkron
+     otomatis begitu sinyal kembali. -->
+<div id="offlineBar" class="app-update-bar" style="display:none; background:#5b4a12; color:#fff;">
+  <span>📴 Sedang offline — perubahan tetap tersimpan di perangkat ini dan akan disinkronkan otomatis saat sinyal kembali.</span>
+</div>
+
 <!-- Mode Pekerja: layar penuh pengganti seluruh aplikasi begitu HP ini
      dipasangkan (paired) sebagai perangkat pelacak lokasi pekerja lapangan
      -- lihat bootPekerjaMode() di app.js. Tidak pernah menampilkan data
