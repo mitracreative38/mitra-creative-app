@@ -4082,7 +4082,114 @@ function computePemeriksaanIntegrasi() {
     });
   }
 
+  // 13. Tautan antar-menu yang menggantung (data lama, sebelum hapus
+  // klien/penawaran/RAB otomatis melepas kaitan): klienId dokumen menunjuk
+  // klien terhapus, catatan addendum/survey berstatus "penawaran" yang
+  // penawarannya sudah tidak ada (tombol transfernya hilang selamanya),
+  // dan sumber penawaran/RAB proyek yang sudah dihapus.
+  const klienIdAda = new Set((state.klien || []).map(k => k.id));
+  const pwIdAda = new Set((state.penawaran || []).map(p => p.id));
+  const rabIdAda = new Set((state.proyekRab || []).map(r => r.id));
+  const gantung = { klienDok: 0, catatan: 0, sumber: 0 };
+  (state.proyek || []).forEach(p => {
+    if (p.klienId && !klienIdAda.has(p.klienId)) gantung.klienDok++;
+    if (p.sumberPenawaranId && !pwIdAda.has(p.sumberPenawaranId)) gantung.sumber++;
+    if (p.sumberRabId && !rabIdAda.has(p.sumberRabId)) gantung.sumber++;
+    (p.pekerjaanTambahan || []).forEach(x => { if (x.penawaranId && !pwIdAda.has(x.penawaranId)) gantung.catatan++; });
+  });
+  (state.penawaran || []).forEach(pw => { if (pw.klienId && !klienIdAda.has(pw.klienId)) gantung.klienDok++; });
+  (state.proyekRab || []).forEach(r => { if (r.klienId && !klienIdAda.has(r.klienId)) gantung.klienDok++; });
+  (state.laporanKerja || []).forEach(l => {
+    if (l.klienId && !klienIdAda.has(l.klienId)) gantung.klienDok++;
+    (l.tindakLanjut || []).forEach(x => { if (x.penawaranId && !pwIdAda.has(x.penawaranId)) gantung.catatan++; });
+  });
+  const totalGantung = gantung.klienDok + gantung.catatan + gantung.sumber;
+  if (totalGantung) {
+    const rincian = [];
+    if (gantung.klienDok) rincian.push(`${gantung.klienDok} dokumen menunjuk klien yang sudah dihapus`);
+    if (gantung.catatan) rincian.push(`${gantung.catatan} catatan addendum/survey menunjuk penawaran yang sudah dihapus`);
+    if (gantung.sumber) rincian.push(`${gantung.sumber} proyek menunjuk penawaran/RAB sumber yang sudah dihapus`);
+    temuan.push({
+      icon: "🔗", page: "proyek", fix: "tautanGantung",
+      judul: `${totalGantung} tautan antar-menu menggantung (menunjuk data yang sudah dihapus)`,
+      detail: rincian.join("; ") + '. Klik "Lepas & Rapikan": kaitan yang buntu dilepas dan catatan addendum/survey dikembalikan ke status "Rencana" supaya bisa dibuatkan penawaran lagi.'
+    });
+  }
+
+  // 14. Komplain klien terbuka > 14 hari (integrasi KPI Komplain) --
+  // komplain yang didiamkan lama merusak kepuasan & reputasi.
+  const batasKomplain = addDaysIso(today, -14);
+  const komplainLama = [];
+  (state.klien || []).forEach(k => (k.riwayatKontak || []).forEach(r => {
+    if (r.jenis === "Komplain" && r.statusKomplain !== "selesai" && (r.tanggal || "") <= batasKomplain) komplainLama.push({ k, r });
+  }));
+  if (komplainLama.length) {
+    temuan.push({
+      icon: "📣", page: "kpi",
+      judul: `${komplainLama.length} komplain klien belum selesai lebih dari 14 hari`,
+      detail: komplainLama.map(x => `${x.k.nama} (${formatTanggal(x.r.tanggal)}: ${x.r.catatan || "-"})`).join("; ") +
+        " — tindak lanjuti lalu tandai selesai di KPI → Komplain Klien atau di detail kliennya."
+    });
+  }
+
+  // 15. Alat kerja masih tercatat dipinjam oleh karyawan yang sudah
+  // dihapus -- alatnya "hilang" dari pertanggungjawaban selamanya.
+  const karyawanIdAda = new Set((state.karyawan || []).map(k => k.id));
+  const pinjamYatim = [];
+  (state.alat || []).forEach(a => (a.peminjaman || []).forEach(pj => {
+    if (!pj.tanggalKembali && pj.karyawanId && !karyawanIdAda.has(pj.karyawanId)) pinjamYatim.push({ a, pj });
+  }));
+  if (pinjamYatim.length) {
+    temuan.push({
+      icon: "🧰", page: "alat",
+      judul: `${pinjamYatim.length} peminjaman alat masih terbuka atas nama karyawan yang sudah dihapus`,
+      detail: pinjamYatim.map(x => `${x.a.nama} (${x.pj.jumlah || 0} unit sejak ${formatTanggal(x.pj.tanggalPinjam)})`).join("; ") +
+        " — cek fisik alatnya lalu catat pengembaliannya di halaman Alat Kerja supaya jumlah tersedia kembali benar."
+    });
+  }
+
   return temuan;
+}
+// Perbaikan satu-klik temuan #13: lepas semua tautan yang menunjuk data
+// terhapus + kembalikan catatan addendum/survey buntu ke status "Rencana".
+function perbaikiTautanGantung() {
+  const klienIdAda = new Set((state.klien || []).map(k => k.id));
+  const pwIdAda = new Set((state.penawaran || []).map(p => p.id));
+  const rabIdAda = new Set((state.proyekRab || []).map(r => r.id));
+  let dibersihkan = 0;
+  (state.proyek || []).forEach(p => {
+    let ubah = false;
+    if (p.klienId && !klienIdAda.has(p.klienId)) { p.klienId = ""; ubah = true; dibersihkan++; }
+    if (p.sumberPenawaranId && !pwIdAda.has(p.sumberPenawaranId)) { p.sumberPenawaranId = ""; ubah = true; dibersihkan++; }
+    if (p.sumberRabId && !rabIdAda.has(p.sumberRabId)) { p.sumberRabId = ""; ubah = true; dibersihkan++; }
+    (p.pekerjaanTambahan || []).forEach(x => {
+      if (!x.penawaranId || pwIdAda.has(x.penawaranId)) return;
+      x.penawaranId = "";
+      if (x.status === "penawaran") x.status = "rencana";
+      ubah = true;
+      dibersihkan++;
+    });
+    if (ubah) mirrorProyekUpsert(p);
+  });
+  (state.penawaran || []).forEach(pw => {
+    if (pw.klienId && !klienIdAda.has(pw.klienId)) { pw.klienId = ""; mirrorPenawaranUpsert(pw, false); dibersihkan++; }
+  });
+  (state.proyekRab || []).forEach(r => {
+    if (r.klienId && !klienIdAda.has(r.klienId)) { r.klienId = ""; mirrorRabUpsert(r, false); dibersihkan++; }
+  });
+  (state.laporanKerja || []).forEach(l => {
+    let ubah = false;
+    if (l.klienId && !klienIdAda.has(l.klienId)) { l.klienId = ""; ubah = true; dibersihkan++; }
+    (l.tindakLanjut || []).forEach(x => {
+      if (!x.penawaranId || pwIdAda.has(x.penawaranId)) return;
+      x.penawaranId = "";
+      if (x.status === "penawaran") x.status = "rencana";
+      ubah = true;
+      dibersihkan++;
+    });
+    if (ubah) mirrorLaporanKerjaUpsert(l, l);
+  });
+  return dibersihkan;
 }
 function renderPemeriksaanIntegrasi() {
   const wadah = document.getElementById("dash_integrasiHasil");
@@ -4101,6 +4208,7 @@ function renderPemeriksaanIntegrasi() {
             ${t.fix === "invoiceManualOk" ? `<button class="btn-ghost" data-fix-invoice-manual-ok="${i}">✔️ Tandai Sudah Cocok</button>` : ""}
             ${t.fix === "proyekHilang" ? `<button class="btn-ghost" data-fix-proyek-hilang="${i}">🧹 Lepas Kaitan</button>` : ""}
             ${t.fix === "kasPribadiTerputus" ? `<button class="btn-ghost" data-fix-kas-pribadi="${i}">👤 Catat ke Kas Perusahaan</button>` : ""}
+            ${t.fix === "tautanGantung" ? `<button class="btn-ghost" data-fix-tautan-gantung="${i}">🔗 Lepas & Rapikan</button>` : ""}
             <button class="btn-ghost" data-goto-page="${t.page}">Buka</button>
           </span>
         </div>
@@ -4113,7 +4221,17 @@ document.getElementById("dash_integrasiHasil").addEventListener("click", e => {
   const okBtn = e.target.closest("[data-fix-invoice-manual-ok]");
   const lepasBtn = e.target.closest("[data-fix-proyek-hilang]");
   const priveBtn = e.target.closest("[data-fix-kas-pribadi]");
+  const tautanBtn = e.target.closest("[data-fix-tautan-gantung]");
   const gotoBtn = e.target.closest("[data-goto-page]");
+  if (tautanBtn) {
+    if (!confirm('Lepas semua tautan yang menunjuk data terhapus?\n\n- Kaitan klien yang sudah dihapus dilepas (nama di dokumen tetap tersimpan).\n- Catatan addendum/survey yang penawarannya hilang dikembalikan ke status "Rencana" supaya bisa dibuatkan penawaran lagi.\n- Sumber penawaran/RAB proyek yang sudah dihapus dilepas.')) return;
+    const jumlah = perbaikiTautanGantung();
+    saveState();
+    renderAll();
+    renderPemeriksaanIntegrasi();
+    alert(`${jumlah} tautan menggantung sudah dirapikan.`);
+    return;
+  }
   if (priveBtn) {
     const temuan = computePemeriksaanIntegrasi().find(t => t.fix === "kasPribadiTerputus");
     if (!temuan || !temuan.data.length) { renderPemeriksaanIntegrasi(); return; }
@@ -6644,6 +6762,21 @@ document.getElementById("klienForm").addEventListener("submit", e => {
     dibuatTanggal: existing ? (existing.dibuatTanggal || "") : hariIniIso()
   };
   if (idx >= 0) state.klien[idx] = k; else state.klien.push(k);
+  // Kesinambungan antar menu: nama klien tersalin (denormalisasi) ke
+  // proyek.klien / penawaran.kepada / rab.klien untuk cetakan. Saat nama
+  // diganti, tawarkan menyebarkan nama baru ke semua dokumen tertaut —
+  // tanpa ini, SPK/invoice/kwitansi lama terus mencetak nama lama.
+  if (existing && existing.nama && existing.nama !== k.nama) {
+    const proyekT = state.proyek.filter(p => p.klienId === k.id);
+    const pwT = state.penawaran.filter(p => p.klienId === k.id);
+    const rabT = state.proyekRab.filter(r => r.klienId === k.id);
+    const totalDok = proyekT.length + pwT.length + rabT.length;
+    if (totalDok && confirm(`Nama klien berubah dari "${existing.nama}" menjadi "${k.nama}".\n\nPerbarui juga namanya di ${totalDok} dokumen tertaut (${proyekT.length} proyek, ${pwT.length} penawaran, ${rabT.length} RAB) supaya laporan & cetakan memakai nama baru?`)) {
+      proyekT.forEach(p => { p.klien = k.nama; mirrorProyekUpsert(p); });
+      pwT.forEach(x => { x.kepada = k.nama; mirrorPenawaranUpsert(x, false); });
+      rabT.forEach(r => { r.klien = k.nama; mirrorRabUpsert(r, false); });
+    }
+  }
   saveState();
   mirrorKlienUpsert(k, existing);
   renderAll();
@@ -6661,11 +6794,21 @@ document.getElementById("kl_table").addEventListener("click", e => {
     // Anti-fraud: penghapusan data klien hanya oleh Owner/Admin (RLS
     // database juga menolak, ini lapis UI-nya).
     if (currentTeamRole === "marketing") { alert("Role Marketing tidak dapat menghapus data klien. Hubungi Owner."); return; }
-    if (confirm("Hapus klien ini? Proyek/Penawaran yang sudah dikaitkan tidak akan ikut terhapus, hanya kaitannya yang hilang.")) {
-      const deleted = state.klien.find(x => x.id === delBtn.dataset.deleteKlien);
-      state.klien = state.klien.filter(x => x.id !== delBtn.dataset.deleteKlien);
-      mirrorKlienDelete(delBtn.dataset.deleteKlien, deleted);
-      if (currentKlienId === delBtn.dataset.deleteKlien) currentKlienId = null;
+    if (confirm("Hapus klien ini? Proyek/Penawaran yang sudah dikaitkan tidak akan ikut terhapus, hanya kaitannya yang hilang (nama klien di dokumen tetap tersimpan).")) {
+      const idHapus = delBtn.dataset.deleteKlien;
+      const deleted = state.klien.find(x => x.id === idHapus);
+      state.klien = state.klien.filter(x => x.id !== idHapus);
+      // Lepas kaitan sungguhan (sesuai pesan konfirmasi): tanpa ini,
+      // klienId dokumen tertaut menunjuk klien yang sudah tidak ada dan
+      // dropdown klien di editornya jadi kosong tanpa penjelasan. Nama
+      // klien yang tersalin di dokumen (proyek.klien/pw.kepada/rab.klien)
+      // sengaja dibiarkan sebagai jejak historis.
+      (state.proyek || []).forEach(p => { if (p.klienId === idHapus) { p.klienId = ""; mirrorProyekUpsert(p); } });
+      (state.penawaran || []).forEach(pw => { if (pw.klienId === idHapus) { pw.klienId = ""; mirrorPenawaranUpsert(pw, false); } });
+      (state.proyekRab || []).forEach(r => { if (r.klienId === idHapus) { r.klienId = ""; mirrorRabUpsert(r, false); } });
+      (state.laporanKerja || []).forEach(l => { if (l.klienId === idHapus) { l.klienId = ""; mirrorLaporanKerjaUpsert(l, l); } });
+      mirrorKlienDelete(idHapus, deleted);
+      if (currentKlienId === idHapus) currentKlienId = null;
       saveState();
       renderAll();
     }
@@ -8555,7 +8698,12 @@ document.getElementById("ky_table").addEventListener("click", e => {
       alert(`Karyawan ini punya transaksi gaji di periode yang sudah DITUTUP BUKUNYA (${formatTanggal(txnTerkunci.tanggal)}) — menghapusnya akan mengubah laporan yang sudah diarsipkan.\n\nBuka kunci periode dulu di Laporan Keuangan → Tutup Buku, atau biarkan karyawan ini (set saja jadi tidak aktif).`);
       return;
     }
-    if (confirm(`Hapus karyawan ini beserta seluruh riwayat absensi & slip gajinya?${txnGaji.length ? `\n\n${txnGaji.length} transaksi gaji di Kas Perusahaan (total ${rupiah(txnGaji.reduce((s, t) => s + Math.max(0, t.jumlah || 0), 0))}) juga akan ikut terhapus supaya tidak jadi catatan tanpa sumber.` : ""}`)) {
+    // Kesinambungan dengan Alat Kerja: karyawan yang masih tercatat
+    // memegang alat jangan dihapus diam-diam -- alatnya jadi "hilang"
+    // dari pertanggungjawaban (temuan #15 Pemeriksaan Integrasi).
+    const alatDipegang = (state.alat || []).reduce((s, a) =>
+      s + (a.peminjaman || []).filter(pj => !pj.tanggalKembali && pj.karyawanId === kHapus.id).reduce((x, pj) => x + (pj.jumlah || 0), 0), 0);
+    if (confirm(`Hapus karyawan ini beserta seluruh riwayat absensi & slip gajinya?${txnGaji.length ? `\n\n${txnGaji.length} transaksi gaji di Kas Perusahaan (total ${rupiah(txnGaji.reduce((s, t) => s + Math.max(0, t.jumlah || 0), 0))}) juga akan ikut terhapus supaya tidak jadi catatan tanpa sumber.` : ""}${alatDipegang ? `\n\nPERHATIAN: karyawan ini masih tercatat memegang ${alatDipegang} unit alat kerja yang belum dikembalikan — sebaiknya catat pengembaliannya dulu di halaman Alat Kerja supaya alatnya tidak hilang dari catatan.` : ""}`)) {
       state.karyawan = state.karyawan.filter(x => x.id !== delBtn.dataset.deleteKaryawan);
       state.kasUsaha.transactions = state.kasUsaha.transactions.filter(t => !(t.sumberSlipId && slipIds.has(t.sumberSlipId)));
       mirrorKaryawanDelete(delBtn.dataset.deleteKaryawan, kHapus);
@@ -13270,6 +13418,11 @@ document.getElementById("rab_table").addEventListener("click", e => {
       : "Hapus RAB ini?";
     if (confirm(msg)) {
       state.proyekRab = state.proyekRab.filter(r => r.id !== delBtn.dataset.deleteRab);
+      // Lepas kaitan sungguhan (sesuai pesan konfirmasi): proyek yang
+      // bersumber dari RAB ini jangan menunjuk dokumen yang sudah tidak ada.
+      (state.proyek || []).forEach(p => {
+        if (p.sumberRabId === delBtn.dataset.deleteRab) { p.sumberRabId = ""; mirrorProyekUpsert(p); }
+      });
       mirrorRabDelete(delBtn.dataset.deleteRab, rab);
       saveState();
       renderRabList();
@@ -13650,6 +13803,38 @@ document.getElementById("pw_backBtn").addEventListener("click", showPwList);
 document.getElementById("pw_search").addEventListener("input", renderPwList);
 document.getElementById("pw_filterStatus").addEventListener("change", renderPwList);
 document.getElementById("pw_filterBrand").addEventListener("change", renderPwList);
+// Kesinambungan antar menu: menghapus Penawaran harus benar-benar melepas
+// SEMUA yang menunjuknya — sumber proyek, catatan addendum (Pekerjaan
+// Susulan), dan tindak lanjut survey. Tanpa ini, catatan berstatus "sudah
+// dibuat penawaran" menunjuk dokumen yang tidak ada lagi: tombol transfernya
+// hilang selamanya dan tautannya buntu.
+function lepasKaitanPenawaranTerhapus(pwId) {
+  let catatanDisetel = 0;
+  (state.proyek || []).forEach(p => {
+    let ubah = false;
+    if (p.sumberPenawaranId === pwId) { p.sumberPenawaranId = ""; ubah = true; }
+    (p.pekerjaanTambahan || []).forEach(item => {
+      if (item.penawaranId !== pwId) return;
+      item.penawaranId = "";
+      if (item.status === "penawaran") item.status = "rencana";
+      ubah = true;
+      catatanDisetel++;
+    });
+    if (ubah) mirrorProyekUpsert(p);
+  });
+  (state.laporanKerja || []).forEach(l => {
+    let ubah = false;
+    (l.tindakLanjut || []).forEach(item => {
+      if (item.penawaranId !== pwId) return;
+      item.penawaranId = "";
+      if (item.status === "penawaran") item.status = "rencana";
+      ubah = true;
+      catatanDisetel++;
+    });
+    if (ubah) mirrorLaporanKerjaUpsert(l, l);
+  });
+  return catatanDisetel;
+}
 document.getElementById("pw_table").addEventListener("click", e => {
   const openBtn = e.target.closest("[data-open-pw]");
   const delBtn = e.target.closest("[data-delete-pw]");
@@ -13657,11 +13842,16 @@ document.getElementById("pw_table").addEventListener("click", e => {
   else if (delBtn) {
     const pw = state.penawaran.find(p => p.id === delBtn.dataset.deletePw);
     const linkedProyek = pw && pw.proyekId ? state.proyek.find(p => p.id === pw.proyekId) : null;
-    const msg = linkedProyek
+    const catatanTertaut =
+      (state.proyek || []).reduce((s, p) => s + (p.pekerjaanTambahan || []).filter(x => x.penawaranId === delBtn.dataset.deletePw).length, 0) +
+      (state.laporanKerja || []).reduce((s, l) => s + (l.tindakLanjut || []).filter(x => x.penawaranId === delBtn.dataset.deletePw).length, 0);
+    let msg = linkedProyek
       ? `Penawaran ini sudah punya Proyek terkait ("${linkedProyek.nama}"). Proyek itu TIDAK akan ikut terhapus, tapi tautannya akan terputus. Yakin hapus penawaran ini?`
       : "Hapus penawaran ini?";
+    if (catatanTertaut) msg += `\n\n${catatanTertaut} catatan addendum/survey yang tertaut akan dikembalikan ke status "Rencana" supaya bisa dibuatkan penawaran lagi.`;
     if (confirm(msg)) {
       state.penawaran = state.penawaran.filter(p => p.id !== delBtn.dataset.deletePw);
+      lepasKaitanPenawaranTerhapus(delBtn.dataset.deletePw);
       mirrorPenawaranDelete(delBtn.dataset.deletePw, pw);
       saveState();
       renderPwList();
