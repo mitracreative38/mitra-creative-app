@@ -906,6 +906,8 @@ function penawaranToRow(p) {
     source_penawaran_id: p.sourcePenawaranId || null,
     items: p.items || [],
     skema_pembayaran: p.skemaPembayaran || [],
+    nego: p.nego || [],
+    alasan_kalah: p.alasanKalah || null,
     total: penawaranTotals(p).total,
     updated_at: new Date().toISOString()
   };
@@ -1838,7 +1840,8 @@ function rowToPenawaran(r) {
     pph: r.pph || 0, biayaLain: r.biaya_lain || 0, syarat: r.syarat || "", penutup: r.penutup || "", ttdNama: r.ttd_nama || "",
     ttdJabatan: r.ttd_jabatan || "", proyekId: r.proyek_id || "", revisiDariId: r.revisi_dari_id || "",
     revisiKe: r.revisi_ke || 0, brand: r.brand || "mitra", markupPercent: r.markup_percent ?? null,
-    sourcePenawaranId: r.source_penawaran_id || "", items: r.items || [], skemaPembayaran: r.skema_pembayaran || []
+    sourcePenawaranId: r.source_penawaran_id || "", items: r.items || [], skemaPembayaran: r.skema_pembayaran || [],
+    nego: r.nego || [], alasanKalah: r.alasan_kalah || null
   };
 }
 function rowToProyek(r) {
@@ -4226,6 +4229,19 @@ function computePemeriksaanIntegrasi() {
       judul: `${pinjamYatim.length} peminjaman alat masih terbuka atas nama karyawan yang sudah dihapus`,
       detail: pinjamYatim.map(x => `${x.a.nama} (${x.pj.jumlah || 0} unit sejak ${formatTanggal(x.pj.tanggalPinjam)})`).join("; ") +
         " — cek fisik alatnya lalu catat pengembaliannya di halaman Alat Kerja supaya jumlah tersedia kembali benar."
+    });
+  }
+
+  // 16. Penawaran ditolak tapi alasan kalahnya belum diisi — analisa
+  // kalah tender di KPI Penjualan jadi bolong (integrasi Harga Nego).
+  const kalahKosong = (state.penawaran || []).filter(p =>
+    p.status === "ditolak" && !((p.alasanKalah && p.alasanKalah.aspek) || []).length);
+  if (kalahKosong.length) {
+    temuan.push({
+      icon: "📉", page: "penawaran",
+      judul: `${kalahKosong.length} penawaran kalah/ditolak belum diisi alasan kalahnya`,
+      detail: kalahKosong.map(p => `${p.nomor || "(tanpa nomor)"} (${p.kepada || "-"})`).join("; ") +
+        ' — buka penawarannya lalu klik "Isi/Ubah Alasan Kalah" di panel Negosiasi Harga, supaya rekap Analisa Kalah Tender di KPI Penjualan lengkap.'
     });
   }
 
@@ -7456,7 +7472,7 @@ function computeKpiPenjualan(mulai, selesai) {
   const ditolak = pwPeriode.filter(p => p.status === "ditolak");
   const winRate = (disetujui.length + ditolak.length) ? (disetujui.length / (disetujui.length + ditolak.length)) * 100 : null;
   const nilaiDisetujui = disetujui.reduce((s, p) => s + penawaranTotals(p).total, 0);
-  const pipelineAktif = state.penawaran.filter(p => p.status === "draft" || p.status === "terkirim");
+  const pipelineAktif = state.penawaran.filter(p => ["draft", "terkirim", "nego"].includes(p.status));
   const nilaiPipeline = pipelineAktif.reduce((s, p) => s + penawaranTotals(p).total, 0);
   const funnel = KLIEN_TAHAP.map(t => ({ tahap: t, jumlah: state.klien.filter(k => k.tahap === t).length }));
   const trend = monthBuckets(selesai, 6).map(b => {
@@ -7464,6 +7480,41 @@ function computeKpiPenjualan(mulai, selesai) {
     return { label: b.label, jumlah: d.length, nilai: d.reduce((s, p) => s + penawaranTotals(p).total, 0) };
   });
   return { terkirim: pwPeriode.length, disetujui: disetujui.length, ditolak: ditolak.length, winRate, nilaiDisetujui, pipelineCount: pipelineAktif.length, nilaiPipeline, funnel, trend };
+}
+// Analisa kalah tender: rekap alasan kalah per aspek + perbandingan harga
+// nego, dari penawaran DITOLAK di periode. Tujuannya melihat dari aspek
+// mana penawaran kalah dari vendor lain — kalau mayoritas bukan "Harga",
+// perbaikan diarahkan ke aspek itu, tanpa mengorbankan margin lewat
+// perang harga.
+function computeAnalisaKalahTender(mulai, selesai) {
+  const kalah = state.penawaran.filter(p => p.status === "ditolak" && (p.tanggal || "") >= mulai && (p.tanggal || "") <= selesai);
+  const perAspek = ASPEK_KALAH.map(a => ({ aspek: a, jumlah: 0 }));
+  let tanpaAlasan = 0;
+  kalah.forEach(p => {
+    const aspek = (p.alasanKalah && p.alasanKalah.aspek) || [];
+    if (!aspek.length) { tanpaAlasan++; return; }
+    aspek.forEach(a => {
+      const row = perAspek.find(x => x.aspek === a);
+      if (row) row.jumlah++;
+    });
+  });
+  // Selisih nego (%) = seberapa jauh permintaan terakhir klien di bawah
+  // harga penawaran, untuk yang KALAH meski sudah dinego — gambaran
+  // seberapa jauh "jarak harga" saat tetap kalah.
+  const selisihKalah = kalah
+    .map(p => ({ p, n: negoTerakhir(p), total: penawaranTotals(p).total }))
+    .filter(x => x.n && x.n.nilai > 0 && x.total > 0)
+    .map(x => (x.total - x.n.nilai) / x.total * 100);
+  const rataSelisihKalah = selisihKalah.length ? selisihKalah.reduce((s, v) => s + v, 0) / selisihKalah.length : null;
+  // Pembanding sehat: penurunan rata-rata saat MENANG lewat nego di
+  // periode yang sama — turun berapa persen yang masih menghasilkan deal.
+  const menangNego = state.penawaran
+    .filter(p => p.status === "disetujui" && (p.tanggal || "") >= mulai && (p.tanggal || "") <= selesai && negoTerakhir(p))
+    .map(p => ({ n: negoTerakhir(p), total: penawaranTotals(p).total }))
+    .filter(x => x.n.nilai > 0 && x.total > 0)
+    .map(x => (x.total - x.n.nilai) / x.total * 100);
+  const rataTurunMenang = menangNego.length ? menangNego.reduce((s, v) => s + v, 0) / menangNego.length : null;
+  return { kalah, perAspek, tanpaAlasan, rataSelisihKalah, jumlahDenganNego: selisihKalah.length, rataTurunMenang, jumlahMenangNego: menangNego.length };
 }
 // Kalkulator target tahunan (mundur dari target omzet): berapa deal,
 // penawaran, dan prospek baru yang harus dihasilkan per bulan. Asumsi
@@ -7752,6 +7803,28 @@ function renderKpiPenjualan() {
   document.getElementById("kpi_funnelRows").innerHTML = k.funnel.map(f => `
     <div class="summary-row"><span>${escapeHtml(f.tahap)}</span><strong>${f.jumlah}</strong></div>
   `).join("");
+  const ak = computeAnalisaKalahTender(mulai, selesai);
+  document.getElementById("kpi_kalahStatRows").innerHTML = `
+    <div class="summary-row"><span>Penawaran Kalah (Periode)</span><strong>${ak.kalah.length}${ak.tanpaAlasan ? ` <span class="bad" style="font-size:11px;">(${ak.tanpaAlasan} belum diisi alasannya)</span>` : ""}</strong></div>
+    <div class="summary-row"><span>Rata Jarak Harga saat Kalah (nego terakhir vs penawaran)</span><strong>${ak.rataSelisihKalah == null ? "-" : ak.rataSelisihKalah.toFixed(1) + "% dari " + ak.jumlahDenganNego + " nego"}</strong></div>
+    <div class="summary-row"><span>Rata Penurunan saat Menang lewat Nego</span><strong>${ak.rataTurunMenang == null ? "-" : ak.rataTurunMenang.toFixed(1) + "% dari " + ak.jumlahMenangNego + " deal"}</strong></div>
+  `;
+  const maxAspek = Math.max(1, ...ak.perAspek.map(a => a.jumlah));
+  document.getElementById("kpi_kalahAspekRows").innerHTML = ak.kalah.length ? ak.perAspek.map(a => `
+    <div class="summary-row"><span>${a.aspek === "Harga" ? "💸" : "🔧"} ${escapeHtml(a.aspek)}</span><strong>${"█".repeat(Math.round(a.jumlah / maxAspek * 12))} ${a.jumlah}</strong></div>
+  `).join("") : '<div class="summary-row"><span>Tidak ada penawaran kalah di periode ini 🎉</span><strong>-</strong></div>';
+  document.querySelector("#kpi_kalahTable tbody").innerHTML = ak.kalah.length ? ak.kalah.map(p => {
+    const n = negoTerakhir(p);
+    const aspek = (p.alasanKalah && p.alasanKalah.aspek) || [];
+    return `<tr>
+      <td>${escapeHtml(p.nomor || "-")}</td>
+      <td>${escapeHtml(p.kepada || "-")}</td>
+      <td class="num">${rupiah(penawaranTotals(p).total)}</td>
+      <td class="num">${n ? rupiah(n.nilai) : "-"}</td>
+      <td>${aspek.length ? aspek.map(a => `<span class="badge">${escapeHtml(a)}</span>`).join(" ") : '<span class="bad" style="font-size:11px;">belum diisi</span>'}</td>
+      <td>${escapeHtml((p.alasanKalah && p.alasanKalah.catatan) || "-")}</td>
+    </tr>`;
+  }).join("") : '<tr class="empty-row"><td colspan="6">Belum ada penawaran ditolak di periode ini</td></tr>';
   renderBarChart(document.getElementById("kpi_trendPenjualan"), k.trend.map(t => ({
     label: t.label, value: t.jumlah, color: "var(--series-1)", formattedValue: `${t.jumlah} (${rupiah(t.nilai)})`
   })));
@@ -11280,6 +11353,21 @@ function penawaranTotals(pw) {
   const total = dpp + ppnValue + pphValue + (pw.biayaLain || 0);
   return { subtotal, diskonValue, dpp, ppnValue, pphValue, total };
 }
+// ===== Negosiasi harga penawaran =====
+// Aspek pilihan saat penawaran KALAH tender — dasar analisa di KPI
+// Penjualan supaya perbaikan terarah (bukan cuma perang harga).
+const ASPEK_KALAH = ["Harga", "Kualitas/Spesifikasi", "Waktu Pengerjaan", "Relasi/Vendor Langganan", "Kelengkapan Dokumen", "Lainnya"];
+function negoTerakhir(pw) {
+  const list = pw.nego || [];
+  return list.length ? list[list.length - 1] : null;
+}
+// Harga yang benar-benar disepakati: nilai nego terakhir kalau ada,
+// kalau tidak pernah nego ya total penawaran. Dipakai saat ACC → Proyek
+// (nilai kontrak & rencana termin ikut angka deal, bukan angka awal).
+function hargaDealPenawaran(pw) {
+  const n = negoTerakhir(pw);
+  return n && n.nilai > 0 ? n.nilai : penawaranTotals(pw).total;
+}
 const ROMAWI_BULAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
 function nextPenawaranNomor() {
   state.penawaranCounter = (state.penawaranCounter || 0) + 1;
@@ -13642,6 +13730,9 @@ function createProyekFromDoc(kind, doc) {
   if (sudahAda && !confirm(
     `PERHATIAN: proyek "${sudahAda.nama}" sudah pernah dibuat dari dokumen ini.\nMembuat lagi akan menghasilkan proyek DOBEL dengan nilai kontrak yang sama (kacau di Margin Proyek & Laporan).\n\nTetap buat proyek baru?`)) return;
   const totals = kind === "rab" ? rabTotals(doc) : penawaranTotals(doc);
+  // Penawaran yang lolos meja nego: nilai kontrak proyek memakai harga
+  // DEAL terakhir (bukan harga penawaran awal), termasuk rencana termin.
+  const nilaiDeal = kind === "pw" ? hargaDealPenawaran(doc) : totals.total;
   const alokasi = anggaranFromItems(doc.items);
   const proj = {
     id: uid(),
@@ -13649,7 +13740,7 @@ function createProyekFromDoc(kind, doc) {
     klien: kind === "rab" ? (doc.klien || "") : (doc.kepada || ""),
     klienId: doc.klienId || "",
     lokasi: kind === "rab" ? (doc.lokasi || "") : "",
-    nilaiKontrak: totals.total,
+    nilaiKontrak: nilaiDeal,
     status: "berjalan",
     tanggalMulai: hariIniIso(),
     tanggalSelesai: "",
@@ -13662,7 +13753,7 @@ function createProyekFromDoc(kind, doc) {
     sumberRabId: kind === "rab" ? doc.id : "",
     sumberPenawaranId: kind === "pw" ? doc.id : "",
     skemaPembayaran: (doc.skemaPembayaran || []).map(r => ({ ...r })),
-    rencanaTermin: materializeRencanaTermin(doc.skemaPembayaran || [], totals.total)
+    rencanaTermin: materializeRencanaTermin(doc.skemaPembayaran || [], nilaiDeal)
   };
   state.proyek.push(proj);
   doc.proyekId = proj.id;
@@ -13697,7 +13788,7 @@ function offerCreateProyekFromDoc(kind, doc) {
 // ===== Rendering: Penawaran Harga =====
 let currentPwId = null;
 function pwStatusLabel(s) {
-  return { draft: "Draft", terkirim: "Terkirim", disetujui: "Disetujui", ditolak: "Ditolak" }[s] || s;
+  return { draft: "Draft", terkirim: "Terkirim", nego: "Nego", disetujui: "Disetujui", ditolak: "Ditolak" }[s] || s;
 }
 function pwIsKadaluarsa(p, today) {
   return ["draft", "terkirim"].includes(p.status) && p.tanggal && addDaysIso(p.tanggal, 14) < today;
@@ -13705,7 +13796,7 @@ function pwIsKadaluarsa(p, today) {
 function renderPwList() {
   const today = hariIniIso();
   document.getElementById("pw_totalCount").textContent = state.penawaran.length;
-  document.getElementById("pw_totalMenunggu").textContent = state.penawaran.filter(p => ["draft", "terkirim"].includes(p.status)).length;
+  document.getElementById("pw_totalMenunggu").textContent = state.penawaran.filter(p => ["draft", "terkirim", "nego"].includes(p.status)).length;
   document.getElementById("pw_totalDisetujui").textContent = state.penawaran.filter(p => p.status === "disetujui").length;
   document.getElementById("pw_totalKadaluarsa").textContent = state.penawaran.filter(p => pwIsKadaluarsa(p, today)).length;
 
@@ -13733,7 +13824,7 @@ function renderPwList() {
       <td>${escapeHtml(p.kepada || "-")}</td>
       <td>${escapeHtml(p.perihal || "-")}</td>
       <td>${formatTanggal(p.tanggal)}</td>
-      <td class="num">${rupiah(total)}</td>
+      <td class="num">${rupiah(total)}${negoTerakhir(p) ? `<div class="muted" style="font-size:11px;">🤝 nego: ${rupiah(negoTerakhir(p).nilai)}</div>` : ""}</td>
       <td><span class="badge status-${p.status}">${pwStatusLabel(p.status)}</span>${kadaluarsa ? ' <span class="bad" style="font-size:11px;">⚠️ Kadaluarsa</span>' : ""}</td>
       <td>
         <div class="row-actions">
@@ -13835,7 +13926,90 @@ function renderPwEditor() {
   SKEMA_STATE.pw = (pw.skemaPembayaran || []).map(r => ({ ...r }));
   renderSkemaEditor("pw");
   refreshPwTotals();
+  renderPwNego(pw);
 }
+// ===== Panel Negosiasi Harga (alur: nego dulu, baru ACC/tolak) =====
+function renderPwNego(pw) {
+  const totalPenawaran = penawaranTotals(pw).total;
+  const list = pw.nego || [];
+  document.querySelector("#pw_negoTable tbody").innerHTML = list.length ? list.map(n => {
+    const selisih = totalPenawaran - (n.nilai || 0);
+    const pctSel = totalPenawaran > 0 ? (Math.abs(selisih) / totalPenawaran * 100).toFixed(1) : "0";
+    return `<tr>
+      <td>${formatTanggal(n.tanggal)}</td>
+      <td class="num">${rupiah(n.nilai)}</td>
+      <td class="num ${selisih > 0 ? "bad" : "good"}">${selisih > 0 ? "-" : "+"}${rupiah(Math.abs(selisih))} (${pctSel}%)</td>
+      <td>${escapeHtml(n.catatan || "-")}</td>
+      <td><div class="row-actions"><button class="icon-btn" data-delete-nego="${n.id}" title="Hapus">🗑️</button></div></td>
+    </tr>`;
+  }).join("") : '<tr class="empty-row"><td colspan="5">Belum ada catatan negosiasi</td></tr>';
+  const deal = negoTerakhir(pw);
+  document.getElementById("pw_negoDeal").textContent = deal ? rupiah(deal.nilai) : "— (belum ada nego, memakai Total Penawaran)";
+  if (!document.getElementById("pw_negoTanggal").value) document.getElementById("pw_negoTanggal").value = hariIniIso();
+  document.getElementById("pw_alasanKalahBox").style.display = pw.status === "ditolak" ? "block" : "none";
+  const aspek = (pw.alasanKalah && pw.alasanKalah.aspek) || [];
+  document.getElementById("pw_alasanKalahRingkas").textContent = aspek.length ? aspek.join(", ") : "Belum diisi";
+}
+attachNumberFormatting(document.getElementById("pw_negoNilai"));
+document.getElementById("pw_negoAddBtn").addEventListener("click", () => {
+  const pw = state.penawaran.find(p => p.id === currentPwId);
+  if (!pw) return;
+  const nilai = parseNumberInput(document.getElementById("pw_negoNilai").value);
+  if (!(nilai > 0)) { alert("Isi nilai nego lebih dari 0."); return; }
+  const tanggal = document.getElementById("pw_negoTanggal").value || hariIniIso();
+  const catatan = document.getElementById("pw_negoCatatan").value.trim();
+  if (!pw.nego) pw.nego = [];
+  pw.nego.push({ id: uid(), tanggal, nilai, catatan });
+  // Mencatat nego berarti penawaran sedang di meja tawar-menawar:
+  // status draft/terkirim otomatis naik ke "Nego" — keputusan
+  // Disetujui/Ditolak diambil SETELAH nego selesai.
+  if (pw.status === "draft" || pw.status === "terkirim") {
+    pw.status = "nego";
+    document.getElementById("pw_status").value = "nego";
+  }
+  document.getElementById("pw_negoNilai").value = "";
+  document.getElementById("pw_negoCatatan").value = "";
+  saveState();
+  mirrorPenawaranUpsert(pw, false);
+  renderPwNego(pw);
+});
+document.getElementById("pw_negoTable").addEventListener("click", e => {
+  const btn = e.target.closest("[data-delete-nego]");
+  if (!btn) return;
+  const pw = state.penawaran.find(p => p.id === currentPwId);
+  if (!pw) return;
+  const n = (pw.nego || []).find(x => x.id === btn.dataset.deleteNego);
+  if (!n) return;
+  if (!confirm(`Hapus catatan nego ${formatTanggal(n.tanggal)} senilai ${rupiah(n.nilai)}?`)) return;
+  pw.nego = pw.nego.filter(x => x.id !== n.id);
+  saveState();
+  mirrorPenawaranUpsert(pw, false);
+  renderPwNego(pw);
+});
+function bukaPwKalahModal() {
+  const pw = state.penawaran.find(p => p.id === currentPwId);
+  if (!pw) return;
+  const dipilih = new Set((pw.alasanKalah && pw.alasanKalah.aspek) || []);
+  document.getElementById("pwKalahAspekList").innerHTML = ASPEK_KALAH.map(a => `
+    <label style="display:flex; align-items:center; gap:8px; font-size:13px;">
+      <input type="checkbox" value="${escapeHtml(a)}" ${dipilih.has(a) ? "checked" : ""}> ${escapeHtml(a)}
+    </label>`).join("");
+  document.getElementById("pwKalahCatatan").value = (pw.alasanKalah && pw.alasanKalah.catatan) || "";
+  document.getElementById("pwKalahModal").classList.add("open");
+}
+document.getElementById("pw_alasanKalahBtn").addEventListener("click", bukaPwKalahModal);
+document.getElementById("pwKalahForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const pw = state.penawaran.find(p => p.id === currentPwId);
+  if (!pw) return;
+  const aspek = Array.from(document.querySelectorAll("#pwKalahAspekList input:checked")).map(c => c.value);
+  if (!aspek.length) { alert("Pilih minimal satu aspek penyebab kalah."); return; }
+  pw.alasanKalah = { aspek, catatan: document.getElementById("pwKalahCatatan").value.trim(), tanggal: hariIniIso() };
+  document.getElementById("pwKalahModal").classList.remove("open");
+  saveState();
+  mirrorPenawaranUpsert(pw, false);
+  renderPwNego(pw);
+});
 function refreshPwTotals() {
   const pw = state.penawaran.find(p => p.id === currentPwId);
   if (!pw) return;
@@ -13871,7 +14045,8 @@ document.getElementById("pw_addBtn").addEventListener("click", () => {
   const pw = {
     id: uid(), nomor: isMr ? nextMataResolusiPenawaranNomor() : nextPenawaranNomor(), tanggal: hariIniIso(),
     kepada: "", alamatKlien: "", perihal: "", kategori: KATEGORI_PEKERJAAN[0], status: "draft",
-    diskon: 0, ppn: 11, pph: 0.5, biayaLain: 0, items: [], syarat: defaultSyarat(), penutup: defaultPenutup(),
+    diskon: 0, ppn: 11, pph: 0.5, biayaLain: 0, items: [], nego: [], alasanKalah: null,
+    syarat: defaultSyarat(), penutup: defaultPenutup(),
     brand,
     ttdNama: isMr ? MATA_RESOLUSI_INFO.ownerNama : state.ownerNama,
     ttdJabatan: isMr ? MATA_RESOLUSI_INFO.ownerJabatan : state.ownerJabatan
@@ -14004,6 +14179,10 @@ document.getElementById("pw_status").addEventListener("change", () => {
   saveState();
   mirrorPenawaranUpsert(pw, false);
   renderAll();
+  renderPwNego(pw);
+  // Baru saja ditandai KALAH → langsung tawarkan mengisi alasan kalah
+  // per aspek, supaya analisa kalah tender di KPI Penjualan tidak bolong.
+  if (newStatus === "ditolak" && prevStatus !== "ditolak") bukaPwKalahModal();
 });
 document.getElementById("pw_diskon").addEventListener("input", () => {
   const pw = state.penawaran.find(p => p.id === currentPwId);
@@ -14336,6 +14515,8 @@ document.getElementById("pw_duplicateBtn").addEventListener("click", () => {
     proyekId: "",
     revisiDariId: pw.id,
     revisiKe: (pw.revisiKe || 0) + 1,
+    nego: [], // dokumen revisi mulai dengan meja nego bersih
+    alasanKalah: null,
     items: pw.items.map(it => ({ ...it, id: uid() }))
   };
   state.penawaran.push(revisi);
@@ -14371,6 +14552,8 @@ document.getElementById("pw_pembandingBtn").addEventListener("click", () => {
     sourcePenawaranId: pw.id,
     ttdNama: MATA_RESOLUSI_INFO.ownerNama,
     ttdJabatan: MATA_RESOLUSI_INFO.ownerJabatan,
+    nego: [],
+    alasanKalah: null,
     items: pw.items.map(it => ({ ...it, id: uid(), hargaSatuan: Math.round((it.hargaSatuan || 0) * factor) }))
   };
   state.penawaran.push(pembanding);

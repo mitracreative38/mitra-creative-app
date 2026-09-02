@@ -331,6 +331,7 @@ body {
 /* ---------- Status badges (Penawaran) ---------- */
 .badge.status-draft { background: color-mix(in srgb, var(--text-muted) 20%, transparent); color: var(--text-secondary); }
 .badge.status-terkirim { background: color-mix(in srgb, var(--series-1) 16%, transparent); color: var(--series-1); }
+.badge.status-nego { background: color-mix(in srgb, var(--warning) 16%, transparent); color: var(--warning); }
 .badge.status-disetujui { background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--success-text); }
 .badge.status-ditolak { background: color-mix(in srgb, var(--critical) 16%, transparent); color: var(--critical); }
 

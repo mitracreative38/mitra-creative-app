@@ -740,6 +740,18 @@
           <div class="summary-rows" id="kpi_funnelRows"></div>
         </div>
         <div class="panel">
+          <h3>📉 Analisa Kalah Tender (Periode)</h3>
+          <p class="muted" style="font-size:12.5px;">Rekap alasan kalah dari penawaran yang ditolak + perbandingan harga nego. Kalau mayoritas kalah BUKAN karena harga, perbaikannya di aspek itu — tidak perlu mengorbankan margin lewat perang harga.</p>
+          <div class="summary-rows" id="kpi_kalahStatRows"></div>
+          <div class="summary-rows" id="kpi_kalahAspekRows" style="margin-top:10px;"></div>
+          <div class="table-wrap" style="margin-top:10px;">
+            <table class="tbl" id="kpi_kalahTable">
+              <thead><tr><th>Penawaran</th><th>Klien</th><th class="num">Nilai Penawaran</th><th class="num">Nego Terakhir</th><th>Aspek Kalah</th><th>Catatan</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel">
           <h3>Tren Penawaran Disetujui (6 bulan terakhir)</h3>
           <div id="kpi_trendPenjualan" class="bar-chart"></div>
         </div>
@@ -2739,6 +2751,7 @@
               <option value="">Semua Status</option>
               <option value="draft">Draft</option>
               <option value="terkirim">Terkirim</option>
+              <option value="nego">Nego</option>
               <option value="disetujui">Disetujui</option>
               <option value="ditolak">Ditolak</option>
             </select>
@@ -2827,6 +2840,7 @@
               <select id="pw_status">
                 <option value="draft">Draft</option>
                 <option value="terkirim">Terkirim</option>
+                <option value="nego">Nego</option>
                 <option value="disetujui">Disetujui</option>
                 <option value="ditolak">Ditolak</option>
               </select>
@@ -2884,6 +2898,44 @@
             <div class="summary-row total"><span>Total Penawaran</span><strong id="pw_total">Rp 0</strong></div>
           </div>
           <p class="muted" style="font-size:11px; margin-top:8px;">PPN dan PPh Final sama-sama ditambahkan ke Total Penawaran -- jadi Total di atas adalah nilai akhir yang dibayar klien (harga satuan belum termasuk PPN/PPh).</p>
+        </div>
+
+        <div class="panel" id="pw_negoPanel">
+          <h3>🤝 Negosiasi Harga</h3>
+          <p class="muted" style="font-size:12px; margin:-4px 0 10px;">Catat setiap ronde tawar-menawar SEBELUM memutuskan Disetujui/Ditolak. Menambah catatan nego otomatis mengubah status ke "Nego". Kalau akhirnya ACC, nilai deal terakhir dipakai sebagai Nilai Kontrak Proyek; kalau kalah, isi alasan kalah supaya bisa dianalisa di KPI Penjualan.</p>
+          <div class="form-grid" style="align-items:end;">
+            <div class="field">
+              <label>Tanggal</label>
+              <input type="date" id="pw_negoTanggal">
+            </div>
+            <div class="field">
+              <label>Nilai Permintaan/Deal (Rp)</label>
+              <input type="text" inputmode="numeric" id="pw_negoNilai" placeholder="mis. 45.000.000">
+            </div>
+            <div class="field">
+              <label>Catatan</label>
+              <input type="text" id="pw_negoCatatan" placeholder="mis. klien minta turun, pembanding vendor X">
+            </div>
+            <div class="field">
+              <label>&nbsp;</label>
+              <button type="button" class="btn-primary" id="pw_negoAddBtn">+ Catat Nego</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="pw_negoTable">
+              <thead><tr><th>Tanggal</th><th class="num">Nilai Nego</th><th class="num">Selisih vs Penawaran</th><th>Catatan</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="summary-rows" style="margin-top:8px;">
+            <div class="summary-row total"><span>Harga Akhir (Deal) Setelah Nego</span><strong id="pw_negoDeal">-</strong></div>
+          </div>
+          <div id="pw_alasanKalahBox" style="display:none; margin-top:10px;">
+            <div class="summary-row"><span>📉 Alasan Kalah Tender</span><strong id="pw_alasanKalahRingkas">Belum diisi</strong></div>
+            <div class="modal-actions" style="justify-content:flex-start; margin-top:8px;">
+              <button type="button" class="btn-ghost" id="pw_alasanKalahBtn">📝 Isi/Ubah Alasan Kalah</button>
+            </div>
+          </div>
         </div>
 
         <div class="panel">
@@ -4602,6 +4654,28 @@
     <div class="modal-actions">
       <button type="button" class="btn-primary" data-close-modal>Tutup</button>
     </div>
+  </div>
+</div>
+
+<!-- Modal: alasan kalah tender (Penawaran ditolak) -->
+<div class="modal-backdrop" id="pwKalahModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>📉 Analisa Kalah Tender</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <p class="muted" style="font-size:12.5px; margin-top:0;">Dari aspek mana penawaran ini kalah dari vendor lain? Boleh pilih lebih dari satu. Rekapnya tampil di KPI Penjualan — supaya perbaikannya terarah, bukan sekadar perang harga.</p>
+    <form id="pwKalahForm">
+      <div id="pwKalahAspekList" style="display:flex; flex-direction:column; gap:6px; margin-bottom:10px;"></div>
+      <div class="field">
+        <label>Catatan (detail penyebab, nama pesaing, harga pembanding, dll.)</label>
+        <textarea id="pwKalahCatatan" rows="3" class="text-input" style="width:100%; font-family:inherit; resize:vertical;"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+        <button type="submit" class="btn-primary">Simpan Alasan Kalah</button>
+      </div>
+    </form>
   </div>
 </div>
 
