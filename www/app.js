@@ -6456,10 +6456,12 @@ function buatPenawaranDariTindakLanjut({ kepada, klienId, perihal, item, items }
     items: sumber.map(it => ({
       id: uid(),
       uraian: (it && it.uraian) || perihal || "",
+      spesifikasi: (it && it.spesifikasi) || "",
       satuan: (it && it.satuan) || "ls",
       volume: (it && it.volume) || 1,
       hargaSatuan: (it && (it.hargaSatuan || it.nilai)) || 0,
-      ahspId: (it && it.ahspId) || ""
+      ahspId: (it && it.ahspId) || "",
+      kelompok: (it && it.kelompok) || ""
     })),
     syarat: defaultSyarat(), penutup: defaultPenutup(),
     ttdNama: state.ownerNama, ttdJabatan: state.ownerJabatan
@@ -13247,7 +13249,7 @@ function renderImportPreviewRows() {
     tr.dataset.idx = idx;
     tr.innerHTML = `
       <td><input type="checkbox" class="imp-checked" ${row.checked ? "checked" : ""}></td>
-      <td><input type="text" class="imp-uraian" value="${escapeHtml(row.uraian)}"></td>
+      <td><input type="text" class="imp-uraian" value="${escapeHtml(row.uraian)}">${row.kelompok ? `<div class="muted" style="font-size:11px;">📂 ${escapeHtml(row.kelompok)}</div>` : ""}</td>
       <td><input type="text" class="imp-satuan" value="${escapeHtml(row.satuan)}" style="width:70px"></td>
       <td class="num"><input type="text" inputmode="decimal" class="imp-volume" value="${row.volume}" style="width:80px; text-align:right"></td>
       <td class="num"><input type="text" inputmode="numeric" class="imp-harga" value="${formatNumberInput(row.hargaSatuan)}" style="width:110px; text-align:right"></td>
@@ -13281,9 +13283,11 @@ document.getElementById("imp_importBtn").addEventListener("click", () => {
   const toImport = importPreviewRows.filter(r => r.checked);
   toImport.forEach(r => {
     const item = { id: uid(), uraian: (r.uraian || "").trim() || "Item", satuan: (r.satuan || "").trim() || "-", volume: r.volume || 0, hargaSatuan: r.hargaSatuan || 0, ahspId: r.ahspId || "" };
-    // Judul bagian dari file BOQ jadi kelompok item -- fitur kelompok cuma
-    // ada di RAB, Penawaran tetap daftar rata.
-    if (importPreviewCtx.kind === "rab" && r.kelompok) item.kelompok = r.kelompok;
+    // Judul bagian dari file BOQ jadi kelompok item -- berlaku untuk RAB
+    // DAN Penawaran (cetak penawaran menampilkan bagian I./II. + sub total
+    // per kelompok; dulu khusus RAB sehingga "sub pekerjaan" hilang setiap
+    // kali BOQ diimpor ke Penawaran).
+    if (r.kelompok) item.kelompok = r.kelompok;
     doc.items.push(item);
   });
   // Info dokumen dari baris atas file BOQ (PROYEK/LOKASI/KLIEN) mengisi
