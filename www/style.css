@@ -362,6 +362,15 @@ body.printing-quote #printArea {
   display: block; max-width: 780px; margin: 0 auto; padding: 24px 14px;
   color: #1a1a1a; background: #fff; font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
+/* Warna latar dokumen (kepala tabel navy, garis kop, baris kelompok,
+   kartu syarat, banner Mata Resolusi) WAJIB ikut tercetak meskipun
+   pilihan "Background graphics" di dialog print browser TIDAK dicentang
+   (default Chrome mematikannya) — tanpa ini hasil Save as PDF jadi
+   pucat/polos, beda jauh dari pratinjau layar. */
+#printArea, #printArea * {
+  -webkit-print-color-adjust: exact !important;
+  print-color-adjust: exact !important;
+}
 /* Kop surat gaya baru (selaras logo "mitra CREATIVE" terbaru): nama
    perusahaan navy, tagline/alamat abu lembut, garis kop gradasi
    navy -> merah-oranye. Dipakai SEMUA dokumen cetak Mitra Creative
