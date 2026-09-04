@@ -12324,6 +12324,10 @@ document.getElementById("ahi_confirmBtn").addEventListener("click", () => {
   });
   saveState();
   renderAll();
+  // Kosongkan baris pratinjau SEBELUM alert: klik ganda tombol impor
+  // memproses klik kedua setelah alert ditutup, dan baris tanpa kode
+  // (tidak kena penjaga kode duplikat) akan terimpor dua kali.
+  ahImportRows = [];
   closeModals();
   alert(`${imported} item AHSP berhasil diimpor.` + (dupKode.length ? `\n${dupKode.length} baris dilewati karena kode sudah dipakai item AHSP lain: ${dupKode.join(", ")}.` : ""));
 });
@@ -13080,6 +13084,17 @@ async function parseBoqWorkbook(arrayBuffer) {
     const results = [];
     let pending = null;
     let kelompokAktif = "";
+    // Daftar tipe DED (kusen/pintu) sering menaruh KODE item ("P2") di satu
+    // baris lalu spesifikasi + volumenya di baris berikutnya, dan varian
+    // ukuran kedua dst. tanpa mengulang nama induknya ("Pintu Plat" lalu
+    // baris "128.5 x 220 cm" saja). namaTertunda/namaTerakhir menyambungkan
+    // baris-baris itu supaya kode item tidak salah jadi judul bagian dan
+    // varian ukuran tidak jadi item yatim tanpa nama.
+    let namaTertunda = "";
+    let namaTerakhir = "";
+    // Spesifikasi pendek (dimensi "4,51 m2") tetap digabung ke uraian;
+    // daftar material panjang masuk field spesifikasi item sendiri.
+    const SPEC_GABUNG_MAX = 40;
     for (let r = headerRow + 1; r <= maxRow; r++) {
       const vol = cellNumber(r, cols.vol);
       const sat = cols.sat > -1 ? cellText(r, cols.sat) : "";
@@ -13095,21 +13110,45 @@ async function parseBoqWorkbook(arrayBuffer) {
           const jumlah = cellNumber(r, cols.jumlah);
           if (jumlah != null && jumlah > 0) harga = Math.round(jumlah / vol);
         }
-        // Uraian menggabungkan kolom item + spesifikasi di baris yang sama
-        // (mis. "PJ1" + "4,51 m2" -> "PJ1 - 4,51 m2") supaya nama item
-        // berkode pendek tidak perlu diketik ulang.
+        let nama = uraianText;
+        if (!nama && namaTertunda) {
+          nama = namaTertunda;
+        } else if (namaTertunda) {
+          // Baris teks sebelumnya ternyata BUKAN nama item ini (item ini
+          // punya nama sendiri) -> perlakukan sebagai judul bagian,
+          // sama seperti perilaku lama.
+          kelompokAktif = namaTertunda.replace(/^[IVXLC0-9]+[.)]?\s*/i, "").trim() || namaTertunda;
+        }
+        namaTertunda = "";
+        // Varian ukuran tanpa nama (uraian kosong, cuma spesifikasi/ukuran):
+        // pakai nama item sebelumnya supaya tidak jadi item yatim.
+        if (!nama && specText && namaTerakhir) nama = namaTerakhir;
+        if (nama) namaTerakhir = nama;
+        // Uraian menggabungkan kolom item + spesifikasi pendek di baris yang
+        // sama (mis. "PJ1" + "4,51 m2" -> "PJ1 - 4,51 m2") supaya nama item
+        // berkode pendek tidak perlu diketik ulang; spesifikasi panjang
+        // (daftar material) masuk field spesifikasi sendiri.
+        let uraian, spesifikasi = "";
+        if (nama && specText) {
+          if (specText.length <= SPEC_GABUNG_MAX) uraian = `${nama} - ${specText}`;
+          else { uraian = nama; spesifikasi = specText; }
+        } else {
+          uraian = nama || specText || "Item";
+        }
         pending = {
-          uraian: [uraianText, specText].filter(Boolean).join(" - ") || "Item",
+          uraian,
+          spesifikasi,
           satuan: sat || "-",
           volume: vol,
           harga: harga != null && harga > 0 ? harga : 0,
           kelompok: kelompokAktif,
-          matchText: [uraianText, specText].filter(Boolean).join(" ")
+          matchText: [nama, specText].filter(Boolean).join(" ")
         };
       } else if (uraianText && !sat) {
         // Baris teks tanpa volume: judul bagian (jadi kelompok item
-        // berikutnya) atau lanjutan uraian item sebelumnya kalau baris
-        // persis di bawahnya. Penanda judul bagian: angka romawi/huruf
+        // berikutnya), lanjutan uraian item sebelumnya kalau baris
+        // persis di bawahnya, atau kode/nama item yang volumenya ada di
+        // baris berikutnya. Penanda judul bagian: angka romawi/huruf
         // tunggal di kolom nomor, awalan romawi di uraian, atau teks
         // kapital semua.
         let noText = "";
@@ -13121,19 +13160,39 @@ async function parseBoqWorkbook(arrayBuffer) {
           /^[IVXLCDM]+$/i.test(noText) || /^[A-Z][.)]?$/.test(noText) ||
           /^[IVXLCDM]+[.)]\s/i.test(uraianText) ||
           (uraianText.length > 3 && uraianText === uraianText.toUpperCase() && /[A-Z]/.test(uraianText));
-        if (!looksSection && pending && cellText(r - 1, cols.uraian)) {
+        // Kode tipe pendek ("P2", "PJ1") tanpa spesifikasi = nama item yang
+        // detailnya ada di baris berikutnya, bukan judul bagian dan bukan
+        // sambungan nama item sebelumnya.
+        const looksItemCode = !specText && /^[A-Z]{1,4}[0-9]{0,3}[.)]?$/.test(uraianText);
+        if (!looksSection && !looksItemCode && pending && cellText(r - 1, cols.uraian)) {
           pending.matchText += " " + [uraianText, specText].filter(Boolean).join(" ");
           // Nama item yang terpotong ke baris berikutnya (tanpa kolom
           // spesifikasi sendiri) ikut disambung ke uraian; baris rincian
-          // komponen (punya teks spesifikasi) cukup masuk teks pencocokan.
+          // komponen (punya teks spesifikasi) masuk teks pencocokan DAN
+          // field spesifikasi item supaya rinciannya tidak hilang.
           if (!specText) pending.uraian += " " + uraianText;
-        } else {
+          else {
+            const detail = [uraianText, specText].filter(Boolean).join(" ");
+            pending.spesifikasi = pending.spesifikasi ? `${pending.spesifikasi}; ${detail}` : detail;
+          }
+        } else if (looksSection) {
           kelompokAktif = uraianText.replace(/^[IVXLC0-9]+[.)]?\s*/i, "").trim() || uraianText;
+          if (pending) { results.push(pending); pending = null; }
+          namaTertunda = "";
+          namaTerakhir = "";
+        } else {
+          namaTertunda = uraianText;
           if (pending) { results.push(pending); pending = null; }
         }
       } else if (pending) {
         const extra = [uraianText, specText].filter(Boolean).join(" ");
         if (extra) pending.matchText += " " + extra;
+        // Baris rincian material di kolom spesifikasi (tanpa uraian/satuan)
+        // ikut ke field spesifikasi item supaya detailnya tampil, bukan
+        // cuma jadi teks pencocokan AHSP.
+        if (specText && !uraianText && !sat) {
+          pending.spesifikasi = pending.spesifikasi ? `${pending.spesifikasi}; ${specText}` : specText;
+        }
       }
     }
     if (pending) results.push(pending);
@@ -13171,7 +13230,8 @@ async function handleBoqFile(file, ctx) {
         uraian: r.uraian, satuan: r.satuan, volume: r.volume,
         hargaSatuan: hargaFile > 0 ? hargaFile : (match ? ahspHarga(match) : 0),
         ahspId: match ? match.id : "",
-        kelompok: r.kelompok || ""
+        kelompok: r.kelompok || "",
+        spesifikasi: r.spesifikasi || ""
       };
     });
     openImportPreview({ ...ctx, meta: meta || {} }, rows, null);
@@ -13230,7 +13290,7 @@ let importPreviewRows = [];
 let importPreviewCtx = null;
 function openImportPreview(ctx, rows, rawText) {
   importPreviewCtx = ctx;
-  importPreviewRows = rows.map(r => ({ checked: true, uraian: r.uraian, satuan: r.satuan, volume: r.volume, hargaSatuan: r.hargaSatuan || 0, ahspId: r.ahspId || "", kelompok: r.kelompok || "" }));
+  importPreviewRows = rows.map(r => ({ checked: true, uraian: r.uraian, satuan: r.satuan, volume: r.volume, hargaSatuan: r.hargaSatuan || 0, ahspId: r.ahspId || "", kelompok: r.kelompok || "", spesifikasi: r.spesifikasi || "" }));
   document.getElementById("imp_rawTextWrap").style.display = rawText ? "block" : "none";
   document.getElementById("imp_rawText").textContent = rawText || "";
   document.getElementById("imp_count").textContent = importPreviewRows.length;
@@ -13249,7 +13309,7 @@ function renderImportPreviewRows() {
     tr.dataset.idx = idx;
     tr.innerHTML = `
       <td><input type="checkbox" class="imp-checked" ${row.checked ? "checked" : ""}></td>
-      <td><input type="text" class="imp-uraian" value="${escapeHtml(row.uraian)}">${row.kelompok ? `<div class="muted" style="font-size:11px;">📂 ${escapeHtml(row.kelompok)}</div>` : ""}</td>
+      <td><input type="text" class="imp-uraian" value="${escapeHtml(row.uraian)}">${row.kelompok ? `<div class="muted" style="font-size:11px;">📂 ${escapeHtml(row.kelompok)}</div>` : ""}${row.spesifikasi ? `<div class="muted" style="font-size:11px;">${escapeHtml(row.spesifikasi)}</div>` : ""}</td>
       <td><input type="text" class="imp-satuan" value="${escapeHtml(row.satuan)}" style="width:70px"></td>
       <td class="num"><input type="text" inputmode="decimal" class="imp-volume" value="${row.volume}" style="width:80px; text-align:right"></td>
       <td class="num"><input type="text" inputmode="numeric" class="imp-harga" value="${formatNumberInput(row.hargaSatuan)}" style="width:110px; text-align:right"></td>
@@ -13288,6 +13348,7 @@ document.getElementById("imp_importBtn").addEventListener("click", () => {
     // per kelompok; dulu khusus RAB sehingga "sub pekerjaan" hilang setiap
     // kali BOQ diimpor ke Penawaran).
     if (r.kelompok) item.kelompok = r.kelompok;
+    if (r.spesifikasi) item.spesifikasi = r.spesifikasi;
     doc.items.push(item);
   });
   // Info dokumen dari baris atas file BOQ (PROYEK/LOKASI/KLIEN) mengisi
@@ -13304,6 +13365,11 @@ document.getElementById("imp_importBtn").addEventListener("click", () => {
   }
   saveState();
   if (importPreviewCtx.kind === "rab") renderRabEditor(); else renderPwEditor();
+  // Kosongkan pratinjau SEBELUM alert: klik ganda tombol Import memproses
+  // klik kedua setelah alert ditutup, dan tanpa ini seluruh item terimpor
+  // dua kali (duplikat yang dilaporkan Owner).
+  importPreviewRows = [];
+  importPreviewCtx = null;
   closeModals();
   if (toImport.length) alert(`${toImport.length} item berhasil diimpor. Cek kembali volume & harga di daftar item sebelum digunakan.`);
 });
@@ -15720,6 +15786,9 @@ document.getElementById("pb_terapkanBtn").addEventListener("click", () => {
   });
   if (!p.belanjaMaterial) p.belanjaMaterial = [];
   pulihkan.forEach(a => {
+    // Penjaga klik ganda: tabel modal tidak dirender ulang setelah klik
+    // pertama, jadi klik kedua akan mendorong baris pulihan yang sama lagi.
+    if (p.belanjaMaterial.some(b => b.id === a.t.sumberBelanjaId)) return;
     p.belanjaMaterial.push({
       id: a.t.sumberBelanjaId,
       nama: namaDariKeteranganBelanja(a.t),
