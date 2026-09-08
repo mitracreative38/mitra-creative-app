@@ -4151,7 +4151,10 @@
         </div>
         <div class="field">
           <label>Volume</label>
-          <input type="number" id="ps_volume" step="any" min="0" placeholder="0">
+          <div style="display:flex; gap:6px; align-items:center;">
+            <input type="number" id="ps_volume" step="any" min="0" placeholder="0" style="flex:1; min-width:0;">
+            <button type="button" class="icon-btn dim-calc-btn" data-dim-target="ps_volume" data-dim-satuan="ps_satuan" title="Hitung volume dari ukuran (P × L × T)">📐</button>
+          </div>
         </div>
         <div class="field">
           <label>Satuan</label>
@@ -4788,7 +4791,10 @@
         </div>
         <div class="field">
           <label>Volume</label>
-          <input type="text" inputmode="decimal" id="it_volume" required placeholder="0">
+          <div style="display:flex; gap:6px; align-items:center;">
+            <input type="text" inputmode="decimal" id="it_volume" required placeholder="0" style="flex:1; min-width:0;">
+            <button type="button" class="icon-btn dim-calc-btn" data-dim-target="it_volume" data-dim-satuan="it_satuan" title="Hitung volume dari ukuran (P × L × T)">📐</button>
+          </div>
         </div>
         <div class="field">
           <label>Harga Satuan (Rp)</label>
@@ -5453,6 +5459,52 @@
 
 <!-- Libraries for BOQ (.xlsx) import, OCR image import, & Excel export — loaded from CDN, only touched when those features are used -->
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<!-- Modal: Kalkulator Volume dari Ukuran (dipakai semua input volume: item RAB &
+     Penawaran, Pekerjaan Susulan, pratinjau Import BOQ/OCR, koefisien AHSP).
+     Ditaruh PALING AKHIR supaya tampil menumpuk di atas modal induknya. -->
+<div class="modal-backdrop" id="dimCalcModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>📐 Hitung Volume dari Ukuran</h3>
+      <button class="modal-close" id="dc_closeBtn" type="button">&times;</button>
+    </div>
+    <p class="muted" style="font-size:12px;">Hasil dihitung otomatis: <strong>P</strong> = m1 (lari) &nbsp;•&nbsp; <strong>P × L</strong> (atau P × T) = m2 (luas) &nbsp;•&nbsp; <strong>P × L × T</strong> = m3 (kubikasi). Kosongkan ukuran yang tidak dipakai. "Jumlah" untuk beberapa unit berukuran sama (mis. 3 pintu).</p>
+    <div class="form-grid">
+      <div class="field">
+        <label>Satuan ukuran</label>
+        <select id="dc_unit">
+          <option value="m">meter (m)</option>
+          <option value="cm">centimeter (cm)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Jumlah (unit)</label>
+        <input type="number" id="dc_n" step="any" min="0" value="1">
+      </div>
+      <div class="field">
+        <label>Panjang</label>
+        <input type="number" id="dc_p" step="any" min="0" placeholder="0">
+      </div>
+      <div class="field">
+        <label>Lebar</label>
+        <input type="number" id="dc_l" step="any" min="0" placeholder="0">
+      </div>
+      <div class="field">
+        <label>Tinggi / Tebal</label>
+        <input type="number" id="dc_t" step="any" min="0" placeholder="0">
+      </div>
+      <div class="field">
+        <label>Hasil</label>
+        <input type="text" id="dc_hasil" disabled value="0">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn-ghost" id="dc_batalBtn">Batal</button>
+      <button type="button" class="btn-primary" id="dc_pakaiBtn">Gunakan Hasil</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <!-- Supabase client for optional cloud sync — app works fully offline/local if this fails to load -->
