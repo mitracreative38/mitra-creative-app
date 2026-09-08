@@ -11919,7 +11919,7 @@ function renderKomponenRows() {
       </select>`}</td>
       <td><input type="text" class="komp-uraian" value="${escapeHtml(k.uraian || "")}" placeholder="mis. Semen PC"></td>
       <td><input type="text" class="komp-satuan" value="${escapeHtml(k.satuan || "")}" placeholder="kg"></td>
-      <td class="num"><input type="text" inputmode="decimal" class="komp-koef" value="${k.koefisien || ""}" style="text-align:right"></td>
+      <td class="num" style="white-space:nowrap;"><input type="text" inputmode="decimal" class="komp-koef" value="${k.koefisien || ""}" style="text-align:right"><button type="button" class="icon-btn dim-calc-btn" title="Hitung koefisien dari ukuran (P × L × T)">📐</button></td>
       <td class="num">${rahasia ? '<span class="muted">•••</span>' : `<input type="text" inputmode="numeric" class="komp-harga" value="${formatNumberInput(k.harga || 0)}" style="text-align:right">`}</td>
       <td class="num komp-jumlah">${rahasia ? "•••" : rupiah((k.koefisien || 0) * (k.harga || 0))}</td>
       <td><button type="button" class="icon-btn" data-remove-komponen="${idx}">🗑️</button></td>
@@ -12552,6 +12552,87 @@ document.getElementById("it_ahspPick").addEventListener("change", () => {
     itemModalCtx.ahspId = "";
   }
 });
+// ===== Kalkulator volume dari ukuran (P × L × T) =====
+// Satu kalkulator dipakai SEMUA titik input volume/koefisien (item RAB &
+// Penawaran/Adendum, Pekerjaan Susulan, pratinjau Import BOQ/OCR, koefisien
+// komponen AHSP) lewat tombol 📐 -- pengganti kalkulator terpisah yang
+// selama ini dipakai Owner. Tindak Lanjut Survey & Estimasi Cepat sudah
+// punya input dimensi sendiri, jadi tidak ikut.
+const dimCalcModal = document.getElementById("dimCalcModal");
+let dimCalcTarget = null;
+function hitungDimCalc() {
+  const faktor = document.getElementById("dc_unit").value === "cm" ? 0.01 : 1;
+  const n = parseFloat(document.getElementById("dc_n").value) || 0;
+  const p = (parseFloat((document.getElementById("dc_p").value || "").replace(",", ".")) || 0) * faktor;
+  const l = (parseFloat((document.getElementById("dc_l").value || "").replace(",", ".")) || 0) * faktor;
+  const t = (parseFloat((document.getElementById("dc_t").value || "").replace(",", ".")) || 0) * faktor;
+  let volume = 0, satuan = "";
+  if (p > 0) {
+    volume = p;
+    satuan = "m1";
+    if (l > 0) { volume *= l; satuan = "m2"; }
+    if (t > 0) { volume *= t; satuan = satuan === "m2" ? "m3" : "m2"; }
+    volume *= n > 0 ? n : 1;
+  }
+  // 6 desimal: cukup halus untuk kubikasi kecil (mis. 0.000288 m3) tanpa
+  // ekor pecahan biner ("2.0090000000000003").
+  return { volume: Math.round(volume * 1e6) / 1e6, satuan };
+}
+function renderDimCalcHasil() {
+  const { volume, satuan } = hitungDimCalc();
+  document.getElementById("dc_hasil").value = volume > 0 ? `${volume} ${satuan}` : "0";
+}
+["dc_unit", "dc_n", "dc_p", "dc_l", "dc_t"].forEach(id => {
+  document.getElementById(id).addEventListener("input", renderDimCalcHasil);
+});
+function openDimCalc(input, satuanInput) {
+  dimCalcTarget = { input, satuanInput: satuanInput || null };
+  ["dc_p", "dc_l", "dc_t"].forEach(id => { document.getElementById(id).value = ""; });
+  document.getElementById("dc_n").value = 1;
+  renderDimCalcHasil();
+  dimCalcModal.classList.add("open");
+  document.getElementById("dc_p").focus();
+}
+// Delegasi global: tombol statis (data-dim-target) MAUPUN tombol di baris
+// dinamis (pratinjau import & komponen AHSP -- input volume di sel yang sama).
+document.addEventListener("click", e => {
+  const btn = e.target.closest(".dim-calc-btn");
+  if (!btn) return;
+  let input = null, satuanInput = null;
+  if (btn.dataset.dimTarget) {
+    input = document.getElementById(btn.dataset.dimTarget);
+    if (btn.dataset.dimSatuan) satuanInput = document.getElementById(btn.dataset.dimSatuan);
+  } else {
+    const td = btn.closest("td");
+    input = td ? td.querySelector("input") : null;
+    const tr = btn.closest("tr");
+    if (tr) satuanInput = tr.querySelector(".imp-satuan");
+  }
+  if (input) openDimCalc(input, satuanInput);
+});
+// Tutup HANYA kalkulator (bukan closeModals) supaya modal induk di bawahnya
+// (item/susulan/import/AHSP) tetap terbuka.
+function tutupDimCalc() { dimCalcModal.classList.remove("open"); }
+document.getElementById("dc_closeBtn").addEventListener("click", tutupDimCalc);
+document.getElementById("dc_batalBtn").addEventListener("click", tutupDimCalc);
+document.getElementById("dc_pakaiBtn").addEventListener("click", () => {
+  const { volume, satuan } = hitungDimCalc();
+  if (!dimCalcTarget || !dimCalcTarget.input || !document.body.contains(dimCalcTarget.input)) { tutupDimCalc(); return; }
+  if (!(volume > 0)) { alert("Isi minimal Panjang terlebih dahulu."); return; }
+  const target = dimCalcTarget.input;
+  target.value = volume;
+  // Picu listener yang sudah ada (hitung ulang jumlah/preview/koefisien).
+  target.dispatchEvent(new Event("input", { bubbles: true }));
+  target.dispatchEvent(new Event("change", { bubbles: true }));
+  const su = dimCalcTarget.satuanInput;
+  if (su && satuan && (!su.value.trim() || su.value.trim() === "-")) {
+    su.value = satuan;
+    su.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  tutupDimCalc();
+  dimCalcTarget = null;
+});
+
 ["it_volume", "it_harga"].forEach(id => document.getElementById(id).addEventListener("input", updateItemJumlahPreview));
 attachNumberFormatting(document.getElementById("it_harga"));
 function updateItemJumlahPreview() {
@@ -13311,7 +13392,7 @@ function renderImportPreviewRows() {
       <td><input type="checkbox" class="imp-checked" ${row.checked ? "checked" : ""}></td>
       <td><input type="text" class="imp-uraian" value="${escapeHtml(row.uraian)}">${row.kelompok ? `<div class="muted" style="font-size:11px;">📂 ${escapeHtml(row.kelompok)}</div>` : ""}${row.spesifikasi ? `<div class="muted" style="font-size:11px;">${escapeHtml(row.spesifikasi)}</div>` : ""}</td>
       <td><input type="text" class="imp-satuan" value="${escapeHtml(row.satuan)}" style="width:70px"></td>
-      <td class="num"><input type="text" inputmode="decimal" class="imp-volume" value="${row.volume}" style="width:80px; text-align:right"></td>
+      <td class="num" style="white-space:nowrap;"><input type="text" inputmode="decimal" class="imp-volume" value="${row.volume}" style="width:80px; text-align:right"><button type="button" class="icon-btn dim-calc-btn" title="Hitung volume dari ukuran (P × L × T)">📐</button></td>
       <td class="num"><input type="text" inputmode="numeric" class="imp-harga" value="${formatNumberInput(row.hargaSatuan)}" style="width:110px; text-align:right"></td>
       <td class="num imp-jumlah">${rupiah(row.volume * row.hargaSatuan)}</td>
     `;
@@ -15056,6 +15137,12 @@ function closeModals() {
 }
 document.querySelectorAll("[data-close-modal]").forEach(el => el.addEventListener("click", closeModals));
 document.querySelectorAll(".modal-backdrop").forEach(m => {
+  // Kalkulator ukuran menumpuk DI ATAS modal lain -- klik latarnya cuma
+  // menutup kalkulatornya sendiri, modal induk di bawah tetap terbuka.
+  if (m.id === "dimCalcModal") {
+    m.addEventListener("click", e => { if (e.target === m) m.classList.remove("open"); });
+    return;
+  }
   m.addEventListener("click", e => { if (e.target === m) closeModals(); });
 });
 document.querySelectorAll("[data-open-modal='txn']").forEach(btn => {
