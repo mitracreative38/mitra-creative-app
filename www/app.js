@@ -721,13 +721,17 @@ async function mirrorKlienUpsert(k, existing) {
   try {
     const { error } = await sb.from("klien").upsert(klienToRow(k));
     if (error) throw error;
+    clearPendingMirror("klien", k.id);
     if (existing !== undefined) logActivityNow("klien", existing ? "update" : "create", k.id, existing, k);
   } catch (err) {
+    notePendingMirror("klien", k.id);
     setSyncStatus("Gagal menyimpan klien ke tabel relasional: " + err.message);
   }
 }
 async function mirrorKlienDelete(id, deletedRecord) {
   if (!sb || !targetCompanyId) return;
+  // Hapus yang disengaja tidak boleh dihidupkan kembali oleh antrean pending.
+  clearPendingMirror("klien", id);
   try {
     const { error } = await sb.from("klien").delete().eq("id", id).eq("company_id", targetCompanyId);
     if (error) throw error;
@@ -778,13 +782,17 @@ async function mirrorAhspUpsert(a, existing) {
   try {
     const { error } = await sb.from("ahsp").upsert(ahspToRow(a));
     if (error) throw error;
+    clearPendingMirror("ahsp", a.id);
     if (existing !== undefined) logActivityNow("ahsp", existing ? "update" : "create", a.id, existing, a);
   } catch (err) {
+    notePendingMirror("ahsp", a.id);
     setSyncStatus("Gagal menyimpan AHSP ke tabel relasional: " + err.message);
   }
 }
 async function mirrorAhspDelete(id, deletedRecord) {
   if (!sb || !targetCompanyId) return;
+  // Hapus yang disengaja tidak boleh dihidupkan kembali oleh antrean pending.
+  clearPendingMirror("ahsp", id);
   try {
     const { error } = await sb.from("ahsp").delete().eq("id", id).eq("company_id", targetCompanyId);
     if (error) throw error;
@@ -839,6 +847,7 @@ async function mirrorRabUpsert(r, isNew) {
   try {
     const { error } = await sb.from("rab").upsert(rabToRow(r));
     if (error) throw error;
+    clearPendingMirror("rab", r.id);
     if (isNew) {
       logActivityNow("rab", "create", r.id, null, r);
       openEditSnapshot("rab", r.id, r);
@@ -846,11 +855,14 @@ async function mirrorRabUpsert(r, isNew) {
       queueActivityEdit("rab", r.id, r);
     }
   } catch (err) {
+    notePendingMirror("rab", r.id);
     setSyncStatus("Gagal menyimpan RAB ke tabel relasional: " + err.message);
   }
 }
 async function mirrorRabDelete(id, deletedRecord) {
   if (!sb || !targetCompanyId) return;
+  // Hapus yang disengaja tidak boleh dihidupkan kembali oleh antrean pending.
+  clearPendingMirror("rab", id);
   try {
     const { error } = await sb.from("rab").delete().eq("id", id).eq("company_id", targetCompanyId);
     if (error) throw error;
@@ -917,6 +929,7 @@ async function mirrorPenawaranUpsert(p, isNew) {
   try {
     const { error } = await sb.from("penawaran").upsert(penawaranToRow(p));
     if (error) throw error;
+    clearPendingMirror("penawaran", p.id);
     if (isNew) {
       logActivityNow("penawaran", "create", p.id, null, p);
       openEditSnapshot("penawaran", p.id, p);
@@ -924,11 +937,14 @@ async function mirrorPenawaranUpsert(p, isNew) {
       queueActivityEdit("penawaran", p.id, p);
     }
   } catch (err) {
+    notePendingMirror("penawaran", p.id);
     setSyncStatus("Gagal menyimpan Penawaran ke tabel relasional: " + err.message);
   }
 }
 async function mirrorPenawaranDelete(id, deletedRecord) {
   if (!sb || !targetCompanyId) return;
+  // Hapus yang disengaja tidak boleh dihidupkan kembali oleh antrean pending.
+  clearPendingMirror("penawaran", id);
   try {
     const { error } = await sb.from("penawaran").delete().eq("id", id).eq("company_id", targetCompanyId);
     if (error) throw error;
@@ -1204,13 +1220,17 @@ async function mirrorStokUpsert(s, existing) {
   try {
     const { error } = await sb.from("stok_material").upsert(stokToRow(s));
     if (error) throw error;
+    clearPendingMirror("stok", s.id);
     if (existing !== undefined) logActivityNow("stok", existing ? "update" : "create", s.id, existing, s);
   } catch (err) {
+    notePendingMirror("stok", s.id);
     setSyncStatus("Gagal menyimpan Stok ke tabel relasional: " + err.message);
   }
 }
 async function mirrorStokDelete(id, deletedRecord) {
   if (!sb || !targetCompanyId) return;
+  // Hapus yang disengaja tidak boleh dihidupkan kembali oleh antrean pending.
+  clearPendingMirror("stok", id);
   try {
     const { error } = await sb.from("stok_material").delete().eq("id", id).eq("company_id", targetCompanyId);
     if (error) throw error;
@@ -1266,13 +1286,17 @@ async function mirrorAlatUpsert(a, existing) {
   try {
     const { error } = await sb.from("alat").upsert(alatToRow(a));
     if (error) throw error;
+    clearPendingMirror("alat", a.id);
     if (existing !== undefined) logActivityNow("alat", existing ? "update" : "create", a.id, existing, a);
   } catch (err) {
+    notePendingMirror("alat", a.id);
     setSyncStatus("Gagal menyimpan Alat ke tabel relasional: " + err.message);
   }
 }
 async function mirrorAlatDelete(id, deletedRecord) {
   if (!sb || !targetCompanyId) return;
+  // Hapus yang disengaja tidak boleh dihidupkan kembali oleh antrean pending.
+  clearPendingMirror("alat", id);
   try {
     const { error } = await sb.from("alat").delete().eq("id", id).eq("company_id", targetCompanyId);
     if (error) throw error;
@@ -1300,8 +1324,10 @@ async function mirrorOpnameUpsert(o) {
   try {
     const { error } = await sb.from("stok_opname").upsert(opnameToRow(o));
     if (error) throw error;
+    clearPendingMirror("stokOpname", o.id);
     logActivityNow("opname", "create", o.id, null, o);
   } catch (err) {
+    notePendingMirror("stokOpname", o.id);
     setSyncStatus("Gagal menyimpan Opname ke tabel relasional: " + err.message);
   }
 }
@@ -1319,13 +1345,17 @@ async function mirrorGudangUpsert(g, existing) {
   try {
     const { error } = await sb.from("gudang").upsert(gudangToRow(g));
     if (error) throw error;
+    clearPendingMirror("gudang", g.id);
     if (existing !== undefined) logActivityNow("gudang", existing ? "update" : "create", g.id, existing, g);
   } catch (err) {
+    notePendingMirror("gudang", g.id);
     setSyncStatus("Gagal menyimpan Gudang ke tabel relasional: " + err.message);
   }
 }
 async function mirrorGudangDelete(id, deletedRecord) {
   if (!sb || !targetCompanyId) return;
+  // Hapus yang disengaja tidak boleh dihidupkan kembali oleh antrean pending.
+  clearPendingMirror("gudang", id);
   try {
     const { error } = await sb.from("gudang").delete().eq("id", id).eq("company_id", targetCompanyId);
     if (error) throw error;
@@ -1371,13 +1401,17 @@ async function mirrorPemasokUpsert(pm, existing) {
   try {
     const { error } = await sb.from("pemasok").upsert(pemasokToRow(pm));
     if (error) throw error;
+    clearPendingMirror("pemasok", pm.id);
     if (existing !== undefined) logActivityNow("pemasok", existing ? "update" : "create", pm.id, existing, pm);
   } catch (err) {
+    notePendingMirror("pemasok", pm.id);
     setSyncStatus("Gagal menyimpan Pemasok ke tabel relasional: " + err.message);
   }
 }
 async function mirrorPemasokDelete(id, deletedRecord) {
   if (!sb || !targetCompanyId) return;
+  // Hapus yang disengaja tidak boleh dihidupkan kembali oleh antrean pending.
+  clearPendingMirror("pemasok", id);
   try {
     const { error } = await sb.from("pemasok").delete().eq("id", id).eq("company_id", targetCompanyId);
     if (error) throw error;
@@ -1407,13 +1441,17 @@ async function mirrorAsetSewaUpsert(a, existing) {
   try {
     const { error } = await sb.from("aset_sewa").upsert(asetSewaToRow(a));
     if (error) throw error;
+    clearPendingMirror("asetSewa", a.id);
     if (existing !== undefined) logActivityNow("asetSewa", existing ? "update" : "create", a.id, existing, a);
   } catch (err) {
+    notePendingMirror("asetSewa", a.id);
     setSyncStatus("Gagal menyimpan Aset Sewa ke tabel relasional: " + err.message);
   }
 }
 async function mirrorAsetSewaDelete(id, deletedRecord) {
   if (!sb || !targetCompanyId) return;
+  // Hapus yang disengaja tidak boleh dihidupkan kembali oleh antrean pending.
+  clearPendingMirror("asetSewa", id);
   try {
     const { error } = await sb.from("aset_sewa").delete().eq("id", id).eq("company_id", targetCompanyId);
     if (error) throw error;
@@ -1442,13 +1480,17 @@ async function mirrorUtangUsahaUpsert(u, existing) {
   try {
     const { error } = await sb.from("utang_usaha").upsert(utangUsahaToRow(u));
     if (error) throw error;
+    clearPendingMirror("utangUsaha", u.id);
     if (existing !== undefined) logActivityNow("utangUsaha", existing ? "update" : "create", u.id, existing, u);
   } catch (err) {
+    notePendingMirror("utangUsaha", u.id);
     setSyncStatus("Gagal menyimpan Utang Usaha ke tabel relasional: " + err.message);
   }
 }
 async function mirrorUtangUsahaDelete(id, deletedRecord) {
   if (!sb || !targetCompanyId) return;
+  // Hapus yang disengaja tidak boleh dihidupkan kembali oleh antrean pending.
+  clearPendingMirror("utangUsaha", id);
   try {
     const { error } = await sb.from("utang_usaha").delete().eq("id", id).eq("company_id", targetCompanyId);
     if (error) throw error;
@@ -1468,12 +1510,16 @@ async function mirrorKasOpnameUpsert(o) {
       catatan: o.catatan || "", updated_at: new Date().toISOString()
     });
     if (error) throw error;
+    clearPendingMirror("kasOpname", o.id);
   } catch (err) {
+    notePendingMirror("kasOpname", o.id);
     setSyncStatus("Gagal menyimpan Opname Kas ke tabel relasional: " + err.message);
   }
 }
 async function mirrorKasOpnameDelete(id) {
   if (!sb || !targetCompanyId || !currentSyncUser || currentSyncUser.id !== targetCompanyId) return;
+  // Hapus yang disengaja tidak boleh dihidupkan kembali oleh antrean pending.
+  clearPendingMirror("kasOpname", id);
   try {
     const { error } = await sb.from("kas_opname").delete().eq("id", id).eq("company_id", targetCompanyId);
     if (error) throw error;
@@ -1504,13 +1550,17 @@ async function mirrorAsetTetapUpsert(a, existing) {
   try {
     const { error } = await sb.from("aset_tetap").upsert(asetTetapToRow(a));
     if (error) throw error;
+    clearPendingMirror("asetTetap", a.id);
     if (existing !== undefined) logActivityNow("asetTetap", existing ? "update" : "create", a.id, existing, a);
   } catch (err) {
+    notePendingMirror("asetTetap", a.id);
     setSyncStatus("Gagal menyimpan Aset Tetap ke tabel relasional: " + err.message);
   }
 }
 async function mirrorAsetTetapDelete(id, deletedRecord) {
   if (!sb || !targetCompanyId) return;
+  // Hapus yang disengaja tidak boleh dihidupkan kembali oleh antrean pending.
+  clearPendingMirror("asetTetap", id);
   try {
     const { error } = await sb.from("aset_tetap").delete().eq("id", id).eq("company_id", targetCompanyId);
     if (error) throw error;
@@ -1543,13 +1593,17 @@ async function mirrorLaporanKerjaUpsert(l, existing) {
   try {
     const { error } = await sb.from("laporan_kerja").upsert(laporanKerjaToRow(l));
     if (error) throw error;
+    clearPendingMirror("laporanKerja", l.id);
     if (existing !== undefined) logActivityNow("laporanKerja", existing ? "update" : "create", l.id, existing, l);
   } catch (err) {
+    notePendingMirror("laporanKerja", l.id);
     setSyncStatus("Gagal menyimpan Laporan Kerja ke tabel relasional: " + err.message);
   }
 }
 async function mirrorLaporanKerjaDelete(id, deletedRecord) {
   if (!sb || !targetCompanyId) return;
+  // Hapus yang disengaja tidak boleh dihidupkan kembali oleh antrean pending.
+  clearPendingMirror("laporanKerja", id);
   try {
     const { error } = await sb.from("laporan_kerja").delete().eq("id", id).eq("company_id", targetCompanyId);
     if (error) throw error;
@@ -1759,13 +1813,17 @@ async function mirrorKasPribadiUpsert(t, existing) {
   try {
     const { error } = await sb.from("kas_pribadi_transaksi").upsert(kasPribadiTxnToRow(t));
     if (error) throw error;
+    clearPendingMirror("kasPribadi", t.id);
     if (existing !== undefined) logActivityNow("kasPribadi", existing ? "update" : "create", t.id, existing, t);
   } catch (err) {
+    notePendingMirror("kasPribadi", t.id);
     setSyncStatus("Gagal menyimpan transaksi Kas Pribadi ke tabel relasional: " + err.message);
   }
 }
 async function mirrorKasPribadiDelete(id, deletedRecord) {
   if (!sb || !targetCompanyId) return;
+  // Hapus yang disengaja tidak boleh dihidupkan kembali oleh antrean pending.
+  clearPendingMirror("kasPribadi", id);
   try {
     const { error } = await sb.from("kas_pribadi_transaksi").delete().eq("id", id).eq("company_id", targetCompanyId);
     if (error) throw error;
@@ -1793,6 +1851,29 @@ function mirrorKasTxnUpsert(book, t, existing) {
 function mirrorKasTxnDelete(book, id, deletedRecord) {
   if (book === "kasUsaha") mirrorKasUsahaDelete(id, deletedRecord); else mirrorKasPribadiDelete(id, deletedRecord);
 }
+
+// Registri jaring pengaman generik (kasus yang dilaporkan Owner: RAB yang
+// diinput Admin lenyap): SEMUA modul dokumen kini dilindungi antrean
+// pending yang sama seperti Proyek/Kas Perusahaan/Karyawan. Dokumen yang
+// mirror-nya gagal dicatat, dipertahankan saat reload dari cloud, dan
+// dimirror ulang di latar belakang sampai berhasil.
+const RESCUE_DOC_MODULES = [
+  { table: "klien", key: "klien", mirror: x => mirrorKlienUpsert(x) },
+  { table: "ahsp", key: "ahsp", mirror: x => mirrorAhspUpsert(x) },
+  { table: "rab", key: "proyekRab", mirror: x => mirrorRabUpsert(x) },
+  { table: "penawaran", key: "penawaran", mirror: x => mirrorPenawaranUpsert(x) },
+  { table: "stok", key: "stok", mirror: x => mirrorStokUpsert(x) },
+  { table: "alat", key: "alat", mirror: x => mirrorAlatUpsert(x) },
+  { table: "stokOpname", key: "stokOpname", mirror: x => mirrorOpnameUpsert(x) },
+  { table: "gudang", key: "gudang", mirror: x => mirrorGudangUpsert(x) },
+  { table: "pemasok", key: "pemasok", mirror: x => mirrorPemasokUpsert(x) },
+  { table: "asetSewa", key: "asetSewa", mirror: x => mirrorAsetSewaUpsert(x) },
+  { table: "utangUsaha", key: "utangUsaha", mirror: x => mirrorUtangUsahaUpsert(x) },
+  { table: "kasOpname", key: "kasOpname", mirror: x => mirrorKasOpnameUpsert(x) },
+  { table: "asetTetap", key: "asetTetap", mirror: x => mirrorAsetTetapUpsert(x) },
+  { table: "laporanKerja", key: "laporanKerja", mirror: x => mirrorLaporanKerjaUpsert(x) },
+  { table: "kasPribadi", key: "kasPribadi", mirror: x => mirrorKasPribadiUpsert(x) }
+];
 
 // ===== Fase 0.4 (Tahap 1): bangun ulang seluruh `state` dari tabel
 // relasional, bukan dari blob app_state -- supaya RLS per-tabel yang
@@ -2117,6 +2198,25 @@ async function buildStateFromRelational(companyId) {
         mirrorKaryawanUpsert(lokal);
         if (currentTeamRole === "owner") mirrorKaryawanGajiUpsert(lokal);
       }, 2000);
+    });
+    // Jaring pengaman generik untuk SEMUA modul dokumen lain (RAB,
+    // Penawaran, Klien, AHSP, Stok, dst.) -- versi LOKAL yang mirror-nya
+    // gagal/belum terkirim lebih baru dari cloud, jadi dipertahankan
+    // (menimpa hasil relasional) lalu dimirror ulang di latar belakang.
+    RESCUE_DOC_MODULES.forEach(({ table, key, mirror }) => {
+      getPendingMirrorIds(table).forEach(id => {
+        const daftarCloud = key === "kasPribadi"
+          ? built.kasPribadi.transactions
+          : (built[key] = built[key] || []);
+        const daftarLokal = key === "kasPribadi"
+          ? ((lokalState.kasPribadi || {}).transactions || [])
+          : (lokalState[key] || []);
+        const lokal = daftarLokal.find(x => x && x.id === id);
+        if (!lokal) { clearPendingMirror(table, id); return; }
+        const idx = daftarCloud.findIndex(x => x && x.id === id);
+        if (idx >= 0) daftarCloud[idx] = lokal; else daftarCloud.push(lokal);
+        setTimeout(() => { mirror(lokal); }, 2000);
+      });
     });
   }
   return built;
@@ -14071,8 +14171,12 @@ function renderPwEditor() {
   if (focusedId !== "pw_ttdJabatan") document.getElementById("pw_ttdJabatan").value = pw.ttdJabatan || state.ownerJabatan;
 
   const importSel = document.getElementById("pw_importRab");
+  // Label memuat nomor + nama (bukan nama saja) dan diurutkan terbaru dulu:
+  // RAB yang belum diberi nama proyek dulunya cuma tampil "(Tanpa nama)"
+  // sehingga terlihat seperti hilang di daftar ini.
   importSel.innerHTML = '<option value="">— Pilih RAB untuk mengisi item otomatis —</option>' +
-    state.proyekRab.map(r => `<option value="${r.id}">${escapeHtml(r.nama || "(Tanpa nama)")}</option>`).join("");
+    state.proyekRab.slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""))
+      .map(r => `<option value="${r.id}">${escapeHtml([r.nomor, r.nama].filter(Boolean).join(" — ") || "(Tanpa nama)")}</option>`).join("");
 
   const tbody = document.querySelector("#pw_itemsTable tbody");
   tbody.innerHTML = "";
