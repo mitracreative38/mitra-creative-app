@@ -1134,6 +1134,119 @@ const AHSP_TEMPLATES = [
       { jenis: "Upah", uraian: "Pekerja", satuan: "OH", koefisien: 1.5 },
       { jenis: "Upah", uraian: "Tukang Las", satuan: "OH", koefisien: 1.5 },
       { jenis: "Upah", uraian: "Mandor", satuan: "OH", koefisien: 0.15 }
+    ] },
+  // ===== Infrastructure CCTV & Network (dari file Penawaran Infrastructure CCTV
+  // Mitra Creative "Revisi Jasa" milik Owner) — komponen berisi HPP riil proyek
+  // supaya gampang diedit saat ada update harga; Overhead & Profit = margin. =====
+  { kode: "CCTVNET-M01", kategori: "CCTV", uraian: "IP Camera Hikvision DS-2CD2T46G2H-IS2U/SL (White) 4MP", satuan: "unit", overhead: 45.71,
+    referensi: "Penawaran Infrastructure CCTV Mitra Creative (Revisi Jasa) — komponen = harga modal (HPP) supplier: ubah di sini saat ada update harga; Overhead & Profit = margin otomatis (ganti ke mode Manual untuk margin manual) — HPP 3.500.000 → jual ±5.100.000",
+    komponen: [
+      { jenis: "Bahan", uraian: "IP Camera Hikvision DS-2CD2T46G2H-IS2U/SL 4MP (harga modal supplier)", satuan: "unit", koefisien: 1, harga: 3500000 }
+    ] },
+  { kode: "CCTVNET-M02", kategori: "CCTV", uraian: "Wallmount Indoor Rack 6U (include PDU)", satuan: "unit", overhead: 34.78,
+    referensi: "Penawaran Infrastructure CCTV Mitra Creative (Revisi Jasa) — komponen = harga modal (HPP) supplier: ubah di sini saat ada update harga; Overhead & Profit = margin otomatis (ganti ke mode Manual untuk margin manual) — HPP 1.150.000 → jual ±1.550.000",
+    komponen: [
+      { jenis: "Bahan", uraian: "Rack Wallmount Indoor 6U + PDU (harga modal supplier)", satuan: "unit", koefisien: 1, harga: 1150000 }
+    ] },
+  { kode: "CCTVNET-M03", kategori: "CCTV", uraian: "Omada 28-Port Gigabit Easy Managed Switch 24-Port PoE+", satuan: "unit", overhead: 29.03,
+    referensi: "Penawaran Infrastructure CCTV Mitra Creative (Revisi Jasa) — komponen = harga modal (HPP) supplier: ubah di sini saat ada update harga; Overhead & Profit = margin otomatis (ganti ke mode Manual untuk margin manual) — HPP 4.650.000 → jual ±6.000.000",
+    komponen: [
+      { jenis: "Bahan", uraian: "Switch Omada 28-Port Gigabit (24 PoE+) (harga modal supplier)", satuan: "unit", koefisien: 1, harga: 4650000 }
+    ] },
+  { kode: "CCTVNET-M04", kategori: "CCTV", uraian: "Junction Box / Duradus 10x10x5 cm", satuan: "unit", overhead: 75.0,
+    referensi: "Penawaran Infrastructure CCTV Mitra Creative (Revisi Jasa) — komponen = harga modal (HPP) supplier: ubah di sini saat ada update harga; Overhead & Profit = margin otomatis (ganti ke mode Manual untuk margin manual) — HPP 20.000 → jual ±35.000",
+    komponen: [
+      { jenis: "Bahan", uraian: "Junction Box/Duradus 10x10x5 (harga modal supplier)", satuan: "unit", koefisien: 1, harga: 20000 }
+    ] },
+  { kode: "CCTVNET-M05", kategori: "CCTV", uraian: "Kabel Listrik NYYHY 3 x 1.5 mm2", satuan: "m1", overhead: 48.65,
+    referensi: "Penawaran Infrastructure CCTV Mitra Creative (Revisi Jasa) — komponen = harga modal (HPP) supplier: ubah di sini saat ada update harga; Overhead & Profit = margin otomatis (ganti ke mode Manual untuk margin manual) — HPP 18.500 → jual ±27.500",
+    komponen: [
+      { jenis: "Bahan", uraian: "Kabel NYYHY 3x1.5 mm2 (harga modal supplier)", satuan: "m1", koefisien: 1, harga: 18500 }
+    ] },
+  { kode: "CCTVNET-M06", kategori: "CCTV", uraian: "Kabel LAN Belden CAT6 (Blue)", satuan: "roll 305m", overhead: 29.58,
+    referensi: "Penawaran Infrastructure CCTV Mitra Creative (Revisi Jasa) — komponen = harga modal (HPP) supplier: ubah di sini saat ada update harga; Overhead & Profit = margin otomatis (ganti ke mode Manual untuk margin manual) — HPP 3.550.000 → jual ±4.600.000",
+    komponen: [
+      { jenis: "Bahan", uraian: "Kabel Belden CAT6 roll 305m (harga modal supplier)", satuan: "roll 305m", koefisien: 1, harga: 3550000 }
+    ] },
+  { kode: "CCTVNET-M07", kategori: "CCTV", uraian: "Konektor Belden RJ45 CAT6", satuan: "pack", overhead: 33.72,
+    referensi: "Penawaran Infrastructure CCTV Mitra Creative (Revisi Jasa) — komponen = harga modal (HPP) supplier: ubah di sini saat ada update harga; Overhead & Profit = margin otomatis (ganti ke mode Manual untuk margin manual) — HPP 430.000 → jual ±575.000",
+    komponen: [
+      { jenis: "Bahan", uraian: "Konektor RJ45 CAT6 Belden per pack (harga modal supplier)", satuan: "pack", koefisien: 1, harga: 430000 }
+    ] },
+  { kode: "CCTVNET-M08", kategori: "CCTV", uraian: "Pipa Conduit 20mm + Shock/Coupling", satuan: "batang", overhead: 60.71,
+    referensi: "Penawaran Infrastructure CCTV Mitra Creative (Revisi Jasa) — komponen = harga modal (HPP) supplier: ubah di sini saat ada update harga; Overhead & Profit = margin otomatis (ganti ke mode Manual untuk margin manual) — HPP 14.000 → jual ±22.500",
+    komponen: [
+      { jenis: "Bahan", uraian: "Pipa Conduit 20mm + aksesoris (harga modal supplier)", satuan: "batang", koefisien: 1, harga: 14000 }
+    ] },
+  { kode: "CCTVNET-J01", kategori: "CCTV", uraian: "Mobilisasi, Survey, Marking & Koordinasi Titik", satuan: "lot", overhead: 52.86,
+    referensi: "Penawaran Infrastructure CCTV Mitra Creative (Revisi Jasa) — Overhead 52.86% = contingency 7% + gross margin 30%; batas bawah nego margin 22% ≈ Overhead 37.2%. Upah = borongan; ganti Sumber ke 'Upah Tertinggi Mitra +20%' untuk pola harian — Termasuk koordinasi awal & penandaan titik",
+    komponen: [
+      { jenis: "Upah", uraian: "Borongan: Mobilisasi, Survey, Marking & Koordinasi Titik", satuan: "lot", koefisien: 1, harga: 1000000 }
+    ] },
+  { kode: "CCTVNET-J02", kategori: "CCTV", uraian: "Pemasangan Fisik & Pointing IP Camera", satuan: "titik", overhead: 52.86,
+    referensi: "Penawaran Infrastructure CCTV Mitra Creative (Revisi Jasa) — Overhead 52.86% = contingency 7% + gross margin 30%; batas bawah nego margin 22% ≈ Overhead 37.2%. Upah = borongan; ganti Sumber ke 'Upah Tertinggi Mitra +20%' untuk pola harian — Mounting, alignment, finishing minor",
+    komponen: [
+      { jenis: "Upah", uraian: "Borongan: Pemasangan Fisik & Pointing IP Camera", satuan: "titik", koefisien: 1, harga: 200000 }
+    ] },
+  { kode: "CCTVNET-J03", kategori: "CCTV", uraian: "Penarikan Kabel CAT6", satuan: "m1", overhead: 52.86,
+    referensi: "Penawaran Infrastructure CCTV Mitra Creative (Revisi Jasa) — Overhead 52.86% = contingency 7% + gross margin 30%; batas bawah nego margin 22% ≈ Overhead 37.2%. Upah = borongan; ganti Sumber ke 'Upah Tertinggi Mitra +20%' untuk pola harian — Tidak termasuk material kabel",
+    komponen: [
+      { jenis: "Upah", uraian: "Borongan: Penarikan Kabel CAT6", satuan: "m1", koefisien: 1, harga: 5000 }
+    ] },
+  { kode: "CCTVNET-J04", kategori: "CCTV", uraian: "Terminasi RJ45 + Testing Continuity", satuan: "ujung", overhead: 52.86,
+    referensi: "Penawaran Infrastructure CCTV Mitra Creative (Revisi Jasa) — Overhead 52.86% = contingency 7% + gross margin 30%; batas bawah nego margin 22% ≈ Overhead 37.2%. Upah = borongan; ganti Sumber ke 'Upah Tertinggi Mitra +20%' untuk pola harian — 2 ujung per kamera; termasuk crimping & test",
+    komponen: [
+      { jenis: "Upah", uraian: "Borongan: Terminasi RJ45 + Testing Continuity", satuan: "ujung", koefisien: 1, harga: 35000 }
+    ] },
+  { kode: "CCTVNET-J05", kategori: "CCTV", uraian: "Pemasangan Wallmount Rack 6U", satuan: "unit", overhead: 52.86,
+    referensi: "Penawaran Infrastructure CCTV Mitra Creative (Revisi Jasa) — Overhead 52.86% = contingency 7% + gross margin 30%; batas bawah nego margin 22% ≈ Overhead 37.2%. Upah = borongan; ganti Sumber ke 'Upah Tertinggi Mitra +20%' untuk pola harian — Mounting rack & basic dressing",
+    komponen: [
+      { jenis: "Upah", uraian: "Borongan: Pemasangan Wallmount Rack 6U", satuan: "unit", koefisien: 1, harga: 300000 }
+    ] },
+  { kode: "CCTVNET-J06", kategori: "CCTV", uraian: "Pemasangan Fisik Switch PoE", satuan: "unit", overhead: 52.86,
+    referensi: "Penawaran Infrastructure CCTV Mitra Creative (Revisi Jasa) — Overhead 52.86% = contingency 7% + gross margin 30%; batas bawah nego margin 22% ≈ Overhead 37.2%. Upah = borongan; ganti Sumber ke 'Upah Tertinggi Mitra +20%' untuk pola harian — Qty switch perlu konfirmasi tertulis",
+    komponen: [
+      { jenis: "Upah", uraian: "Borongan: Pemasangan Fisik Switch PoE", satuan: "unit", koefisien: 1, harga: 100000 }
+    ] },
+  { kode: "CCTVNET-J07", kategori: "CCTV", uraian: "Setting PoE / IP / Uplink / VLAN Basic", satuan: "unit", overhead: 52.86,
+    referensi: "Penawaran Infrastructure CCTV Mitra Creative (Revisi Jasa) — Overhead 52.86% = contingency 7% + gross margin 30%; batas bawah nego margin 22% ≈ Overhead 37.2%. Upah = borongan; ganti Sumber ke 'Upah Tertinggi Mitra +20%' untuk pola harian — Basic managed-switch configuration",
+    komponen: [
+      { jenis: "Upah", uraian: "Borongan: Setting PoE / IP / Uplink / VLAN Basic", satuan: "unit", koefisien: 1, harga: 125000 }
+    ] },
+  { kode: "CCTVNET-J08", kategori: "CCTV", uraian: "Setting IP Camera & Integrasi Network/NVR", satuan: "unit", overhead: 52.86,
+    referensi: "Penawaran Infrastructure CCTV Mitra Creative (Revisi Jasa) — Overhead 52.86% = contingency 7% + gross margin 30%; batas bawah nego margin 22% ≈ Overhead 37.2%. Upah = borongan; ganti Sumber ke 'Upah Tertinggi Mitra +20%' untuk pola harian — NVR/VMS diasumsikan tersedia dari owner",
+    komponen: [
+      { jenis: "Upah", uraian: "Borongan: Setting IP Camera & Integrasi Network/NVR", satuan: "unit", koefisien: 1, harga: 100000 }
+    ] },
+  { kode: "CCTVNET-J09", kategori: "CCTV", uraian: "Pemasangan Conduit 20mm", satuan: "m1", overhead: 52.86,
+    referensi: "Penawaran Infrastructure CCTV Mitra Creative (Revisi Jasa) — Overhead 52.86% = contingency 7% + gross margin 30%; batas bawah nego margin 22% ≈ Overhead 37.2%. Upah = borongan; ganti Sumber ke 'Upah Tertinggi Mitra +20%' untuk pola harian — Jalur exposed / non-chasing",
+    komponen: [
+      { jenis: "Upah", uraian: "Borongan: Pemasangan Conduit 20mm", satuan: "m1", koefisien: 1, harga: 12000 }
+    ] },
+  { kode: "CCTVNET-J10", kategori: "CCTV", uraian: "Bobok/Chasing Dinding + Patching Dasar", satuan: "m1", overhead: 52.86,
+    referensi: "Penawaran Infrastructure CCTV Mitra Creative (Revisi Jasa) — Overhead 52.86% = contingency 7% + gross margin 30%; batas bawah nego margin 22% ≈ Overhead 37.2%. Upah = borongan; ganti Sumber ke 'Upah Tertinggi Mitra +20%' untuk pola harian — Allowance; kelebihan volume sebaiknya VO",
+    komponen: [
+      { jenis: "Upah", uraian: "Borongan: Bobok/Chasing Dinding + Patching Dasar", satuan: "m1", koefisien: 1, harga: 50000 }
+    ] },
+  { kode: "CCTVNET-J11", kategori: "CCTV", uraian: "Penarikan Kabel Power NYYHY 3x1.5", satuan: "m1", overhead: 52.86,
+    referensi: "Penawaran Infrastructure CCTV Mitra Creative (Revisi Jasa) — Overhead 52.86% = contingency 7% + gross margin 30%; batas bawah nego margin 22% ≈ Overhead 37.2%. Upah = borongan; ganti Sumber ke 'Upah Tertinggi Mitra +20%' untuk pola harian — Tidak termasuk material kabel",
+    komponen: [
+      { jenis: "Upah", uraian: "Borongan: Penarikan Kabel Power NYYHY 3x1.5", satuan: "m1", koefisien: 1, harga: 8000 }
+    ] },
+  { kode: "CCTVNET-J12", kategori: "CCTV", uraian: "Labeling, Network Testing & Dokumentasi", satuan: "lot", overhead: 52.86,
+    referensi: "Penawaran Infrastructure CCTV Mitra Creative (Revisi Jasa) — Overhead 52.86% = contingency 7% + gross margin 30%; batas bawah nego margin 22% ≈ Overhead 37.2%. Upah = borongan; ganti Sumber ke 'Upah Tertinggi Mitra +20%' untuk pola harian — Label kabel/perangkat & test report basic",
+    komponen: [
+      { jenis: "Upah", uraian: "Borongan: Labeling, Network Testing & Dokumentasi", satuan: "lot", koefisien: 1, harga: 1500000 }
+    ] },
+  { kode: "CCTVNET-J13", kategori: "CCTV", uraian: "Testing, Commissioning & Handover", satuan: "lot", overhead: 52.86,
+    referensi: "Penawaran Infrastructure CCTV Mitra Creative (Revisi Jasa) — Overhead 52.86% = contingency 7% + gross margin 30%; batas bawah nego margin 22% ≈ Overhead 37.2%. Upah = borongan; ganti Sumber ke 'Upah Tertinggi Mitra +20%' untuk pola harian — Final functional test & serah terima",
+    komponen: [
+      { jenis: "Upah", uraian: "Borongan: Testing, Commissioning & Handover", satuan: "lot", koefisien: 1, harga: 1500000 }
+    ] },
+  { kode: "CCTVNET-J14", kategori: "CCTV", uraian: "Tools, Tangga/Scaffold Ringan & Consumable Kerja", satuan: "lot", overhead: 52.86,
+    referensi: "Penawaran Infrastructure CCTV Mitra Creative (Revisi Jasa) — Overhead 52.86% = contingency 7% + gross margin 30%; batas bawah nego margin 22% ≈ Overhead 37.2%. Upah = borongan; ganti Sumber ke 'Upah Tertinggi Mitra +20%' untuk pola harian — Scaffold berat/manlift tidak termasuk",
+    komponen: [
+      { jenis: "Alat", uraian: "Tools, Tangga/Scaffold Ringan & Consumable Kerja", satuan: "lot", koefisien: 1, harga: 2000000 }
     ] }
 ];
 

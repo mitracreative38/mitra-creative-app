@@ -12106,6 +12106,41 @@ function recalcAhspTotals() {
   const overhead = parseFloat(document.getElementById("ah_overhead").value) || 0;
   document.getElementById("ah_komponenSubtotal").textContent = rupiah(subtotal);
   document.getElementById("ah_totalHsp").textContent = rupiah(Math.round(subtotal * (1 + overhead / 100)));
+  renderUpahBanding();
+}
+// Perbandingan upah borongan vs harian (permintaan Owner: "upah bisa borong
+// bisa upah tertinggi, dan terlihat lebih menguntungkan yang mana"): total
+// komponen Upah dengan setelan sekarang dibandingkan dengan skenario semua
+// komponen Upah memakai tarif Upah Tertinggi Mitra +20% (tarif OH x
+// koefisien -- akurat bila koefisien = perkiraan OH per satuan). HPP lebih
+// rendah = margin lebih besar pada harga jual yang sama.
+function renderUpahBanding() {
+  const box = document.getElementById("ah_upahBanding");
+  const upahRows = ahspKomponenRows.filter(k => k.jenis === "Upah");
+  // Cek peran DULU: untuk non-Owner nominal upah rahasia (Fix 30) dan
+  // sumberHargaLookup("maxupah") bisa mengembalikan null.
+  if (currentTeamRole !== "owner" || !upahRows.length) {
+    box.style.display = "none";
+    box.innerHTML = "";
+    return;
+  }
+  const src = sumberHargaLookup("maxupah", "auto");
+  const tarif = (src && src.harga) || 0;
+  if (tarif <= 0) {
+    box.style.display = "none";
+    box.innerHTML = "";
+    return;
+  }
+  const sekarang = upahRows.reduce((s, k) => s + (k.koefisien || 0) * (k.harga || 0), 0);
+  const harian = upahRows.reduce((s, k) => s + (k.koefisien || 0) * tarif, 0);
+  const selisih = Math.round(Math.abs(sekarang - harian));
+  let verdict;
+  if (selisih < 1) verdict = "keduanya setara.";
+  else if (harian < sekarang) verdict = `<strong>lebih untung pola harian</strong> — HPP lebih hemat ${rupiah(selisih)} per ${escapeHtml(document.getElementById("ah_satuan").value || "satuan")}.`;
+  else verdict = `<strong>lebih untung borongan (setelan sekarang)</strong> — HPP lebih hemat ${rupiah(selisih)} per ${escapeHtml(document.getElementById("ah_satuan").value || "satuan")}.`;
+  box.innerHTML = `💡 <strong>Perbandingan upah:</strong> setelan sekarang ${rupiah(Math.round(sekarang))} vs semua pakai Upah Tertinggi Mitra +20% (${rupiah(tarif)}/OH × koefisien) ${rupiah(Math.round(harian))} → ${verdict}<br>` +
+    `Alihkan per baris lewat dropdown <em>Sumber Harga</em> (Manual = borongan, "Upah Tertinggi Mitra +20%" = harian). Perbandingan akurat bila koefisien = perkiraan OH per satuan.`;
+  box.style.display = "block";
 }
 attachNumberFormatting(document.getElementById("ah_hargaManual"));
 document.querySelector("[data-open-modal='ahsp']").addEventListener("click", () => openAhspModal(null));
@@ -12435,7 +12470,12 @@ document.getElementById("ahi_confirmBtn").addEventListener("click", () => {
 // ===== Template AHSP standar (per kategori: advertising, konstruksi, sipil, interior, eksterior, CCTV, AC, dst) =====
 function resolveTemplateKomponen(tpl) {
   return tpl.komponen.map(k => {
-    if (k.jenis === "Upah") {
+    // Upah TANPA harga = pola harian: diisi otomatis dari Upah Tertinggi
+    // Mitra +20% (niat asli template riset pasar). Upah DENGAN harga =
+    // borongan (mis. template Infrastructure CCTV: tarif per titik dari
+    // penawaran riil) -- harganya dipertahankan; pengguna tetap bisa
+    // beralih ke pola harian lewat dropdown Sumber di editor.
+    if (k.jenis === "Upah" && k.harga == null) {
       const src = sumberHargaLookup("maxupah", "auto");
       return { jenis: "Upah", uraian: k.uraian, satuan: k.satuan, koefisien: k.koefisien, harga: src.harga, sumberTipe: "maxupah", sumberId: "auto" };
     }
