@@ -1580,6 +1580,10 @@
 
         <div class="panel">
           <div class="muted" style="margin-bottom:10px;">Termin Pembayaran — tersinkron otomatis dua arah dengan Kas Perusahaan (kategori Pendapatan Jasa/Lain-lain yang dikaitkan ke proyek ini)</div>
+          <div id="pd_terminKasHint" style="display:none; margin-bottom:10px; align-items:center; gap:10px; flex-wrap:wrap; background:#fff7ed; border:1px solid #fdba74; border-radius:8px; padding:8px 12px;">
+            <span style="flex:1; font-size:12.5px; color:#9a3412;" id="pd_terminKasHintText"></span>
+            <button type="button" class="btn-primary" id="pd_terminKasTinjauBtn">🔍 Tinjau &amp; Kaitkan</button>
+          </div>
           <div class="form-grid" style="margin-bottom:12px;">
             <div class="field"><label>Tanggal</label><input type="date" id="tm_tanggal"></div>
             <div class="field full"><label>Keterangan</label><input type="text" id="tm_keterangan" placeholder="mis. Termin 2 / Pelunasan"></div>
@@ -1593,6 +1597,7 @@
             </div>
             <div class="field" style="justify-content:flex-end; display:flex; gap:8px;">
               <button type="button" class="btn-primary" id="tm_addBtn">+ Tambah Termin</button>
+              <button type="button" class="btn-ghost" id="tm_kaitkanKasBtn" title="Pembayaran sudah terlanjur diinput di Kas Perusahaan? Kaitkan ke proyek ini supaya muncul sebagai termin — tanpa input ulang (anti dobel)">🔗 Kaitkan dari Kas</button>
               <button type="button" class="btn-ghost" id="tm_paymentLinkBtn">💳 Buat Link Pembayaran</button>
             </div>
           </div>
