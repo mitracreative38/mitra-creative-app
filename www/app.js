@@ -4850,6 +4850,7 @@ function renderProyekDetail() {
   `;
 
   renderTxnTanpaProyekHint(p);
+  renderTerminKasHint(p);
 
   const terminRows = proyekKasTxns(p)
     .filter(t => t.tipe === "Masuk" && ["Pendapatan Jasa", "Pendapatan Lain-lain"].includes(t.kategori))
@@ -5662,20 +5663,26 @@ function renderKtRingkas(rows) {
   document.getElementById("kt_ringkas").textContent =
     `Tampil ${(rows || ktVisibleRows()).length} dari ${ktRows.length} transaksi • ${ktChecked.size} dicentang (total ${rupiah(totalDipilih)}).`;
 }
-document.getElementById("pd_kaitkanTxnBtn").addEventListener("click", () => {
+// Satu pintu untuk semua titik masuk modal Kaitkan (tombol umum di
+// Realisasi, tombol/banner di panel Termin): opsi.tipe memfilter jenis
+// transaksi, opsi.hanyaCocok langsung mengaktifkan saringan nama proyek --
+// permintaan Owner: dari panel Termin langsung ketemu pemasukan yang
+// sudah terlanjur diinput di Kas, tanpa input ulang (anti dobel).
+function openKaitkanTxnModal(opsi) {
+  opsi = opsi || {};
   const p = state.proyek.find(x => x.id === currentProyekId);
   if (!p || proyekArsipGuard(p)) return;
   ktRows = txnBiayaTanpaProyek().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""));
   ktChecked = new Set();
   ktKataKunci = kataKunciProyek(p);
-  ktHanyaCocok = false;
+  ktHanyaCocok = !!(opsi.hanyaCocok && ktKataKunci.length);
   const cocokBtn = document.getElementById("kt_cocokBtn");
   const nCocok = ktKataKunci.length ? ktRows.filter(ktCocokNama).length : 0;
   cocokBtn.style.display = ktKataKunci.length ? "" : "none";
   cocokBtn.textContent = `✨ Cocok Nama Proyek (${nCocok})`;
-  cocokBtn.classList.remove("btn-primary");
+  cocokBtn.classList.toggle("btn-primary", ktHanyaCocok);
   document.getElementById("kt_cari").value = "";
-  document.getElementById("kt_tipe").value = "";
+  document.getElementById("kt_tipe").value = opsi.tipe || "";
   const bulanSel = document.getElementById("kt_bulan");
   const bulanUnik = [...new Set(ktRows.map(t => (t.tanggal || "").slice(0, 7)).filter(Boolean))].sort().reverse();
   bulanSel.innerHTML = '<option value="">Semua Bulan</option>' + bulanUnik.map(m =>
@@ -5683,7 +5690,31 @@ document.getElementById("pd_kaitkanTxnBtn").addEventListener("click", () => {
   bulanSel.value = "";
   renderKtTable();
   document.getElementById("kaitkanTxnModal").classList.add("open");
-});
+}
+document.getElementById("pd_kaitkanTxnBtn").addEventListener("click", () => openKaitkanTxnModal());
+document.getElementById("tm_kaitkanKasBtn").addEventListener("click", () => openKaitkanTxnModal({ tipe: "Masuk" }));
+document.getElementById("pd_terminKasTinjauBtn").addEventListener("click", () => openKaitkanTxnModal({ tipe: "Masuk", hanyaCocok: true }));
+
+// Pemasukan Kas yang keterangannya menyebut nama proyek tapi BELUM
+// dikaitkan ke proyek mana pun -- inilah "pembayaran yang sudah diinput
+// duluan di Kas" yang dikeluhkan Owner (mis. proyek "PT Gadai Sakti
+// Kalideres" -> transaksi Kas berketerangan "Kalideres").
+function masukKasCocokProyek(p) {
+  const kata = kataKunciProyek(p);
+  if (!kata.length) return [];
+  return txnBiayaTanpaProyek().filter(t => t.tipe === "Masuk" &&
+    kata.some(k => `${t.keterangan || ""} ${t.extra || ""}`.toLowerCase().includes(k)));
+}
+function renderTerminKasHint(p) {
+  const hintEl = document.getElementById("pd_terminKasHint");
+  if (!hintEl) return;
+  const cocok = p.arsip ? [] : masukKasCocokProyek(p);
+  if (!cocok.length) { hintEl.style.display = "none"; return; }
+  const total = cocok.reduce((s, t) => s + Math.max(0, t.jumlah || 0), 0);
+  document.getElementById("pd_terminKasHintText").textContent =
+    `🔍 Ditemukan ${cocok.length} pemasukan di Kas Perusahaan yang menyebut nama proyek ini (total ${rupiah(total)}) tapi BELUM dikaitkan — kemungkinan pembayaran/termin yang sudah diinput duluan di Kas. Kaitkan supaya langsung muncul di daftar termin, JANGAN diketik ulang lewat "+ Tambah Termin".`;
+  hintEl.style.display = "flex";
+}
 ["kt_cari", "kt_tipe", "kt_bulan"].forEach(id => {
   const ev = id === "kt_cari" ? "input" : "change";
   document.getElementById(id).addEventListener(ev, () => { ktSyncFromDom(); renderKtTable(); });
@@ -15639,6 +15670,19 @@ document.getElementById("tm_addBtn").addEventListener("click", () => {
     t.tipe === "Masuk" && ["Pendapatan Jasa", "Pendapatan Lain-lain"].includes(t.kategori) && t.jumlah === jumlah);
   if (kembar && !confirm(
     `PERHATIAN — KEMUNGKINAN DOBEL: proyek ini SUDAH punya pembayaran/termin sebesar ${rupiah(jumlah)}:\n\n"${kembar.keterangan || "-"}" (${formatTanggal(kembar.tanggal)}, ${(kembar.status || "lunas") === "lunas" ? "Lunas" : "Piutang"}).\n\nKalau ini pembayaran yang SAMA (mis. sudah diinput di Kas Perusahaan duluan), JANGAN ditambah lagi — transaksinya cukup dikaitkan lewat tombol "Kaitkan Transaksi ke Proyek Ini".\n\nTetap catat sebagai termin BARU yang berbeda?`)) return;
+  // Anti dobel input arah kedua (keluhan Owner): pembayaran yang sudah
+  // terlanjur diinput di Kas Perusahaan tapi BELUM dikaitkan ke proyek mana
+  // pun -- jumlah sama, atau keterangannya menyebut nama proyek ini.
+  // Jalur benarnya adalah "Kaitkan dari Kas", bukan mengetik termin baru.
+  if (!kembar) {
+    const kandidatKas = txnBiayaTanpaProyek().filter(t => t.tipe === "Masuk");
+    const diKas = kandidatKas.find(t => t.jumlah === jumlah) ||
+      masukKasCocokProyek(p).find(t => Math.abs((t.jumlah || 0) - jumlah) <= jumlah * 0.01);
+    if (diKas && !confirm(
+      `PERHATIAN — KEMUNGKINAN DOBEL INPUT: di Kas Perusahaan sudah ada pemasukan yang BELUM dikaitkan ke proyek mana pun:\n\n` +
+      `• ${rupiah(diKas.jumlah)} — "${diKas.keterangan || "-"}" (${formatTanggal(diKas.tanggal)})\n\n` +
+      `Kalau itu pembayaran yang SAMA, batalkan dan klik "🔗 Kaitkan dari Kas" — transaksinya langsung muncul sebagai termin tanpa input ulang.\n\nTetap catat sebagai termin BARU yang berbeda?`)) return;
+  }
   // Total termin yang melebihi nilai kontrak proyek jangan lolos diam-diam
   // -- boleh dilanjutkan sadar (mis. pekerjaan tambahan), lewat konfirmasi.
   const calcSebelum = projectCalc(p);
