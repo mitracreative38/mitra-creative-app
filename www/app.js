@@ -519,7 +519,7 @@ const ACTIVITY_DIFF_FIELDS = {
   // (celah yang ditemukan Owner: 3 titik simpan Absensi lupa mengirim
   // snapshot lama ke logActivityNow). Field "lokasi" sengaja tidak
   // dilacak di sini (murni jejak GPS, bukan data yang perlu diaudit).
-  absensi: ["hadir", "jamLembur", "uangMakan", "bon"],
+  absensi: ["hadir", "setengahHari", "jamLembur", "uangMakan", "bon"],
   karyawanGaji: ["gajiPokok", "tunjangan", "potongan", "periode"],
   stok: ["nama", "golongan", "stokMinimum", "hargaSatuan"],
   gudang: ["nama", "alamat"],
@@ -569,7 +569,7 @@ function diffActivityFields(module, before, after) {
 function absensiSnapshot(k, tanggal) {
   const rec = (k.absensi || []).find(a => a.tanggal === tanggal);
   if (!rec) return null;
-  return { nama: k.nama, tanggal, hadir: rec.hadir, jamLembur: rec.jamLembur || 0, uangMakan: rec.uangMakan || 0, bon: rec.bon || 0 };
+  return { nama: k.nama, tanggal, hadir: rec.hadir, setengahHari: !!rec.setengahHari, jamLembur: rec.jamLembur || 0, uangMakan: rec.uangMakan || 0, bon: rec.bon || 0 };
 }
 function logAbsensiActivity(k, tanggal, before) {
   const after = absensiSnapshot(k, tanggal);
@@ -7825,7 +7825,7 @@ function computeKpiTim(mulai, selesai) {
   aktif.forEach(k => {
     (k.absensi || []).filter(a => a.tanggal >= mulai && a.tanggal <= selesai).forEach(a => {
       totalRecord++;
-      if (a.hadir) hadirCount++;
+      hadirCount += porsiHadir(a); // ½ hari = 0.5
       totalLembur += a.jamLembur || 0;
     });
   });
@@ -8098,7 +8098,7 @@ function computeKpiDivisi(mulai, selesai) {
     (k.absensi || []).forEach(a => {
       if (!a.tanggal || a.tanggal < mulai || a.tanggal > selesai) return;
       g.totalAbsen++;
-      if (a.hadir) g.hadir++;
+      g.hadir += porsiHadir(a); // ½ hari = 0.5
       g.lembur += a.jamLembur || 0;
     });
     (k.pembinaan || []).forEach(pb => {
@@ -9465,6 +9465,12 @@ document.getElementById("karyawanForm").addEventListener("submit", e => {
 });
 
 // ----- Absensi Harian -----
+// Porsi hari kerja satu catatan absensi: 1 hari penuh, 0.5 kalau ditandai
+// Setengah Hari, 0 kalau tidak hadir. Dipakai SEMUA hitungan yang menghitung
+// hari hadir (upah slip, slip massal, alokasi upah per proyek, rekap bulanan,
+// KPI kehadiran) supaya setengah hari kerja dihargai setengah upah harian
+// secara konsisten di semua menu.
+function porsiHadir(a) { return a && a.hadir ? (a.setengahHari ? 0.5 : 1) : 0; }
 function renderAbsensiPanel() {
   const tanggalInput = document.getElementById("ab_tanggal");
   if (!tanggalInput.value) tanggalInput.value = hariIniIso();
@@ -9496,7 +9502,11 @@ function renderAbsensiPanel() {
     tr.innerHTML = `
       <td>${escapeHtml(k.nama)}</td>
       <td>${escapeHtml(k.jabatan || "-")}</td>
-      <td><input type="checkbox" class="att-check ab-hadir" ${hadir ? "checked" : ""}></td>
+      <td style="white-space:nowrap;"><input type="checkbox" class="att-check ab-hadir" ${hadir ? "checked" : ""}>
+        <select class="ab-porsi" title="Porsi hari kerja: upah harian dihitung setengah untuk ½ hari" style="margin-left:6px;" ${hadir ? "" : "disabled"}>
+          <option value="1" ${existing && existing.setengahHari ? "" : "selected"}>Penuh</option>
+          <option value="0.5" ${existing && existing.setengahHari ? "selected" : ""}>½ Hari</option>
+        </select></td>
       <td class="num"><input type="text" inputmode="decimal" class="ab-lembur" value="${jamLembur || ""}" style="width:80px; text-align:right"></td>
       <td><select class="ab-proyek" style="max-width:180px;">
         <option value="">— (tanpa proyek)</option>
@@ -9531,10 +9541,19 @@ function syncAbHadirAllState() {
 }
 document.getElementById("ab_hadirAll").addEventListener("change", () => {
   const master = document.getElementById("ab_hadirAll");
-  document.querySelectorAll("#ab_table tbody .ab-hadir").forEach(c => { c.checked = master.checked; });
+  document.querySelectorAll("#ab_table tbody .ab-hadir").forEach(c => {
+    c.checked = master.checked;
+    syncAbPorsiRow(c);
+  });
 });
+// Dropdown Penuh/½ Hari cuma aktif kalau barisnya dicentang Hadir --
+// karyawan absen tidak punya porsi hari.
+function syncAbPorsiRow(hadirCheckbox) {
+  const porsi = hadirCheckbox.closest("tr").querySelector(".ab-porsi");
+  if (porsi) porsi.disabled = !hadirCheckbox.checked;
+}
 document.getElementById("ab_table").addEventListener("change", e => {
-  if (e.target.classList.contains("ab-hadir")) syncAbHadirAllState();
+  if (e.target.classList.contains("ab-hadir")) { syncAbHadirAllState(); syncAbPorsiRow(e.target); }
 });
 // Fase 1.8: kolom "Absen via HP" -- jam masuk/pulang + badge Biometrik +
 // tombol lihat selfie (dibuka lewat signed URL, karena bucketnya privat)
@@ -9602,10 +9621,12 @@ document.getElementById("ab_saveBtn").addEventListener("click", () => {
     if (!k) return;
     const before = absensiSnapshot(k, tanggal);
     const hadir = tr.querySelector(".ab-hadir").checked;
+    const porsiSel = tr.querySelector(".ab-porsi");
+    const setengahHari = hadir && porsiSel && porsiSel.value === "0.5";
     const jamLembur = Math.max(0, parseFloat((tr.querySelector(".ab-lembur").value || "").replace(",", ".")) || 0);
     if (!k.absensi) k.absensi = [];
     const idx = k.absensi.findIndex(a => a.tanggal === tanggal);
-    const rec = { ...(idx >= 0 ? k.absensi[idx] : {}), id: idx >= 0 ? k.absensi[idx].id : uid(), tanggal, hadir, jamLembur };
+    const rec = { ...(idx >= 0 ? k.absensi[idx] : {}), id: idx >= 0 ? k.absensi[idx].id : uid(), tanggal, hadir, setengahHari, jamLembur };
     // Uang Makan/Bon harian cuma ada di DOM untuk Owner (lihat renderAbsensiPanel
     // -- showGaji) -- kalau elemennya tidak ada (Admin/Marketing), nilai lama
     // (kalau ada) dibiarkan apa adanya, tidak ditimpa jadi kosong.
@@ -9994,7 +10015,9 @@ function computePayrollFromAbsensi(resetManualInputs) {
     const mulai = document.getElementById("pg_mulai").value;
     const selesai = document.getElementById("pg_selesai").value;
     const inRange = !mulai || !selesai ? [] : (k.absensi || []).filter(a => a.tanggal >= mulai && a.tanggal <= selesai);
-    const hariHadir = inRange.filter(a => a.hadir).length;
+    // Setengah hari kerja dihitung 0.5 (lihat porsiHadir) -- upah harian
+    // otomatis setengah untuk hari itu.
+    const hariHadir = inRange.reduce((s, a) => s + porsiHadir(a), 0);
     // Lembur dihitung untuk semua hari dalam periode, bukan cuma hari yang ditandai
     // "Hadir" — karyawan bisa lembur di hari libur (mis. Minggu) tanpa masuk sebagai
     // hari kerja reguler, dan jam itu tetap harus terhitung.
@@ -10107,10 +10130,12 @@ function rekapBulanData(bulan) {
       const rec = (k.absensi || []).find(a => a.tanggal === tanggal);
       if (!rec) { days.push(""); continue; }
       if (rec.hadir) {
-        hadir++;
+        hadir += porsiHadir(rec);
         uangMakan += rec.uangMakan || 0;
         bon += rec.bon || 0;
-        days.push(rec.jamLembur > 0 ? `✓${rec.jamLembur}` : "✓");
+        // ½ = hadir setengah hari (angka di belakang = jam lembur).
+        const tanda = rec.setengahHari ? "½" : "✓";
+        days.push(rec.jamLembur > 0 ? `${tanda}${rec.jamLembur}` : tanda);
       } else {
         days.push("−");
       }
@@ -10164,7 +10189,7 @@ document.getElementById("rk_cetakBtn").addEventListener("click", () => {
   }).join("");
   document.getElementById("printArea").innerHTML = `
     <h3 style="text-align:center; margin:6px 0 4px;">REKAP ABSENSI — ${escapeHtml(labelBulan)}</h3>
-    <p style="text-align:center; font-size:11px; color:#777; margin:0 0 12px;">${escapeHtml(state.company || "")} — ✓ hadir (angka = jam lembur), − tidak hadir</p>
+    <p style="text-align:center; font-size:11px; color:#777; margin:0 0 12px;">${escapeHtml(state.company || "")} — ✓ hadir, ½ setengah hari (angka = jam lembur), − tidak hadir</p>
     <table class="doc-items" style="font-size:9px;">
       <thead>${head}</thead>
       <tbody>${body || '<tr><td class="c">Belum ada karyawan aktif</td></tr>'}</tbody>
@@ -10330,18 +10355,21 @@ function recomputeSlipGajiChain(k) {
 function alokasiSlipPerProyek(k, sl) {
   const jumlah = slipGajiBersih(sl);
   const hariHadir = (k.absensi || []).filter(a => a.hadir && a.tanggal >= sl.mulai && a.tanggal <= sl.selesai);
-  if (!hariHadir.length || !jumlah) return [{ proyekId: "", jumlah, hari: hariHadir.length }];
+  // Bobot per hari memakai porsiHadir: setengah hari kerja menyumbang 0.5
+  // ke proyeknya, supaya pembagian upah antar proyek tetap adil.
+  const totalPorsi = hariHadir.reduce((s, a) => s + porsiHadir(a), 0);
+  if (!totalPorsi || !jumlah) return [{ proyekId: "", jumlah, hari: totalPorsi }];
   const perProyek = {};
   hariHadir.forEach(a => {
     const pid = a.proyekId || "";
-    perProyek[pid] = (perProyek[pid] || 0) + 1;
+    perProyek[pid] = (perProyek[pid] || 0) + porsiHadir(a);
   });
   const pids = Object.keys(perProyek);
   if (pids.length === 1) return [{ proyekId: pids[0], jumlah, hari: perProyek[pids[0]] }];
   const out = [];
   let sisa = jumlah;
   pids.forEach((pid, i) => {
-    const bagian = i === pids.length - 1 ? sisa : Math.round(jumlah * perProyek[pid] / hariHadir.length);
+    const bagian = i === pids.length - 1 ? sisa : Math.round(jumlah * perProyek[pid] / totalPorsi);
     sisa -= bagian;
     out.push({ proyekId: pid, jumlah: bagian, hari: perProyek[pid] });
   });
@@ -10446,7 +10474,9 @@ document.getElementById("slipGajiEditForm").addEventListener("submit", e => {
   // Slip Harian: Hari Hadir & Jam Lembur juga bisa dikoreksi -- upah
   // kotor dihitung ulang dari tarif yang tersimpan di slip itu sendiri.
   if (sl.tipeGaji !== "Bulanan") {
-    sl.hariHadir = Math.max(0, parseInt(document.getElementById("sge_hariHadir").value, 10) || 0);
+    // parseFloat (bukan parseInt): hari hadir boleh pecahan 0.5 sejak ada
+    // tanda Setengah Hari di Absensi.
+    sl.hariHadir = Math.max(0, parseFloat(document.getElementById("sge_hariHadir").value) || 0);
     sl.jamLembur = Math.max(0, parseFloat(document.getElementById("sge_jamLembur").value) || 0);
     sl.totalUpahHarian = sl.hariHadir * (sl.upahHarian || 0);
     sl.totalLembur = sl.jamLembur * (sl.tarifLembur || 0);
@@ -10572,7 +10602,7 @@ document.getElementById("pg_simpanCetakBtn").addEventListener("click", () => {
 // tombol "Hitung Otomatis dari Absensi" + "Simpan Slip".
 function hitungSlipHarianDariAbsensi(k, mulai, selesai) {
   const inRange = (k.absensi || []).filter(a => a.tanggal >= mulai && a.tanggal <= selesai);
-  const hariHadir = inRange.filter(a => a.hadir).length;
+  const hariHadir = inRange.reduce((s, a) => s + porsiHadir(a), 0); // ½ hari = 0.5
   const jamLembur = inRange.reduce((s, a) => s + (a.jamLembur || 0), 0);
   const totalUpahHarian = hariHadir * (k.upahHarian || 0);
   const totalLembur = jamLembur * (k.tarifLembur || 0);
@@ -14003,7 +14033,10 @@ function createPenawaranFromRab(rab) {
     kepada: rab.klien || "", alamatKlien: "", perihal: rab.nama || "", kategori: rab.kategori || KATEGORI_PEKERJAAN[0],
     status: "draft", diskon: 0, ppn: rab.ppn || 0, pph: typeof rab.pph === "number" ? rab.pph : 0.5,
     biayaLain: rab.biayaLain || 0,
-    items: rab.items.map(it => ({ id: uid(), uraian: it.uraian, satuan: it.satuan, volume: it.volume, hargaSatuan: it.hargaSatuan, ahspId: it.ahspId || "" })),
+    // spesifikasi & kelompok WAJIB ikut tersalin -- dulu tertinggal di sini
+    // sehingga kolom Spesifikasi di cetak/PDF penawaran selalu "-" untuk
+    // penawaran yang dibuat lewat tombol "Buat Penawaran" di editor RAB.
+    items: rab.items.map(it => ({ id: uid(), uraian: it.uraian, spesifikasi: it.spesifikasi || "", satuan: it.satuan, volume: it.volume, hargaSatuan: it.hargaSatuan, ahspId: it.ahspId || "", kelompok: it.kelompok || "" })),
     skemaPembayaran: (rab.skemaPembayaran || []).map(r => ({ ...r })),
     syarat: syaratWithSkemaPembayaran(defaultSyarat(), rab.skemaPembayaran || []), penutup: defaultPenutup(), ttdNama: state.ownerNama, ttdJabatan: state.ownerJabatan
   };
