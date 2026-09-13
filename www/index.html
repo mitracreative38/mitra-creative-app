@@ -1997,6 +1997,8 @@
 
           <div class="summary-rows" id="pg_bulananSummary" style="display:none;">
             <div class="summary-row"><span>Gaji Bulanan</span><strong id="pg_gajiBulananDisplay">Rp 0</strong></div>
+            <div class="summary-row" id="pg_umMingguanRow" style="display:none;"><span id="pg_umMingguanLabel">Uang Makan Mingguan (flat)</span><strong id="pg_umMingguan">Rp 0</strong></div>
+            <div class="summary-row" id="pg_lemburHarianRow" style="display:none;"><span id="pg_lemburHarianLabel">Lembur Harian</span><strong id="pg_lemburHarian">Rp 0</strong></div>
             <div class="summary-row">
               <span>Target Bulan Ini (Rp)</span>
               <input type="text" inputmode="numeric" id="pg_target" style="width:140px" placeholder="0">
@@ -2010,6 +2012,10 @@
               <input type="number" id="pg_persenBonus" min="0" max="100" step="0.1" style="width:80px">
             </div>
             <div class="summary-row"><span>Bonus Target</span><strong id="pg_bonusTarget">Rp 0</strong></div>
+            <div class="summary-row">
+              <span>Bonus Manual (Rp)</span>
+              <input type="text" inputmode="numeric" id="pg_bonusManual" style="width:140px" placeholder="0">
+            </div>
           </div>
 
           <div class="summary-rows" style="margin-top:6px;">
@@ -5385,6 +5391,15 @@
           <label>% Bonus dari Kelebihan Target</label>
           <input type="number" id="kym_persenBonus" min="0" max="100" step="0.1" placeholder="0">
         </div>
+        <div class="field">
+          <label>Uang Makan Mingguan (Rp)</label>
+          <input type="text" inputmode="numeric" id="kym_uangMakanMingguan" placeholder="0">
+        </div>
+        <div class="field">
+          <label>Lembur per Hari (Rp)</label>
+          <input type="text" inputmode="numeric" id="kym_lemburHarian" placeholder="0">
+        </div>
+        <p class="muted" style="font-size:11px; margin:-6px 0 0; grid-column:1 / -1;">Khusus skema seperti Pelaksana: Uang Makan Mingguan dibayar FLAT tiap minggu (berangkat atau tidak, tidak terpotong); Lembur per Hari dihitung otomatis dari absensi — setiap hari yang ada jam lemburnya dihitung 1× tarif ini (bukan per jam).</p>
       </div>
 
       <div class="form-grid" id="kym_pinjamanFields" style="margin-top:6px;">

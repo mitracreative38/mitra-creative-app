@@ -443,7 +443,10 @@ function buildSlipGajiPrintHtml(sl, profil) {
       <tbody>
         ${sl.tipeGaji === "Bulanan" ? `
         <tr><td>Gaji Bulanan</td><td>Gaji tetap bulanan</td><td class="r">${rupiah(sl.gajiBulanan)}</td></tr>
+        ${(sl.umMingguanTotal || 0) > 0 ? `<tr><td>Uang Makan Mingguan</td><td>${sl.umMingguanMinggu} minggu × ${rupiah(sl.umMingguanTarif)} (flat, hadir/tidak)</td><td class="r">${rupiah(sl.umMingguanTotal)}</td></tr>` : ""}
+        ${(sl.lemburHarianTotal || 0) > 0 ? `<tr><td>Lembur Harian</td><td>${sl.lemburHari} hari × ${rupiah(sl.lemburHarianTarif)}</td><td class="r">${rupiah(sl.lemburHarianTotal)}</td></tr>` : ""}
         <tr><td>Bonus Target</td><td>Realisasi ${rupiah(sl.realisasi)} − Target ${rupiah(sl.target)} × ${sl.persenBonus}%</td><td class="r">${rupiah(sl.bonus)}</td></tr>
+        ${(sl.bonusManual || 0) > 0 ? `<tr><td>Bonus</td><td>Bonus dari pemilik</td><td class="r">${rupiah(sl.bonusManual)}</td></tr>` : ""}
         ` : `
         <tr><td>Upah Harian</td><td>${sl.hariHadir} hari × ${rupiah(sl.upahHarian)}</td><td class="r">${rupiah(sl.totalUpahHarian)}</td></tr>
         <tr><td>Lembur</td><td>${sl.jamLembur} jam × ${rupiah(sl.tarifLembur)}</td><td class="r">${rupiah(sl.totalLembur)}</td></tr>
