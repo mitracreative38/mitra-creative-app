@@ -2667,7 +2667,7 @@ function computeTutupBuku(bulan) {
   const utang = (state.utangUsaha || []).reduce((s, u) => s + Math.max(0, utangSisa(u)), 0);
   let gaji = 0;
   state.karyawan.forEach(k => (k.slipGaji || []).forEach(sl => {
-    if ((sl.selesai || "") >= mulai && (sl.selesai || "") <= selesai) gaji += slipGajiBersih(sl);
+    if ((sl.selesai || "") >= mulai && (sl.selesai || "") <= selesai) gaji += slipGajiDibayar(sl);
   }));
   const sewa = state.kasUsaha.transactions
     .filter(t => t.sumberSewaId && (t.status || "lunas") === "lunas" && (t.tanggal || "") >= mulai && (t.tanggal || "") <= selesai)
@@ -7846,7 +7846,7 @@ function computeKpiTim(mulai, selesai) {
   state.karyawan.forEach(k => (k.slipGaji || []).forEach(sl => {
     if ((sl.selesai || "") >= mulai && (sl.selesai || "") <= selesai) {
       slipCount++;
-      totalGaji += slipGajiBersih(sl);
+      totalGaji += slipGajiDibayar(sl);
       totalUangMakan += sl.uangMakan || 0;
     }
   }));
@@ -8868,6 +8868,18 @@ function slipTotalPotongan(sl) {
 }
 function slipGajiBersih(sl) {
   return (sl.upahKotor || 0) - slipTotalPotongan(sl);
+}
+// Akumulasi defisit gaji (permintaan Owner): kalau gaji bersih sebuah slip
+// MINUS (total potongan melebihi upah kotor -- mis. cuma masuk 1 hari tapi
+// uang makan seminggu tetap dihitung), kekurangannya TIDAK dibayar minus di
+// Kas, melainkan dibawa sebagai potongan "Defisit Periode Lalu" di slip
+// berikutnya sampai lunas. defisitSebelum tiap slip dihitung ulang oleh
+// recomputeSlipGajiChain (urutan rantai yang sama dengan sisa pinjaman).
+function slipGajiDibayar(sl) {
+  return Math.max(0, slipGajiBersih(sl) - (sl.defisitSebelum || 0));
+}
+function slipDefisitSesudah(sl) {
+  return Math.max(0, (sl.defisitSebelum || 0) - slipGajiBersih(sl));
 }
 function hitungBonusTarget(target, realisasi, persen) {
   const kelebihan = Math.max(0, (realisasi || 0) - (target || 0));
@@ -10081,7 +10093,23 @@ function refreshPenggajianSummary() {
   document.getElementById("pg_sisaSebelum").textContent = rupiah(sisaSebelum);
   document.getElementById("pg_sisaSesudah").textContent = rupiah(sisaSesudah);
   document.getElementById("pg_metodeBayar").textContent = k ? formatPembayaranGaji(k.pembayaranGaji) : "Tunai";
-  document.getElementById("pg_gajiBersih").textContent = rupiah(gajiBersih);
+  // Akumulasi defisit: sisa minus slip-slip sebelumnya otomatis dipotong di
+  // sini; kalau periode ini pun masih minus, sisanya dibawa lagi ke slip
+  // berikutnya dan yang dibayarkan tidak pernah minus.
+  const defisitLalu = k ? defisitBerjalan(k) : 0;
+  const dibayar = Math.max(0, gajiBersih - defisitLalu);
+  const defisitBaru = Math.max(0, defisitLalu - gajiBersih);
+  const defisitRow = document.getElementById("pg_defisitRow");
+  defisitRow.style.display = defisitLalu > 0 ? "" : "none";
+  document.getElementById("pg_defisitLalu").textContent = `− ${rupiah(defisitLalu)}`;
+  document.getElementById("pg_gajiBersih").textContent = rupiah(dibayar);
+  const note = document.getElementById("pg_defisitNote");
+  if (defisitBaru > 0) {
+    note.style.display = "";
+    note.textContent = `⚠️ Setelah semua potongan (termasuk defisit periode lalu), gaji periode ini MINUS — slip akan dibayarkan Rp 0 dan total defisit ${rupiah(defisitBaru)} otomatis diakumulasikan sebagai potongan di slip periode berikutnya.`;
+  } else {
+    note.style.display = "none";
+  }
 }
 // Skema penggajian per karyawan (G4 poin 4): periode diisi otomatis sesuai
 // skema karyawan terpilih, dan keterangan skemanya ditampilkan supaya
@@ -10215,7 +10243,7 @@ function renderPenggajianRiwayat() {
       <td class="num">${keterangan}</td>
       <td class="num">${rupiah(sl.upahKotor)}</td>
       <td class="num">${rupiah(slipTotalPotongan(sl))}</td>
-      <td class="num">${rupiah(slipGajiBersih(sl))}</td>
+      <td class="num">${rupiah(slipGajiDibayar(sl))}${(sl.defisitSebelum || 0) > 0 ? `<div class="muted" style="font-size:11px;">− defisit lalu ${rupiah(sl.defisitSebelum)}</div>` : ""}${slipDefisitSesudah(sl) > 0 ? `<div style="font-size:11px; color:#b45309;">⚠️ defisit ${rupiah(slipDefisitSesudah(sl))} → periode berikutnya</div>` : ""}</td>
       <td>
         <div class="row-actions">
           <button class="icon-btn" data-print-slip="${sl.id}" title="Cetak Ulang">🖨️</button>
@@ -10248,7 +10276,7 @@ function computeRekapPendapatan(mulai, selesai) {
       r.uangMakan += sl.uangMakan || 0;
       r.bon += sl.bon || 0;
       r.potonganPinjaman += sl.potonganPinjaman || 0;
-      r.bersih += slipGajiBersih(sl);
+      r.bersih += slipGajiDibayar(sl);
     });
     rows.push(r);
     Object.keys(total).forEach(f => { total[f] += r[f]; });
@@ -10333,10 +10361,33 @@ document.getElementById("rp_cetakBtn").addEventListener("click", () => {
 function recomputeSlipGajiChain(k) {
   const slips = (k.slipGaji || []).slice().sort((a, b) => (a.tanggalDibuat || a.mulai || "").localeCompare(b.tanggalDibuat || b.mulai || ""));
   let running = k.pinjamanAwal || 0;
+  let defisit = 0;
   slips.forEach(sl => {
     sl.sisaSebelum = running;
     sl.sisaSesudah = running - (sl.potonganPinjaman || 0);
     running = sl.sisaSesudah;
+    // Rantai defisit: slip minus menitipkan kekurangannya ke slip berikutnya.
+    sl.defisitSebelum = defisit;
+    defisit = slipDefisitSesudah(sl);
+  });
+  return defisit; // defisit berjalan yang akan dipotong di slip BERIKUTNYA
+}
+// Defisit yang sedang menunggu dipotong untuk karyawan ini (dipakai preview
+// Penggajian sebelum slip baru disimpan).
+function defisitBerjalan(k) {
+  return recomputeSlipGajiChain(k);
+}
+// Setelah rantai dihitung ulang (edit/hapus slip lama, atau slip baru masuk),
+// nilai "dibayarkan" slip-slip SETELAHNYA bisa ikut berubah -- samakan
+// transaksi Kas cerminannya. Juga menyembuhkan transaksi gaji MINUS
+// peninggalan slip lama (sebelum fitur akumulasi defisit ada). Slip di
+// periode yang sudah ditutup buku tidak disentuh.
+function resyncSlipKasBerubah(k, kecualiId) {
+  (k.slipGaji || []).forEach(sl => {
+    if (sl.id === kecualiId) return;
+    if (state.periodeTerkunci && (sl.selesai || "").slice(0, 7) <= state.periodeTerkunci) return;
+    const tercatat = state.kasUsaha.transactions.filter(t => t.sumberSlipId === sl.id).reduce((s, t) => s + (t.jumlah || 0), 0);
+    if (tercatat !== slipGajiDibayar(sl)) syncSlipGajiKasTxn(k, sl);
   });
 }
 // Slip gaji adalah sumber utama, transaksi Kas Perusahaan yang tercatat
@@ -10353,7 +10404,9 @@ function recomputeSlipGajiChain(k) {
 // proyek manapun. Pecahan pembulatan ditaruh di bagian terakhir supaya
 // totalnya selalu persis sama dengan gaji bersih slip.
 function alokasiSlipPerProyek(k, sl) {
-  const jumlah = slipGajiBersih(sl);
+  // Yang dialokasikan ke Kas/Margin Proyek = yang BENAR-BENAR dibayarkan
+  // (setelah potongan defisit periode lalu, tidak pernah minus).
+  const jumlah = slipGajiDibayar(sl);
   const hariHadir = (k.absensi || []).filter(a => a.hadir && a.tanggal >= sl.mulai && a.tanggal <= sl.selesai);
   // Bobot per hari memakai porsiHadir: setengah hari kerja menyumbang 0.5
   // ke proyeknya, supaya pembagian upah antar proyek tetap adil.
@@ -10484,6 +10537,9 @@ document.getElementById("slipGajiEditForm").addEventListener("submit", e => {
   }
   recomputeSlipGajiChain(k);
   syncSlipGajiKasTxn(k, sl);
+  // Perubahan slip ini bisa mengubah defisit yang dibawa ke slip-slip
+  // sesudahnya -- transaksi Kas mereka ikut disamakan.
+  resyncSlipKasBerubah(k, sl.id);
   saveState();
   mirrorKaryawanGajiUpsert(k, true);
   renderAll();
@@ -10512,6 +10568,7 @@ document.getElementById("pg_riwayatTable").addEventListener("click", e => {
       k.slipGaji = k.slipGaji.filter(s => s.id !== delBtn.dataset.deleteSlip);
       state.kasUsaha.transactions = state.kasUsaha.transactions.filter(t => t.sumberSlipId !== delBtn.dataset.deleteSlip);
       recomputeSlipGajiChain(k);
+      resyncSlipKasBerubah(k);
       saveState();
       mirrorKaryawanGajiUpsert(k, true);
       mirrorKasUsahaDeleteBySumberSlip(delBtn.dataset.deleteSlip);
@@ -10572,15 +10629,18 @@ document.getElementById("pg_simpanCetakBtn").addEventListener("click", () => {
   if (!k.slipGaji) k.slipGaji = [];
   k.slipGaji.push(slip);
   // Total potongan (uang makan/bon/pinjaman) BOLEH melebihi upah kotor
-  // (mis. karyawan harian tanpa jam hadir di periode ini tapi tetap ada
-  // cicilan pinjaman berjalan) -- keputusan bisnis yang sah, jumlah
-  // transaksi Kas-nya dicatat apa adanya (bisa negatif) supaya tetap bisa
-  // dilacak/dikoreksi. kasSummary() sendiri yang menjaga supaya nilai
-  // negatif ini tidak salah tafsir jadi penambah saldo (lihat catatan di
-  // sana), bukan di titik penyimpanan ini.
-  // Transaksi Kas dibuat lewat syncSlipGajiKasTxn: gaji bersih otomatis
-  // dialokasikan per proyek sesuai penanda "Proyek Dikerjakan" di absensi.
+  // (mis. karyawan harian cuma masuk 1 hari tapi jatah uang makan seminggu
+  // tetap dihitung). Sejak fitur akumulasi defisit: kekurangannya TIDAK
+  // dicatat minus di Kas -- slip ini dibayarkan Rp 0 dan defisitnya dibawa
+  // sebagai potongan otomatis di slip periode berikutnya (lihat
+  // recomputeSlipGajiChain / slipGajiDibayar).
+  recomputeSlipGajiChain(k);
+  // Transaksi Kas dibuat lewat syncSlipGajiKasTxn: gaji yang dibayarkan
+  // otomatis dialokasikan per proyek sesuai penanda "Proyek Dikerjakan".
   syncSlipGajiKasTxn(k, slip);
+  // Slip lama yang nilai bayarnya ikut berubah (termasuk transaksi minus
+  // peninggalan sebelum fitur ini) disamakan transaksi Kas-nya.
+  resyncSlipKasBerubah(k, slip.id);
   saveState();
   mirrorKaryawanGajiUpsert(k, true);
   renderAll();
@@ -10589,7 +10649,10 @@ document.getElementById("pg_simpanCetakBtn").addEventListener("click", () => {
   // koreksi -- lahir slip dobel (transaksi Kas dobel + rantai pinjaman
   // kacau). Sekarang: simpan dulu, periksa/perbaiki lewat ✏️ di Riwayat,
   // baru cetak 🖨️/PDF dari sana setelah angkanya benar.
-  alert(`Slip gaji ${k.nama} tersimpan.\n\nPeriksa dulu angkanya di tabel Riwayat Slip di bawah — kalau ada yang salah, perbaiki lewat tombol ✏️ (aman, tidak membuat slip baru). Setelah benar, cetak lewat 🖨️ atau unduh PDF.`);
+  let infoDefisit = "";
+  if ((slip.defisitSebelum || 0) > 0) infoDefisit += `\n\n💡 Dipotong defisit periode lalu ${rupiah(Math.min(Math.max(slipGajiBersih(slip), 0), slip.defisitSebelum))} — dibayarkan ${rupiah(slipGajiDibayar(slip))}.`;
+  if (slipDefisitSesudah(slip) > 0) infoDefisit += `\n\n⚠️ Gaji bersih periode ini MINUS. Slip dibayarkan Rp 0 (tidak dicatat minus di Kas) dan defisit ${rupiah(slipDefisitSesudah(slip))} otomatis diakumulasikan sebagai potongan di slip periode berikutnya.`;
+  alert(`Slip gaji ${k.nama} tersimpan.${infoDefisit}\n\nPeriksa dulu angkanya di tabel Riwayat Slip di bawah — kalau ada yang salah, perbaiki lewat tombol ✏️ (aman, tidak membuat slip baru). Setelah benar, cetak lewat 🖨️ atau unduh PDF.`);
 });
 
 // ----- Buat Slip Gaji Massal (rapel per bulan dari absensi) -----
@@ -10690,8 +10753,11 @@ document.getElementById("sm_terapkanBtn").addEventListener("click", () => {
       const slip = hitungSlipHarianDariAbsensi(k, per.mulai, per.selesai);
       k.slipGaji.push(slip);
       (undoPerKaryawan[k.id] = undoPerKaryawan[k.id] || []).push(slip.id);
+      // Rantai defisit dihitung dulu supaya slip minus di bulan rapel
+      // otomatis terpotong di slip bulan berikutnya, bukan minus di Kas.
+      recomputeSlipGajiChain(k);
       syncSlipGajiKasTxn(k, slip);
-      totalGaji += slipGajiBersih(slip);
+      totalGaji += slipGajiDibayar(slip);
       dibuatK++;
     });
     if (!dibuatK) return;
@@ -10705,7 +10771,7 @@ document.getElementById("sm_terapkanBtn").addEventListener("click", () => {
   renderAll();
   closeModals();
   alert(`Buat slip gaji massal selesai.\n\n` +
-    `• ${dibuat} slip dibuat (total gaji bersih ${rupiah(totalGaji)}) — sudah tercatat di Kas Perusahaan dan langsung terbaca di Dashboard, Laporan Keuangan, Margin Proyek, dan KPI\n` +
+    `• ${dibuat} slip dibuat (total dibayarkan ${rupiah(totalGaji)}; slip minus otomatis dibayar Rp 0 dan defisitnya dipotong di slip berikutnya) — sudah tercatat di Kas Perusahaan dan langsung terbaca di Dashboard, Laporan Keuangan, Margin Proyek, dan KPI\n` +
     (adaSlip ? `• ${adaSlip} periode dilewati karena sudah punya slip (tidak ada gaji dobel)\n` : "") +
     (kosong ? `• ${kosong} periode dilewati karena tidak ada absensi\n` : "") +
     (terkunci ? `• ${terkunci} periode dilewati karena bulannya sudah ditutup buku\n` : "") +
@@ -10738,6 +10804,7 @@ document.getElementById("pg_undoMassalBtn").addEventListener("click", () => {
     const hapusSet = new Set(dihapusIds);
     state.kasUsaha.transactions = state.kasUsaha.transactions.filter(t => !hapusSet.has(t.sumberSlipId));
     recomputeSlipGajiChain(k);
+    resyncSlipKasBerubah(k);
     mirrorKaryawanGajiUpsert(k, true);
     dihapusIds.forEach(id => mirrorKasUsahaDeleteBySumberSlip(id));
   });
@@ -10784,8 +10851,11 @@ function buildSlipGajiPrintHtml(k, sl) {
       <tr><td>Uang Makan (sudah diterima)</td><td class="r">- ${rupiah(sl.uangMakan)}</td></tr>
       <tr><td>Bon Mingguan</td><td class="r">- ${rupiah(sl.bon)}</td></tr>
       <tr><td>Potongan Pinjaman</td><td class="r">- ${rupiah(sl.potonganPinjaman)}</td></tr>
-      <tr class="total-row"><td>Gaji Bersih (Take Home)</td><td class="r">${rupiah(slipGajiBersih(sl))}</td></tr>
+      <tr><td>Gaji Bersih Periode Ini</td><td class="r">${rupiah(slipGajiBersih(sl))}</td></tr>
+      ${(sl.defisitSebelum || 0) > 0 ? `<tr><td>Defisit Periode Lalu (akumulasi)</td><td class="r">- ${rupiah(sl.defisitSebelum)}</td></tr>` : ""}
+      <tr class="total-row"><td>Gaji Dibayarkan (Take Home)</td><td class="r">${rupiah(slipGajiDibayar(sl))}</td></tr>
     </table>
+    ${slipDefisitSesudah(sl) > 0 ? `<p class="doc-p">⚠️ Defisit <strong>${rupiah(slipDefisitSesudah(sl))}</strong> diakumulasikan sebagai potongan di slip periode berikutnya.</p>` : ""}
     <p class="doc-p">Sisa Pinjaman Sebelum: <strong>${rupiah(sl.sisaSebelum)}</strong> &nbsp;→&nbsp; Sisa Pinjaman Sesudah: <strong>${rupiah(sl.sisaSesudah)}</strong></p>
     <div style="display:flex; justify-content:space-between; margin-top:30px; font-size:12.5px;">
       <div>

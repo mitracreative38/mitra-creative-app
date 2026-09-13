@@ -397,6 +397,15 @@ function slipTotalPotongan(sl) {
 function slipGajiBersih(sl) {
   return (sl.upahKotor || 0) - slipTotalPotongan(sl);
 }
+// Akumulasi defisit (sama dengan www/app.js): slip minus dibayarkan 0 dan
+// kekurangannya dipotong di slip berikutnya (field defisitSebelum diisi
+// aplikasi lewat recomputeSlipGajiChain).
+function slipGajiDibayar(sl) {
+  return Math.max(0, slipGajiBersih(sl) - (sl.defisitSebelum || 0));
+}
+function slipDefisitSesudah(sl) {
+  return Math.max(0, (sl.defisitSebelum || 0) - slipGajiBersih(sl));
+}
 
 // sl: satu entri dari array karyawan_gaji.slip_gaji (sudah membawa
 // namaKaryawan/jabatan/tipeGaji apa adanya sejak dibuat, tidak perlu
@@ -446,8 +455,11 @@ function buildSlipGajiPrintHtml(sl, profil) {
       <tr><td>Uang Makan (sudah diterima)</td><td class="r">- ${rupiah(sl.uangMakan)}</td></tr>
       <tr><td>Bon Mingguan</td><td class="r">- ${rupiah(sl.bon)}</td></tr>
       <tr><td>Potongan Pinjaman</td><td class="r">- ${rupiah(sl.potonganPinjaman)}</td></tr>
-      <tr class="total-row"><td>Gaji Bersih (Take Home)</td><td class="r">${rupiah(slipGajiBersih(sl))}</td></tr>
+      <tr><td>Gaji Bersih Periode Ini</td><td class="r">${rupiah(slipGajiBersih(sl))}</td></tr>
+      ${(sl.defisitSebelum || 0) > 0 ? `<tr><td>Defisit Periode Lalu (akumulasi)</td><td class="r">- ${rupiah(sl.defisitSebelum)}</td></tr>` : ""}
+      <tr class="total-row"><td>Gaji Dibayarkan (Take Home)</td><td class="r">${rupiah(slipGajiDibayar(sl))}</td></tr>
     </table>
+    ${slipDefisitSesudah(sl) > 0 ? `<p class="doc-p">⚠️ Defisit <strong>${rupiah(slipDefisitSesudah(sl))}</strong> diakumulasikan sebagai potongan di slip periode berikutnya.</p>` : ""}
     <p class="doc-p">Sisa Pinjaman Sebelum: <strong>${rupiah(sl.sisaSebelum)}</strong> &nbsp;→&nbsp; Sisa Pinjaman Sesudah: <strong>${rupiah(sl.sisaSesudah)}</strong></p>
     <div style="display:flex; justify-content:space-between; margin-top:30px; font-size:12.5px;">
       <div>
