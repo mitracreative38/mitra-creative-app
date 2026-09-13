@@ -253,7 +253,7 @@ function stripSensitiveForBlob(data) {
   // nol -- lihat guard "typeof === number" di karyawanGajiToRow).
   copy.karyawan = (copy.karyawan || []).map(k => {
     const clean = Object.assign({}, k, { slipGaji: [] });
-    ["upahHarian", "tarifLembur", "uangMakanHarian", "gajiBulanan", "targetBulanan", "persenBonus", "pinjamanAwal", "pembayaranGaji"].forEach(f => { delete clean[f]; });
+    ["upahHarian", "tarifLembur", "uangMakanHarian", "gajiBulanan", "targetBulanan", "persenBonus", "pinjamanAwal", "pembayaranGaji", "uangMakanMingguan", "lemburHarian"].forEach(f => { delete clean[f]; });
     clean.absensi = (clean.absensi || []).map(a => {
       const rec = Object.assign({}, a);
       delete rec.uangMakan;
@@ -370,6 +370,10 @@ async function hydrateSensitiveFields(data) {
           merged.persenBonus = g.persen_bonus || 0;
           merged.pinjamanAwal = g.pinjaman_awal || 0;
           merged.pembayaranGaji = g.pembayaran || {};
+          // Tarif skema Pelaksana menumpang di jsonb pembayaran (lihat
+          // handler simpan karyawan) -- isi balik ke bentuk state.
+          merged.uangMakanMingguan = merged.pembayaranGaji.uangMakanMingguan || 0;
+          merged.lemburHarian = merged.pembayaranGaji.lemburHarian || 0;
           const absensiGaji = g.absensi_gaji || {};
           merged.absensi = (merged.absensi || []).map(a => {
             const extra = a.tanggal ? absensiGaji[a.tanggal] : null;
@@ -9287,6 +9291,9 @@ function openKaryawanModal(existing) {
   document.getElementById("kym_gajiBulanan").value = existing ? formatNumberInput(existing.gajiBulanan || 0) : "";
   document.getElementById("kym_targetBulanan").value = existing ? formatNumberInput(existing.targetBulanan || 0) : "";
   document.getElementById("kym_persenBonus").value = existing ? (existing.persenBonus || 0) : 0;
+  // Skema Pelaksana: uang makan mingguan flat + lembur flat per hari.
+  document.getElementById("kym_uangMakanMingguan").value = existing ? formatNumberInput(existing.uangMakanMingguan || 0) : "";
+  document.getElementById("kym_lemburHarian").value = existing ? formatNumberInput(existing.lemburHarian || 0) : "";
   document.getElementById("kym_pinjamanAwal").value = existing ? formatNumberInput(existing.pinjamanAwal || 0) : "";
   // Data diri karyawan (poin 7 Owner: semua karyawan terdata lengkap) --
   // bukan data gaji, jadi terlihat & bisa diisi semua peran yang boleh
@@ -9311,7 +9318,7 @@ function openKaryawanModal(existing) {
   toggleKaryawanTipeFields();
   karyawanModal.classList.add("open");
 }
-["kym_upahHarian", "kym_tarifLembur", "kym_uangMakanHarian", "kym_gajiBulanan", "kym_targetBulanan", "kym_pinjamanAwal"].forEach(id => attachNumberFormatting(document.getElementById(id)));
+["kym_upahHarian", "kym_tarifLembur", "kym_uangMakanHarian", "kym_gajiBulanan", "kym_targetBulanan", "kym_pinjamanAwal", "kym_uangMakanMingguan", "kym_lemburHarian"].forEach(id => attachNumberFormatting(document.getElementById(id)));
 function recalcTarifLemburOtomatis() {
   const upahHarian = parseNumberInput(document.getElementById("kym_upahHarian").value);
   const uangMakan = parseNumberInput(document.getElementById("kym_uangMakanHarian").value);
@@ -9453,10 +9460,17 @@ document.getElementById("karyawanForm").addEventListener("submit", e => {
     // Skema penggajian (periode pembayaran) ikut tersimpan di jsonb
     // pembayaran karyawan_gaji (Owner-only) -- tidak butuh kolom DB baru.
     k.pembayaranGaji.periode = document.getElementById("kym_periodeGaji").value;
+    // Tarif skema Pelaksana ikut menumpang di jsonb yang sama (pola
+    // persis seperti periode di atas): uang makan mingguan flat + lembur
+    // flat per hari untuk karyawan Bulanan.
+    k.uangMakanMingguan = parseNumberInput(document.getElementById("kym_uangMakanMingguan").value);
+    k.lemburHarian = parseNumberInput(document.getElementById("kym_lemburHarian").value);
+    k.pembayaranGaji.uangMakanMingguan = k.uangMakanMingguan;
+    k.pembayaranGaji.lemburHarian = k.lemburHarian;
   } else if (existing) {
     // Field nominal disembunyikan dari non-Owner (Fix 30) -- pertahankan
     // nilai yang sudah ada di state, jangan ditimpa 0 dari input kosong.
-    ["upahHarian", "tarifLembur", "uangMakanHarian", "gajiBulanan", "targetBulanan", "persenBonus", "pinjamanAwal", "pembayaranGaji"].forEach(f => {
+    ["upahHarian", "tarifLembur", "uangMakanHarian", "gajiBulanan", "targetBulanan", "persenBonus", "pinjamanAwal", "pembayaranGaji", "uangMakanMingguan", "lemburHarian"].forEach(f => {
       if (existing[f] !== undefined) k[f] = existing[f];
     });
   }
@@ -9959,6 +9973,18 @@ function renderPenggajianPanel() {
 function currentKaryawanForPayroll() {
   return state.karyawan.find(k => k.id === document.getElementById("pg_karyawan").value);
 }
+// Jumlah "minggu" dalam periode = jumlah hari Sabtu (hari gajian siklus
+// Owner) di rentang itu -- dasar uang makan mingguan flat skema Pelaksana.
+function jumlahSabtuPeriode(mulai, selesai) {
+  if (!mulai || !selesai || mulai > selesai) return 0;
+  let n = 0;
+  for (let t = mulai; t <= selesai; t = addDaysIso(t, 1)) {
+    // T12:00 supaya hari-dalam-minggu tidak bergeser timezone (pelajaran
+    // dari bug uang makan mingguan WIB).
+    if (new Date(t + "T12:00:00").getDay() === 6) n++;
+  }
+  return n;
+}
 const HARI_LABEL = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
 // Aturan uang makan mingguan Owner: gajian tiap Sabtu, minggu berjalan
 // Minggu s.d. Sabtu. Jatah uang makan seminggu = tarif harian x jumlah
@@ -10013,11 +10039,34 @@ function computePayrollFromAbsensi(resetManualInputs) {
 
   if (isBulanan) {
     document.getElementById("pg_gajiBulananDisplay").textContent = rupiah(k.gajiBulanan || 0);
-    pgComputed = { hariHadir: 0, jamLembur: 0, totalUpahHarian: 0, totalLembur: 0, upahKotor: k.gajiBulanan || 0, bonus: 0 };
+    // Skema Pelaksana (karyawan Bulanan dengan tarif terisi):
+    // - Uang makan mingguan FLAT: dibayar tiap minggu (dihitung per Sabtu
+    //   di periode), berangkat atau tidak TETAP utuh -- tidak terpotong absen.
+    // - Lembur flat per HARI: setiap hari di absensi yang jam lemburnya > 0
+    //   dihitung 1 x tarif, bukan per jam.
+    const mulaiB = document.getElementById("pg_mulai").value;
+    const selesaiB = document.getElementById("pg_selesai").value;
+    const minggu = jumlahSabtuPeriode(mulaiB, selesaiB);
+    const umMingguanTotal = minggu * (k.uangMakanMingguan || 0);
+    const hariLembur = !mulaiB || !selesaiB ? 0 :
+      (k.absensi || []).filter(a => a.tanggal >= mulaiB && a.tanggal <= selesaiB && (a.jamLembur || 0) > 0).length;
+    const lemburHarianTotal = hariLembur * (k.lemburHarian || 0);
+    const umRow = document.getElementById("pg_umMingguanRow");
+    umRow.style.display = (k.uangMakanMingguan || 0) > 0 ? "" : "none";
+    document.getElementById("pg_umMingguanLabel").textContent = `Uang Makan Mingguan (${minggu} minggu × ${rupiah(k.uangMakanMingguan || 0)}, flat)`;
+    document.getElementById("pg_umMingguan").textContent = rupiah(umMingguanTotal);
+    const lhRow = document.getElementById("pg_lemburHarianRow");
+    lhRow.style.display = (k.lemburHarian || 0) > 0 ? "" : "none";
+    document.getElementById("pg_lemburHarianLabel").textContent = `Lembur Harian (${hariLembur} hari × ${rupiah(k.lemburHarian || 0)})`;
+    document.getElementById("pg_lemburHarian").textContent = rupiah(lemburHarianTotal);
+    pgComputed = { hariHadir: 0, jamLembur: 0, totalUpahHarian: 0, totalLembur: 0, bonus: 0,
+      umMingguanMinggu: minggu, umMingguanTotal, lemburHari: hariLembur, lemburHarianTotal,
+      upahKotor: (k.gajiBulanan || 0) + umMingguanTotal + lemburHarianTotal };
     if (resetManualInputs) {
       document.getElementById("pg_target").value = formatNumberInput(k.targetBulanan || 0);
       document.getElementById("pg_realisasi").value = "";
       document.getElementById("pg_persenBonus").value = k.persenBonus || 0;
+      document.getElementById("pg_bonusManual").value = formatNumberInput(0);
       document.getElementById("pg_uangMakan").value = formatNumberInput(0);
       document.getElementById("pg_bon").value = formatNumberInput(0);
       document.getElementById("pg_potonganPinjaman").value = formatNumberInput(0);
@@ -10070,8 +10119,14 @@ function refreshPenggajianSummary() {
     const persen = parseFloat(document.getElementById("pg_persenBonus").value) || 0;
     const bonus = hitungBonusTarget(target, realisasi, persen);
     document.getElementById("pg_bonusTarget").textContent = rupiah(bonus);
-    upahKotor = (k.gajiBulanan || 0) + bonus;
+    // Bonus manual (diinput langsung Owner) + komponen skema Pelaksana
+    // (uang makan mingguan flat & lembur harian, dihitung di
+    // computePayrollFromAbsensi) ikut menambah upah kotor.
+    const bonusManual = parseNumberInput(document.getElementById("pg_bonusManual").value);
+    upahKotor = (k.gajiBulanan || 0) + bonus + bonusManual +
+      (pgComputed.umMingguanTotal || 0) + (pgComputed.lemburHarianTotal || 0);
     pgComputed.bonus = bonus;
+    pgComputed.bonusManual = bonusManual;
     pgComputed.target = target;
     pgComputed.realisasi = realisasi;
     pgComputed.persenBonus = persen;
@@ -10136,7 +10191,7 @@ document.getElementById("pg_karyawan").addEventListener("change", () => {
 document.getElementById("pg_mulai").addEventListener("change", () => computePayrollFromAbsensi(false));
 document.getElementById("pg_selesai").addEventListener("change", () => computePayrollFromAbsensi(false));
 document.getElementById("pg_hitungBtn").addEventListener("click", () => computePayrollFromAbsensi(false));
-["pg_uangMakan", "pg_bon", "pg_potonganPinjaman", "pg_target", "pg_realisasi"].forEach(id => {
+["pg_uangMakan", "pg_bon", "pg_potonganPinjaman", "pg_target", "pg_realisasi", "pg_bonusManual"].forEach(id => {
   attachNumberFormatting(document.getElementById(id));
   document.getElementById(id).addEventListener("input", refreshPenggajianSummary);
 });
@@ -10611,7 +10666,16 @@ document.getElementById("pg_simpanCetakBtn").addEventListener("click", () => {
     slip.realisasi = pgComputed.realisasi || 0;
     slip.persenBonus = pgComputed.persenBonus || 0;
     slip.bonus = pgComputed.bonus || 0;
-    slip.upahKotor = slip.gajiBulanan + slip.bonus;
+    // Skema Pelaksana: komponen tambahan tersimpan di slip supaya cetak/
+    // riwayat tetap benar walau tarif karyawan berubah kemudian.
+    slip.bonusManual = pgComputed.bonusManual || 0;
+    slip.umMingguanMinggu = pgComputed.umMingguanMinggu || 0;
+    slip.umMingguanTarif = k.uangMakanMingguan || 0;
+    slip.umMingguanTotal = pgComputed.umMingguanTotal || 0;
+    slip.lemburHari = pgComputed.lemburHari || 0;
+    slip.lemburHarianTarif = k.lemburHarian || 0;
+    slip.lemburHarianTotal = pgComputed.lemburHarianTotal || 0;
+    slip.upahKotor = slip.gajiBulanan + slip.bonus + slip.bonusManual + slip.umMingguanTotal + slip.lemburHarianTotal;
   } else {
     slip.hariHadir = pgComputed.hariHadir;
     slip.jamLembur = pgComputed.jamLembur;
@@ -10839,7 +10903,10 @@ function buildSlipGajiPrintHtml(k, sl) {
       <tbody>
         ${sl.tipeGaji === "Bulanan" ? `
         <tr><td>Gaji Bulanan</td><td>Gaji tetap bulanan</td><td class="r">${rupiah(sl.gajiBulanan)}</td></tr>
+        ${(sl.umMingguanTotal || 0) > 0 ? `<tr><td>Uang Makan Mingguan</td><td>${sl.umMingguanMinggu} minggu × ${rupiah(sl.umMingguanTarif)} (flat, hadir/tidak)</td><td class="r">${rupiah(sl.umMingguanTotal)}</td></tr>` : ""}
+        ${(sl.lemburHarianTotal || 0) > 0 ? `<tr><td>Lembur Harian</td><td>${sl.lemburHari} hari × ${rupiah(sl.lemburHarianTarif)}</td><td class="r">${rupiah(sl.lemburHarianTotal)}</td></tr>` : ""}
         <tr><td>Bonus Target</td><td>Realisasi ${rupiah(sl.realisasi)} − Target ${rupiah(sl.target)} × ${sl.persenBonus}%</td><td class="r">${rupiah(sl.bonus)}</td></tr>
+        ${(sl.bonusManual || 0) > 0 ? `<tr><td>Bonus</td><td>Bonus dari pemilik</td><td class="r">${rupiah(sl.bonusManual)}</td></tr>` : ""}
         ` : `
         <tr><td>Upah Harian</td><td>${sl.hariHadir} hari × ${rupiah(sl.upahHarian)}</td><td class="r">${rupiah(sl.totalUpahHarian)}</td></tr>
         <tr><td>Lembur</td><td>${sl.jamLembur} jam × ${rupiah(sl.tarifLembur)}</td><td class="r">${rupiah(sl.totalLembur)}</td></tr>
