@@ -2030,7 +2030,9 @@
             <div class="summary-row"><span>Sisa Pinjaman Sebelum</span><strong id="pg_sisaSebelum">Rp 0</strong></div>
             <div class="summary-row"><span>Sisa Pinjaman Sesudah</span><strong id="pg_sisaSesudah">Rp 0</strong></div>
             <div class="summary-row"><span>Metode Pembayaran</span><strong id="pg_metodeBayar">Tunai</strong></div>
-            <div class="summary-row total"><span>Gaji Bersih (Take Home)</span><strong id="pg_gajiBersih">Rp 0</strong></div>
+            <div class="summary-row" id="pg_defisitRow" style="display:none;"><span>Defisit Periode Lalu (akumulasi minus)</span><strong id="pg_defisitLalu" style="color:#b45309;">Rp 0</strong></div>
+            <div class="summary-row total"><span>Gaji Dibayarkan (Take Home)</span><strong id="pg_gajiBersih">Rp 0</strong></div>
+            <div class="muted" id="pg_defisitNote" style="display:none; font-size:12px; margin-top:6px; line-height:1.5;"></div>
           </div>
           <div class="modal-actions" style="justify-content:flex-start; margin-top:16px; align-items:center; gap:12px;">
             <button class="btn-primary" id="pg_simpanCetakBtn">💾 Simpan Slip Gaji</button>
