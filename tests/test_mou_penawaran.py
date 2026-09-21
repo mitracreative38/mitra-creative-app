@@ -114,6 +114,10 @@ with sync_playwright() as p:
           pihak: teks.includes('PIHAK PERTAMA') && teks.includes('PIHAK KEDUA') && teks.includes('Nicholas Ferdinand'),
           item: teks.includes('IP Camera 4MP') && teks.includes('Hikvision DS-2CD2T46G2H') && teks.includes('GRAND TOTAL'),
           pasal: teks.includes('Force Majeure') && teks.includes('Adendum') && teks.includes('Penyelesaian Masalah'),
+          // Regresi tampilan (laporan Owner 21/9): tabel para pihak sempat
+          // memakai doc-summary-table (lebar 320px rata kanan) sehingga
+          // kolom uraian terjepit 1-2 kata per baris.
+          tanpaTabelSempit: !html.includes('doc-summary-table'),
           deadline: teks.includes('denda sebesar 1% per hari'),
           rekening: teks.includes('854-6013940'),
           mouTersimpan: !!state.penawaran[0].mou && state.penawaran[0].mou.nomor === '047/MC-SPK/IX/2026'
