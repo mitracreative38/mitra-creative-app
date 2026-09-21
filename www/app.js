@@ -15248,6 +15248,10 @@ function mouTerminRows(pw, total) {
   });
 }
 function buildMouPrintHtml(pw) {
+  // Catatan tampilan: tabel para pihak memakai tabel polos selebar halaman
+  // (inline style), BUKAN doc-summary-table -- kelas itu lebarnya cuma
+  // 320px rata kanan (untuk ringkasan angka) sehingga kolom uraian para
+  // pihak terjepit 1-2 kata per baris (laporan Owner 21/9).
   const m = pw.mou || {};
   const { subtotal, diskonValue, ppnValue, pphValue, total } = penawaranTotals(pw);
   const profil = { company: state.company || "CV. Mitra Creative", alamat: state.alamat || COMPANY_ADDRESS, telepon: state.telepon || COMPANY_PHONE };
@@ -15299,16 +15303,16 @@ function buildMouPrintHtml(pw) {
       <p class="doc-p" style="text-align:center; margin-top:2px;">Nomor : ${escapeHtml(m.nomor || "-")}</p>
 
       <p class="doc-p">Pada hari ini, ${tanggalTerbilangId(m.tanggal)}, telah dibuat dan ditandatangani Surat Perjanjian Kerjasama <strong>${escapeHtml(pw.perihal || "-")}</strong>, oleh dan antara:</p>
-      <table class="doc-summary-table" style="margin:6px 0 10px;">
+      <table style="width:100%; border-collapse:collapse; font-size:12.5px; line-height:1.6; margin:6px 0 10px;">
         <tr>
-          <td style="width:24px; vertical-align:top;">1.</td>
-          <td style="width:190px; vertical-align:top;"><strong>${escapeHtml(m.pihak1Nama || "(nama wakil klien)")}</strong></td>
-          <td>: Dalam hal ini bertindak untuk dan atas nama <strong>${escapeHtml(pw.kepada || "-")}</strong>${m.pihak1Alamat ? `, yang berkedudukan di ${escapeHtml(m.pihak1Alamat)}` : ""}. Selanjutnya dalam perjanjian ini disebut sebagai <strong>PIHAK PERTAMA</strong>.</td>
+          <td style="width:24px; vertical-align:top; padding:4px 0;">1.</td>
+          <td style="width:195px; vertical-align:top; padding:4px 10px 4px 0;"><strong>${escapeHtml(m.pihak1Nama || "(nama wakil klien)")}</strong></td>
+          <td style="vertical-align:top; padding:4px 0;">: Dalam hal ini bertindak untuk dan atas nama <strong>${escapeHtml(pw.kepada || "-")}</strong>${m.pihak1Alamat ? `, yang berkedudukan di ${escapeHtml(m.pihak1Alamat)}` : ""}. Selanjutnya dalam perjanjian ini disebut sebagai <strong>PIHAK PERTAMA</strong>.</td>
         </tr>
         <tr>
-          <td style="vertical-align:top;">2.</td>
-          <td style="vertical-align:top;"><strong>${escapeHtml(pihak2Nama)}</strong></td>
-          <td>: Dalam hal ini bertindak untuk dan atas nama <strong>${escapeHtml(profil.company)}</strong>, yang berkedudukan di ${escapeHtml(profil.alamat)}. Selanjutnya dalam perjanjian ini disebut sebagai <strong>PIHAK KEDUA</strong>.</td>
+          <td style="vertical-align:top; padding:4px 0;">2.</td>
+          <td style="vertical-align:top; padding:4px 10px 4px 0;"><strong>${escapeHtml(pihak2Nama)}</strong></td>
+          <td style="vertical-align:top; padding:4px 0;">: Dalam hal ini bertindak untuk dan atas nama <strong>${escapeHtml(profil.company)}</strong>, yang berkedudukan di ${escapeHtml(profil.alamat)}. Selanjutnya dalam perjanjian ini disebut sebagai <strong>PIHAK KEDUA</strong>.</td>
         </tr>
       </table>
       <p class="doc-p">Kedua belah pihak telah sepakat untuk mengikatkan diri satu sama lain dalam perjanjian, dengan ketentuan dan syarat-syarat yang akan diterangkan lebih lanjut, antara lain:</p>
