@@ -2798,6 +2798,7 @@
             <button class="btn-primary" id="pw_toProyekBtn">🏗️ Buat Proyek dari Penawaran Ini</button>
             <button class="btn-primary" id="pw_printBtn">🖨️ Cetak Penawaran</button>
             <button class="btn-ghost" id="pw_pdfBtn">⬇️ Unduh PDF</button>
+            <button class="btn-ghost" id="pw_mouBtn" title="Surat Perjanjian Kerjasama dari penawaran yang sudah di-ACC klien">📜 MOU / Perjanjian</button>
             <button class="btn-ghost" id="pw_paymentLinkBtn">💳 Kirim Link DP</button>
           </div>
         </header>
@@ -5485,6 +5486,72 @@
 <!-- Modal: Kalkulator Volume dari Ukuran (dipakai semua input volume: item RAB &
      Penawaran, Pekerjaan Susulan, pratinjau Import BOQ/OCR, koefisien AHSP).
      Ditaruh PALING AKHIR supaya tampil menumpuk di atas modal induknya. -->
+<!-- Modal: MOU / Surat Perjanjian Kerjasama dari penawaran ACC -->
+<div class="modal-backdrop" id="mouModal">
+  <div class="modal" style="max-width:720px;">
+    <div class="modal-head">
+      <h3>MOU / Surat Perjanjian Kerjasama</h3>
+      <button class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <p class="muted" style="font-size:12px; margin:-4px 0 12px;">Isi otomatis dari penawaran &amp; data klien — tinggal koreksi seperlunya. Rincian pekerjaan, harga, dan termin pembayaran diambil langsung dari penawaran ini saat dicetak.</p>
+    <div class="form-grid">
+      <div class="field">
+        <label>Nomor MOU</label>
+        <input type="text" id="mou_nomor" placeholder="mis. 047/MC-SPK/IX/2026">
+      </div>
+      <div class="field">
+        <label>Tanggal Penandatanganan</label>
+        <input type="date" id="mou_tanggal">
+      </div>
+      <div class="field">
+        <label>Nama Wakil Pihak Pertama (Klien)</label>
+        <input type="text" id="mou_pihak1Nama" placeholder="mis. Nicholas Ferdinand Santoso">
+      </div>
+      <div class="field">
+        <label>Telepon Pihak Pertama</label>
+        <input type="text" id="mou_pihak1Telepon" placeholder="mis. 0853xxxxxx">
+      </div>
+      <div class="field full">
+        <label>Kedudukan / Alamat Pihak Pertama</label>
+        <input type="text" id="mou_pihak1Alamat" placeholder="mis. Ruko Mataram Plaza D8, Semarang">
+      </div>
+      <div class="field">
+        <label>Nama Wakil Pihak Kedua (Kita)</label>
+        <input type="text" id="mou_pihak2Nama">
+      </div>
+      <div class="field">
+        <label>Telepon Pihak Kedua</label>
+        <input type="text" id="mou_pihak2Telepon">
+      </div>
+      <div class="field">
+        <label>Deadline Pekerjaan (opsional)</label>
+        <input type="date" id="mou_deadline">
+      </div>
+      <div class="field">
+        <label>Denda Keterlambatan (%/hari)</label>
+        <input type="number" id="mou_dendaPersen" min="0" step="any" placeholder="1">
+      </div>
+      <div class="field">
+        <label>Garansi (bulan)</label>
+        <input type="number" id="mou_garansiBulan" min="0" step="1" placeholder="3">
+      </div>
+      <div class="field">
+        <label>Rekening Pembayaran</label>
+        <input type="text" id="mou_rekening" placeholder="mis. BCA 854-6013940 a.n. CV. Mitra Creative">
+      </div>
+      <div class="field full">
+        <label>Fasilitas / Lingkup dari Pihak Kedua (satu baris = satu poin)</label>
+        <textarea id="mou_fasilitas" rows="5"></textarea>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+      <button type="button" class="btn-ghost" id="mou_simpanBtn">💾 Simpan</button>
+      <button type="button" class="btn-primary" id="mou_cetakBtn">🖨️ Simpan &amp; Cetak MOU</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="dimCalcModal">
   <div class="modal">
     <div class="modal-head">

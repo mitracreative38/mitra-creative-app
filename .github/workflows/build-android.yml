@@ -49,6 +49,13 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # Default action ini meminta paket legacy "tools" yang sudah
+          # DIHAPUS dari repositori SDK Google (per Sep 2026), sehingga
+          # sdkmanager gagal exit 1 di commit mana pun. Cukup platform-tools;
+          # platforms/build-tools yang dibutuhkan diunduh sendiri oleh
+          # Gradle (lisensi sudah diterima oleh action di langkah yang sama).
+          packages: "platform-tools"
 
       - name: Build debug APK
         working-directory: android

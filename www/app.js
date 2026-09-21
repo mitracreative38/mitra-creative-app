@@ -895,7 +895,7 @@ async function migrateRabIfNeeded() {
 // Pola yang sama persis dengan Klien, AHSP & RAB -- state.penawaran tetap
 // sumber utama, tabel relasional dicerminkan (mirror) secara best-effort.
 function penawaranToRow(p) {
-  return {
+  const row = {
     id: p.id,
     company_id: targetCompanyId,
     nomor: p.nomor || "",
@@ -927,6 +927,11 @@ function penawaranToRow(p) {
     total: penawaranTotals(p).total,
     updated_at: new Date().toISOString()
   };
+  // Kolom mou (fix56) dikirim HANYA kalau penawaran ini benar-benar punya
+  // data MOU -- pengguna yang belum menjalankan SQL fix56 dan belum memakai
+  // fitur MOU tidak terganggu mirror penawarannya sama sekali.
+  if (p.mou) row.mou = p.mou;
+  return row;
 }
 async function mirrorPenawaranUpsert(p, isNew) {
   if (!sb || !targetCompanyId) return;
@@ -1926,7 +1931,7 @@ function rowToPenawaran(r) {
     ttdJabatan: r.ttd_jabatan || "", proyekId: r.proyek_id || "", revisiDariId: r.revisi_dari_id || "",
     revisiKe: r.revisi_ke || 0, brand: r.brand || "mitra", markupPercent: r.markup_percent ?? null,
     sourcePenawaranId: r.source_penawaran_id || "", items: r.items || [], skemaPembayaran: r.skema_pembayaran || [],
-    nego: r.nego || [], alasanKalah: r.alasan_kalah || null
+    nego: r.nego || [], alasanKalah: r.alasan_kalah || null, mou: r.mou || null
   };
 }
 function rowToProyek(r) {
@@ -15136,6 +15141,232 @@ document.getElementById("pw_pdfBtn").addEventListener("click", () => {
   if (!pw) return;
   downloadPdfFromServer(document.getElementById("pw_pdfBtn"), `penawaran/${pw.id}`, `Penawaran-${pw.nomor || pw.id}`);
 });
+// ===== MOU / Surat Perjanjian Kerjasama dari penawaran ACC =====
+// Permintaan Owner: setelah penawaran di-ACC klien, terbit MOU (Surat
+// Perjanjian Kerjasama) dengan kop surat yang sama dengan penawaran --
+// meniru struktur MOU KLA Computer Purwokerto yang biasa dipakai: para
+// pihak, tabel pekerjaan & harga per bagian, fasilitas, termin pembayaran
+// ber-terbilang + rekening, penyelesaian masalah, force majeure, adendum,
+// dan tanda tangan dua pihak. Data isian tersimpan di pw.mou (ikut
+// termirror lewat mirrorPenawaranUpsert), rincian item/harga/termin selalu
+// diambil segar dari penawarannya saat dicetak.
+const ROMAWI_TAHAP = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
+function kapital(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+function tanggalTerbilangId(iso) {
+  const d = new Date((iso || hariIniIso()) + "T12:00:00");
+  const bulan = d.toLocaleDateString("id-ID", { month: "long" });
+  const ddmmyyyy = `${String(d.getDate()).padStart(2, "0")}-${String(d.getMonth() + 1).padStart(2, "0")}-${d.getFullYear()}`;
+  return `${HARI_LABEL[d.getDay()]} tanggal ${kapital(terbilang(d.getDate()))} bulan ${bulan} tahun ${kapital(terbilang(d.getFullYear()))} (${ddmmyyyy})`;
+}
+function defaultMouFasilitas(pw) {
+  const kelompok = [...new Set(pw.items.map(it => (it.kelompok || "").trim()).filter(Boolean))];
+  const lines = kelompok.length
+    ? kelompok.map(k => `Pengerjaan ${k} sesuai kesepakatan`)
+    : [`Pelaksanaan pekerjaan ${pw.perihal || "sesuai rincian penawaran"} sesuai kesepakatan`];
+  return lines.join("\n");
+}
+function openMouModal() {
+  const pw = state.penawaran.find(p => p.id === currentPwId);
+  if (!pw) return;
+  if (!pw.items.length) { alert("Penawaran ini belum punya item pekerjaan — isi itemnya dulu sebelum membuat MOU."); return; }
+  if (pw.status !== "disetujui" && !confirm(`Status penawaran ini masih "${pw.status}" (belum Disetujui/ACC).\n\nMOU biasanya dibuat SETELAH penawaran di-ACC klien. Tetap lanjut membuat MOU?`)) return;
+  const klien = pw.klienId ? state.klien.find(k => k.id === pw.klienId) : null;
+  const m = pw.mou || {};
+  document.getElementById("mou_nomor").value = m.nomor ||
+    (pw.nomor && /-PH\//.test(pw.nomor) ? pw.nomor.replace("-PH/", "-SPK/") : `SPK-${pw.nomor || ""}`);
+  document.getElementById("mou_tanggal").value = m.tanggal || hariIniIso();
+  document.getElementById("mou_pihak1Nama").value = m.pihak1Nama || (klien && klien.kontakNama) || "";
+  document.getElementById("mou_pihak1Telepon").value = m.pihak1Telepon || (klien && klien.telepon) || "";
+  document.getElementById("mou_pihak1Alamat").value = m.pihak1Alamat || pw.alamatKlien || (klien && klien.alamat) || "";
+  document.getElementById("mou_pihak2Nama").value = m.pihak2Nama || state.ownerNama || "";
+  document.getElementById("mou_pihak2Telepon").value = m.pihak2Telepon || state.telepon || COMPANY_PHONE;
+  document.getElementById("mou_deadline").value = m.deadline || "";
+  document.getElementById("mou_dendaPersen").value = m.dendaPersen != null ? m.dendaPersen : 1;
+  document.getElementById("mou_garansiBulan").value = m.garansiBulan != null ? m.garansiBulan : 3;
+  document.getElementById("mou_rekening").value = m.rekening || state.rekening || "";
+  document.getElementById("mou_fasilitas").value = m.fasilitas || defaultMouFasilitas(pw);
+  document.getElementById("mouModal").classList.add("open");
+}
+document.getElementById("pw_mouBtn").addEventListener("click", openMouModal);
+function simpanMouDariForm() {
+  const pw = state.penawaran.find(p => p.id === currentPwId);
+  if (!pw) return null;
+  pw.mou = {
+    nomor: document.getElementById("mou_nomor").value.trim(),
+    tanggal: document.getElementById("mou_tanggal").value || hariIniIso(),
+    pihak1Nama: document.getElementById("mou_pihak1Nama").value.trim(),
+    pihak1Telepon: document.getElementById("mou_pihak1Telepon").value.trim(),
+    pihak1Alamat: document.getElementById("mou_pihak1Alamat").value.trim(),
+    pihak2Nama: document.getElementById("mou_pihak2Nama").value.trim(),
+    pihak2Telepon: document.getElementById("mou_pihak2Telepon").value.trim(),
+    deadline: document.getElementById("mou_deadline").value || "",
+    dendaPersen: Math.max(0, parseFloat(document.getElementById("mou_dendaPersen").value) || 0),
+    garansiBulan: Math.max(0, parseInt(document.getElementById("mou_garansiBulan").value, 10) || 0),
+    rekening: document.getElementById("mou_rekening").value.trim(),
+    fasilitas: document.getElementById("mou_fasilitas").value.trim()
+  };
+  saveState();
+  mirrorPenawaranUpsert(pw, false);
+  return pw;
+}
+document.getElementById("mou_simpanBtn").addEventListener("click", () => {
+  if (simpanMouDariForm()) { closeModals(); alert("Data MOU tersimpan. Cetak kapan saja lewat tombol 📜 MOU / Perjanjian."); }
+});
+document.getElementById("mou_cetakBtn").addEventListener("click", () => {
+  const pw = simpanMouDariForm();
+  if (!pw) return;
+  closeModals();
+  document.getElementById("printArea").innerHTML = buildMouPrintHtml(pw);
+  cetakPrintArea();
+  // Integrasi dokumen proyek: kalau penawaran ini sudah jadi proyek,
+  // MOU tercatat di registrasi Dokumen Proyek (jenis mengandung "SPK"
+  // supaya tahapan "SPK/Kontrak Diterima" ikut tercentang otomatis).
+  const proyek = pw.proyekId ? state.proyek.find(x => x.id === pw.proyekId) : null;
+  if (proyek && !proyek.arsip && !(proyek.dokumen || []).some(d => /SPK|MOU/i.test(d.jenis || ""))) {
+    if (!proyek.dokumen) proyek.dokumen = [];
+    proyek.dokumen.push({ id: uid(), jenis: "MOU/SPK", nomor: pw.mou.nomor, tanggalTerbit: pw.mou.tanggal, garansiSampai: "", catatan: "MOU disusun otomatis dari penawaran " + (pw.nomor || "") });
+    saveState();
+    mirrorProyekUpsert(proyek);
+  }
+});
+// Baris termin MOU: dari Skema Pembayaran penawaran (kalau ada & valid),
+// selain itu jatuh ke pola default DP 50% / pelunasan 50%. Nilai tahap
+// terakhir = sisa pembulatan supaya totalnya persis sama dengan grand total.
+function mouTerminRows(pw, total) {
+  let skema = (pw.skemaPembayaran || []).filter(r => (r.persen || 0) > 0);
+  if (!skema.length || Math.abs(skemaPembayaranTotal(skema) - 100) > 0.01) {
+    skema = [
+      { label: "DP", persen: 50, syarat: "sebelum pekerjaan dimulai atau setelah MOU disepakati" },
+      { label: "Pelunasan", persen: 50, syarat: "setelah pekerjaan selesai dan diperiksa pihak pertama (BAST)" }
+    ];
+  }
+  let sisa = total;
+  return skema.map((r, i) => {
+    const nilai = i === skema.length - 1 ? sisa : Math.round(total * (r.persen || 0) / 100);
+    sisa -= nilai;
+    return { romawi: ROMAWI_TAHAP[i] || String(i + 1), persen: r.persen, nilai, syarat: r.syarat || "", label: r.label || "Termin" };
+  });
+}
+function buildMouPrintHtml(pw) {
+  const m = pw.mou || {};
+  const { subtotal, diskonValue, ppnValue, pphValue, total } = penawaranTotals(pw);
+  const profil = { company: state.company || "CV. Mitra Creative", alamat: state.alamat || COMPANY_ADDRESS, telepon: state.telepon || COMPANY_PHONE };
+  const adaKelompok = pw.items.some(it => it.kelompok);
+  let nomorUrut = 0;
+  const itemsRows = groupItemsByKelompok(pw.items).map(group => {
+    const header = group.kelompok ? `
+      <tr class="pwmc-group-row"><td colspan="5"><strong>${escapeHtml(group.kelompok)}</strong></td><td class="r"><strong>${rupiah(group.subtotal)}</strong></td></tr>
+    ` : "";
+    const rows = group.items.map((it, i) => `
+      <tr>
+        <td class="c">${group.kelompok ? String.fromCharCode(97 + (i % 26)) + "." : ++nomorUrut}</td>
+        <td>${escapeHtml(it.uraian)}</td>
+        <td>${escapeHtml(it.spesifikasi || "-")}</td>
+        <td class="c">${escapeHtml(it.satuan)}</td>
+        <td class="r">${it.volume}</td>
+        <td class="r">${rupiah((it.volume || 0) * (it.hargaSatuan || 0))}</td>
+      </tr>
+    `).join("");
+    return header + rows;
+  }).join("");
+  const pajakParts = [];
+  if (pw.diskon) pajakParts.push(`diskon ${pw.diskon}%`);
+  if (pw.ppn) pajakParts.push(`PPN ${pw.ppn}%`);
+  if (pw.pph) pajakParts.push(`PPh Final ${pw.pph}%`);
+  if (pw.biayaLain) pajakParts.push("biaya lain-lain");
+  const fasilitasLines = (m.fasilitas || defaultMouFasilitas(pw)).split("\n").map(l => l.trim()).filter(Boolean);
+  if (m.garansiBulan > 0) fasilitasLines.push(`Garansi selama ${m.garansiBulan} bulan setelah proses pekerjaan selesai`);
+  if (m.deadline) fasilitasLines.push(`Deadline pekerjaan tanggal ${formatTanggal(m.deadline)}, dan apabila penyelesaian melebihi tanggal yang sudah ditetapkan oleh pihak pertama maka pihak kedua akan dikenakan denda sebesar ${m.dendaPersen || 0}% per hari (kecuali jika pekerjaan tinggal finishing dan bagian utama sudah terpasang semua, tidak akan dikenakan denda)`);
+  const termin = mouTerminRows(pw, total);
+  const terminHtml = termin.map((t, i) => `
+    <p class="doc-p" style="margin:4px 0 4px 18px;">${String.fromCharCode(97 + (i % 26))}. Tahap ${t.romawi} sebesar ${t.persen}% atau senilai <strong>${rupiah(t.nilai)}</strong> (${terbilangRupiah(t.nilai)}) akan dibayarkan ${escapeHtml(t.syarat || `sebagai ${t.label}`)}.</p>
+  `).join("");
+  const pihak2Nama = m.pihak2Nama || state.ownerNama || "";
+  return `
+    <div class="pwmc-doc">
+      <div class="pwmc-header">
+        <img class="pwmc-logo" src="${MITRA_LOGO_DATA_URI}" alt="logo">
+        <div>
+          <div class="pwmc-company">${escapeHtml(profil.company)}</div>
+          <div class="pwmc-tagline">CONTRACTOR SIPIL &bull; ADVERTISING &bull; KONSTRUKSI &bull; PENGADAAN BARANG DAN JASA</div>
+          <div class="pwmc-address">${escapeHtml(profil.alamat)} &bull; ${escapeHtml(profil.telepon)}</div>
+        </div>
+      </div>
+      <div class="pwmc-goldrule"></div>
+
+      <div class="pwmc-title">SURAT PERJANJIAN KERJASAMA</div>
+      <div class="pwmc-subtitle">${escapeHtml((pw.perihal || "").toUpperCase())}</div>
+      <p class="doc-p" style="text-align:center; margin-top:2px;">Nomor : ${escapeHtml(m.nomor || "-")}</p>
+
+      <p class="doc-p">Pada hari ini, ${tanggalTerbilangId(m.tanggal)}, telah dibuat dan ditandatangani Surat Perjanjian Kerjasama <strong>${escapeHtml(pw.perihal || "-")}</strong>, oleh dan antara:</p>
+      <table class="doc-summary-table" style="margin:6px 0 10px;">
+        <tr>
+          <td style="width:24px; vertical-align:top;">1.</td>
+          <td style="width:190px; vertical-align:top;"><strong>${escapeHtml(m.pihak1Nama || "(nama wakil klien)")}</strong></td>
+          <td>: Dalam hal ini bertindak untuk dan atas nama <strong>${escapeHtml(pw.kepada || "-")}</strong>${m.pihak1Alamat ? `, yang berkedudukan di ${escapeHtml(m.pihak1Alamat)}` : ""}. Selanjutnya dalam perjanjian ini disebut sebagai <strong>PIHAK PERTAMA</strong>.</td>
+        </tr>
+        <tr>
+          <td style="vertical-align:top;">2.</td>
+          <td style="vertical-align:top;"><strong>${escapeHtml(pihak2Nama)}</strong></td>
+          <td>: Dalam hal ini bertindak untuk dan atas nama <strong>${escapeHtml(profil.company)}</strong>, yang berkedudukan di ${escapeHtml(profil.alamat)}. Selanjutnya dalam perjanjian ini disebut sebagai <strong>PIHAK KEDUA</strong>.</td>
+        </tr>
+      </table>
+      <p class="doc-p">Kedua belah pihak telah sepakat untuk mengikatkan diri satu sama lain dalam perjanjian, dengan ketentuan dan syarat-syarat yang akan diterangkan lebih lanjut, antara lain:</p>
+
+      <p class="doc-p"><strong>I. Penunjukan Pekerjaan</strong><br>
+      Pihak pertama dengan ini menunjuk pihak kedua dan pihak kedua dengan ini menyatakan bersedia dan sanggup baik sekarang maupun di kemudian hari pada waktunya nanti untuk mengikatkan diri di dalam perjanjian ini untuk melakukan pekerjaan <strong>${escapeHtml(pw.perihal || "-")}</strong>.</p>
+
+      <p class="doc-p"><strong>II. Spesifikasi, Jenis Pekerjaan, dan Harga yang Telah Disepakati</strong></p>
+      <table class="pwmc-table">
+        <thead><tr><th>No</th><th>Uraian Pekerjaan</th><th>Spesifikasi</th><th class="c">Satuan</th><th class="r">Volume</th><th class="r">Harga</th></tr></thead>
+        <tbody>${itemsRows}</tbody>
+      </table>
+      <table class="pwmc-summary">
+        <tr><td>${adaKelompok ? "Jumlah Seluruh Bagian Pekerjaan" : "Subtotal"}</td><td class="r">${rupiah(subtotal)}</td></tr>
+        ${pw.diskon ? `<tr><td>Diskon (${pw.diskon}%)</td><td class="r">- ${rupiah(diskonValue)}</td></tr>` : ""}
+        ${pw.ppn ? `<tr><td>PPN (${pw.ppn}%)</td><td class="r">${rupiah(ppnValue)}</td></tr>` : ""}
+        ${pw.pph ? `<tr><td>PPh Final (${pw.pph}%)</td><td class="r">${rupiah(pphValue)}</td></tr>` : ""}
+        ${pw.biayaLain ? `<tr><td>Biaya Lain-lain</td><td class="r">${rupiah(pw.biayaLain)}</td></tr>` : ""}
+        <tr class="pwmc-total-row"><td>GRAND TOTAL</td><td class="r">${rupiah(total)}</td></tr>
+      </table>
+      <p class="doc-p">Jadi untuk total harga dengan rincian pekerjaan tersebut adalah <strong>${rupiah(total)}</strong> (${terbilangRupiah(total)})${pajakParts.length ? `. Harga tersebut sudah memperhitungkan ${pajakParts.join(", ")}` : ""}.</p>
+
+      <p class="doc-p"><strong>III. Fasilitas yang Diberikan oleh Pihak Kedua kepada Pihak Pertama</strong></p>
+      ${fasilitasLines.map((l, i) => `<p class="doc-p" style="margin:3px 0 3px 18px;">${String.fromCharCode(97 + (i % 26))}. ${escapeHtml(l)}</p>`).join("")}
+
+      <p class="doc-p"><strong>IV. Termin Pembayaran</strong><br>
+      Biaya akan dibayarkan oleh pihak pertama kepada pihak kedua dengan ${termin.length} (${terbilang(termin.length)}) tahap pembayaran, yaitu sebagai berikut:</p>
+      ${terminHtml}
+      ${m.rekening ? `<p class="doc-p">Pembayaran akan dilakukan secara transfer ke rekening yang telah ditentukan oleh pihak kedua sebagai berikut: <strong>${escapeHtml(m.rekening)}</strong></p>` : ""}
+
+      <p class="doc-p"><strong>V. Penyelesaian Masalah</strong></p>
+      <p class="doc-p" style="margin:3px 0 3px 18px;">a. Apabila terjadi perselisihan di antara kedua belah pihak dalam pelaksanaan perjanjian ini, maka perselisihan tersebut terlebih dahulu akan diselesaikan dengan cara musyawarah dan mufakat berdasarkan asas kekeluargaan.</p>
+      <p class="doc-p" style="margin:3px 0 3px 18px;">b. Apabila dengan cara musyawarah tidak berhasil dicapai penyelesaian, maka kedua belah pihak sepakat memilih domisili hukum yang berlaku.</p>
+
+      <p class="doc-p"><strong>VI. Force Majeure</strong></p>
+      <p class="doc-p" style="margin:3px 0 3px 18px;">a. Dalam hal terjadi kebakaran, gempa bumi, banjir, angin taufan, tanah longsor, peperangan, pemberontakan, dan bencana alam lainnya (kejadian di luar kekuasaan manusia) sehingga pekerjaan tidak dapat dilaksanakan sebagaimana mestinya, maka hal tersebut dianggap sebagai Force Majeure dan di luar tanggung jawab kedua belah pihak.</p>
+      <p class="doc-p" style="margin:3px 0 3px 18px;">b. Apabila terjadi Force Majeure, maka selambat-lambatnya dalam waktu 7 (tujuh) hari kerja terhitung sejak terjadinya peristiwa tersebut pihak kedua wajib menyampaikan pemberitahuan tertulis kepada pihak pertama dan selanjutnya kedua belah pihak akan membicarakan penyelesaiannya berdasarkan kesepakatan bersama.</p>
+
+      <p class="doc-p"><strong>VII. Adendum</strong><br>
+      Hal-hal yang belum diatur dalam perjanjian ini akan dibicarakan dan diputuskan berdasarkan kesepakatan bersama kedua belah pihak yang akan dituangkan dalam Addendum yang merupakan satu kesatuan yang tidak terpisahkan dengan perjanjian ini.</p>
+
+      <p class="doc-p">Demikian perjanjian ini dibuat dan ditandatangani oleh kedua belah pihak dalam rangkap dua masing-masing bermaterai cukup dan mempunyai kekuatan hukum yang sama.</p>
+
+      <div style="display:flex; justify-content:space-between; margin-top:34px; font-size:12.5px;">
+        <div style="text-align:center; width:45%;">
+          <strong>PIHAK PERTAMA</strong><br>${escapeHtml(pw.kepada || "-")}
+          <div class="sign-space"></div>
+          <strong>${escapeHtml(m.pihak1Nama || "(..............................)")}</strong>${m.pihak1Telepon ? `<br>${escapeHtml(m.pihak1Telepon)}` : ""}
+        </div>
+        <div style="text-align:center; width:45%;">
+          <strong>PIHAK KEDUA</strong><br>${escapeHtml(profil.company)}
+          ${ownerTtdOrSpace(pihak2Nama)}
+          <strong>${escapeHtml(pihak2Nama)}</strong>${m.pihak2Telepon ? `<br>${escapeHtml(m.pihak2Telepon)}` : ""}
+        </div>
+      </div>
+    </div>
+  `;
+}
 document.getElementById("pw_toProyekBtn").addEventListener("click", () => {
   const pw = state.penawaran.find(p => p.id === currentPwId);
   if (pw) offerCreateProyekFromDoc("pw", pw);
