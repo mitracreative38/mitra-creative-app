@@ -13558,15 +13558,18 @@ async function parseBoqWorkbook(arrayBuffer) {
     relsDoc.querySelectorAll("Relationship").forEach(rel => { relMap[rel.getAttribute("Id")] = rel.getAttribute("Target"); });
   }
   const wbDoc = await readXml("xl/workbook.xml");
-  const sheetPaths = [];
+  const sheetList = [];
   if (wbDoc) {
     wbDoc.querySelectorAll("sheets sheet").forEach(sheetEl => {
       const rid = sheetEl.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id");
       const target = rid ? relMap[rid] : null;
-      if (target) sheetPaths.push(target.startsWith("/") ? target.slice(1) : "xl/" + target);
+      if (target) sheetList.push({
+        name: sheetEl.getAttribute("name") || `Sheet ${sheetList.length + 1}`,
+        path: target.startsWith("/") ? target.slice(1) : "xl/" + target
+      });
     });
   }
-  if (!sheetPaths.length) sheetPaths.push("xl/worksheets/sheet1.xml");
+  if (!sheetList.length) sheetList.push({ name: "Sheet 1", path: "xl/worksheets/sheet1.xml" });
 
   function colToNum(letters) {
     let n = 0;
@@ -13802,11 +13805,14 @@ async function parseBoqWorkbook(arrayBuffer) {
     return { items: results, meta, adaKolomHarga: cols.harga > -1 || cols.jumlah > -1 };
   }
 
-  for (const sheetPath of sheetPaths) {
-    const hasil = parseSheet(await readXml(sheetPath));
-    if (hasil.items.length) return hasil;
+  // SEMUA sheet ber-item dikembalikan (dulu cuma sheet pertama, diambil
+  // diam-diam) -- pemilihan sheet-nya di handleBoqFile, oleh pengguna.
+  const sheets = [];
+  for (const s of sheetList) {
+    const hasil = parseSheet(await readXml(s.path));
+    if (hasil.items.length) sheets.push({ name: s.name, ...hasil });
   }
-  return { items: [], meta: {}, adaKolomHarga: false };
+  return { sheets };
 }
 
 async function handleBoqFile(file, ctx) {
@@ -13816,11 +13822,25 @@ async function handleBoqFile(file, ctx) {
   }
   try {
     const buf = await file.arrayBuffer();
-    const { items: rawRows, meta, adaKolomHarga } = await parseBoqWorkbook(buf);
-    if (!rawRows.length) {
+    const { sheets } = await parseBoqWorkbook(buf);
+    if (!sheets.length) {
       alert("Tidak ditemukan baris item di file ini. Pastikan ada baris judul kolom berisi \"Uraian\"/\"Pekerjaan\" dan \"Volume\"/\"Qty\" (kolom Satuan & Harga Satuan opsional) di salah satu sheet.");
       return;
     }
+    // Workbook DED sering berisi BEBERAPA sheet (rekap, per divisi/lantai,
+    // perhitungan AC, dst.). Dulu sheet PERTAMA yang berisi item diambil
+    // diam-diam, sehingga bagian yang tidak dimaksud ikut terimpor
+    // (laporan Owner 23/9: "impor BOQ malah muncul ada AC"). Sekarang
+    // pengguna memilih sendiri sheet mana yang diimpor.
+    let terpilih = sheets[0];
+    if (sheets.length > 1) {
+      const daftar = sheets.map((s, i) => `${i + 1}. ${s.name} (${s.items.length} item)`).join("\n");
+      const jawab = prompt(`File ini punya ${sheets.length} sheet berisi item:\n\n${daftar}\n\nKetik NOMOR sheet yang mau diimpor:`, "1");
+      if (jawab === null) return; // batal
+      const idx = parseInt(jawab, 10);
+      terpilih = sheets[idx >= 1 && idx <= sheets.length ? idx - 1 : 0];
+    }
+    const { items: rawRows, meta, adaKolomHarga } = terpilih;
     // Harga dari FILE selalu diutamakan (dulu diabaikan dan selalu ditebak
     // dari AHSP -- sumber ketidaksesuaian dengan file BOQ). AHSP hanya
     // menebak harga saat file sama sekali TIDAK punya kolom harga; kalau
