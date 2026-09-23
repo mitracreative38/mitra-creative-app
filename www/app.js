@@ -11013,9 +11013,14 @@ function buildSlipGajiPrintHtml(k, sl) {
 // tanda tangan pemilik saat nama penandatangannya cocok (OWNER_TTD_NAMA).
 // Helper ini membawa perilaku yang sama ke Slip Gaji, Laporan Proyek, dan
 // cetak Laba Rugi -- selain itu tetap ruang kosong untuk tanda tangan basah.
+// Stempel perusahaan digambar DI BAWAH tanda tangan (ttd menimpa stempel)
+// -- permintaan Owner 23/9. Satu helper dipakai semua dokumen Mitra.
+function ttdDenganStempel() {
+  return `<span class="ttd-wrap"><img class="ttd-stempel" src="${OWNER_STEMPEL_DATA_URI}" alt="stempel"><img class="ttd-img" src="${OWNER_TTD_DATA_URI}" alt="tanda tangan"></span>`;
+}
 function ownerTtdOrSpace(nama) {
   return (nama || "") === OWNER_TTD_NAMA
-    ? `<img class="ttd-img" src="${OWNER_TTD_DATA_URI}" alt="tanda tangan">`
+    ? ttdDenganStempel()
     : '<div class="sign-space"></div>';
 }
 function printSlipGaji(k, sl) {
@@ -14684,7 +14689,7 @@ function buildBaNegosiasiPrintHtml(pw) {
     <div style="display:flex; justify-content:space-between; gap:24px; margin-top:26px; font-size:12.5px; text-align:center;">
       <div style="flex:1;">
         PIHAK PERTAMA,<br>${escapeHtml(state.company || "CV. Mitra Creative")}
-        ${(pw.ttdNama || state.ownerNama) === OWNER_TTD_NAMA ? `<img class="ttd-img" src="${OWNER_TTD_DATA_URI}" alt="tanda tangan">` : `<div class="sign-space"></div>`}
+        ${(pw.ttdNama || state.ownerNama) === OWNER_TTD_NAMA ? ttdDenganStempel() : `<div class="sign-space"></div>`}
         <strong>${escapeHtml(pw.ttdNama || state.ownerNama)}</strong><br>${escapeHtml(pw.ttdJabatan || state.ownerJabatan)}
       </div>
       <div style="flex:1;">
@@ -15040,7 +15045,7 @@ function buildPenawaranPrintHtml(pw) {
       <div class="pwmc-signature">
         Hormat kami,<br>
         <strong>${escapeHtml(profil.company || "CV. Mitra Creative")}</strong>
-        ${showTtdImg ? `<img class="ttd-img" src="${OWNER_TTD_DATA_URI}" alt="tanda tangan">` : `<div class="sign-space"></div>`}
+        ${showTtdImg ? ttdDenganStempel() : `<div class="sign-space"></div>`}
         <strong>${escapeHtml(pw.ttdNama || profil.ownerNama)}</strong><br>
         ${escapeHtml(pw.ttdJabatan || profil.ownerJabatan)}
       </div>

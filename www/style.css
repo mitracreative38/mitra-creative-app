@@ -515,6 +515,13 @@ body.printing-quote #printArea {
    Konteks penawaran (.pwmc-signature/.mr-signature) tetap memakai
    ukurannya sendiri karena selektornya lebih spesifik. */
 .ttd-img { display: block; height: 56px; width: auto; margin: 4px auto -4px; }
+/* Stempel perusahaan tercetak DI BAWAH tanda tangan (ttd menimpa stempel,
+   seperti stempel basah sungguhan) -- dipakai semua dokumen ber-ttd Owner. */
+.ttd-wrap { position: relative; display: block; }
+.ttd-wrap .ttd-img { position: relative; z-index: 1; }
+.ttd-stempel { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(-8deg); height: 68px; width: auto; opacity: .8; z-index: 0; }
+/* Penawaran pwmc: ttd rata kiri (bukan margin auto) -- stempel ikut kiri. */
+.pwmc-signature .ttd-stempel { left: 40px; }
 
 @media print {
   @page { margin: 14mm 12mm; }
