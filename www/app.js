@@ -858,32 +858,51 @@ function rabToRow(r) {
 function fkError(error) {
   return !!error && /foreign key|fkey|23503/i.test(`${error.code || ""} ${error.message || ""}`);
 }
+// Lapisan paling bawah semua upsert mirror: kalau server menolak karena ada
+// KOLOM yang belum dibuat di database (file SQL fixN belum/lupa dijalankan
+// -- error PostgREST "Could not find the '<kolom>' column"), kolom itu
+// dilepas lalu dicoba lagi sampai barisnya tersimpan. Data inti tetap
+// sampai ke semua perangkat; kolom yang dilepas otomatis ikut lagi di
+// upsert berikutnya setelah SQL-nya dijalankan. Tanpa ini, SATU kolom
+// hilang membuat SELURUH dokumen gagal sinkron diam-diam (kasus 19 proyek
+// macet karena kolom skema_pembayaran belum ada di tabel proyek, 23/9).
+async function upsertKolomAdaptif(table, row) {
+  let r = row;
+  for (let i = 0; i < 8; i++) {
+    const hasil = await sb.from(table).upsert(r);
+    const m = hasil.error && /Could not find the '([^']+)' column/.exec(hasil.error.message || "");
+    if (!m || !(m[1] in r)) return hasil;
+    r = { ...r };
+    delete r[m[1]];
+  }
+  return await sb.from(table).upsert(r);
+}
 async function kirimIndukKlien(id) {
   const k = (state.klien || []).find(x => x.id === id);
-  if (k) await sb.from("klien").upsert(klienToRow(k));
+  if (k) await upsertKolomAdaptif("klien", klienToRow(k));
 }
 async function kirimIndukProyek(id) {
   const p = (state.proyek || []).find(x => x.id === id);
   if (!p) return;
   const row = proyekToRow(p);
-  let { error } = await sb.from("proyek").upsert(row);
+  let { error } = await upsertKolomAdaptif("proyek", row);
   if (fkError(error) && row.klien_id) {
     await kirimIndukKlien(row.klien_id);
-    ({ error } = await sb.from("proyek").upsert(row));
-    if (fkError(error)) await sb.from("proyek").upsert({ ...row, klien_id: null });
+    ({ error } = await upsertKolomAdaptif("proyek", row));
+    if (fkError(error)) await upsertKolomAdaptif("proyek", { ...row, klien_id: null });
   }
 }
 async function upsertDenganInduk(table, row, indukList) {
-  let hasil = await sb.from(table).upsert(row);
+  let hasil = await upsertKolomAdaptif(table, row);
   if (fkError(hasil.error)) {
     for (const induk of indukList) {
       if (row[induk.kolom]) await induk.kirim(row[induk.kolom]);
     }
-    hasil = await sb.from(table).upsert(row);
+    hasil = await upsertKolomAdaptif(table, row);
     if (fkError(hasil.error)) {
       const tanpaTautan = { ...row };
       indukList.forEach(i => { if (i.kolom in tanpaTautan) tanpaTautan[i.kolom] = null; });
-      hasil = await sb.from(table).upsert(tanpaTautan);
+      hasil = await upsertKolomAdaptif(table, tanpaTautan);
     }
   }
   return hasil;
