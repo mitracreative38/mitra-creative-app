@@ -1081,6 +1081,10 @@ async function mirrorProyekUpsert(p, existing) {
     // cuma teks status kecil yang gampang terlewat -- proyek "menghilang"
     // diam-diam di reload berikutnya).
     notePendingMirror("proyek", p.id);
+    // Simpan pesan kegagalan terakhir supaya banner "proyek belum tersinkron"
+    // di halaman Margin Proyek bisa menunjukkan ALASANNYA (kasus KLA
+    // Bandung: gagal diam-diam bertahun error tanpa pernah terlihat).
+    try { localStorage.setItem("mitraCreative_lastProyekMirrorError", err.message || String(err)); } catch (e2) {}
     setSyncStatus("Gagal menyimpan Proyek ke tabel relasional: " + err.message);
     if (existing === null) {
       alert(`Proyek "${p.nama}" tersimpan di perangkat ini tapi GAGAL tersimpan ke cloud:\n\n${err.message}\n\nJangan khawatir -- proyek TIDAK akan hilang, aplikasi otomatis mencoba mengirim ulang saat sinkron berikutnya.`);
@@ -4791,7 +4795,48 @@ function showProyekDetail(id) {
   document.getElementById("pr_detailView").style.display = "block";
   renderProyekDetail();
 }
+// Banner "proyek belum tersinkron" di halaman Margin Proyek: proyek yang
+// mirror cloud-nya masih gagal (antrean pending) TIDAK terlihat di
+// perangkat anggota tim lain -- tampilkan daftarnya + alasan kegagalan
+// terakhir + tombol kirim ulang manual, supaya tidak pernah lagi gagal
+// diam-diam (kasus proyek KLA Bandung yang tak muncul di perangkat Admin).
+function renderProyekSyncHint() {
+  const box = document.getElementById("pr_syncHint");
+  if (!box) return;
+  const ids = getPendingMirrorIds("proyek").filter(id => (state.proyek || []).some(p => p.id === id));
+  if (!sb || !currentSyncUser || !ids.length) { box.style.display = "none"; return; }
+  const nama = ids.map(id => (state.proyek.find(p => p.id === id) || {}).nama || id);
+  let err = "";
+  try { err = localStorage.getItem("mitraCreative_lastProyekMirrorError") || ""; } catch (e) {}
+  document.getElementById("pr_syncHintText").innerHTML =
+    `⚠️ <strong>${ids.length} proyek belum tersinkron ke cloud</strong> — belum terlihat di perangkat anggota tim lain: <strong>${nama.map(escapeHtml).join("</strong>, <strong>")}</strong>.` +
+    (err ? `<br><span style="font-size:12px; color:#991b1b;">Kegagalan terakhir: ${escapeHtml(err)}</span>` : "");
+  box.style.display = "";
+}
+document.getElementById("pr_syncRetryBtn").addEventListener("click", async () => {
+  const btn = document.getElementById("pr_syncRetryBtn");
+  btn.disabled = true;
+  btn.textContent = "Mengirim...";
+  try {
+    for (const id of getPendingMirrorIds("proyek")) {
+      const p = (state.proyek || []).find(x => x.id === id);
+      if (p) await mirrorProyekUpsert(p);
+      else clearPendingMirror("proyek", id);
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "🔄 Kirim Ulang ke Cloud Sekarang";
+  }
+  const sisa = getPendingMirrorIds("proyek").filter(id => (state.proyek || []).some(p => p.id === id));
+  renderProyekList();
+  let err = "";
+  try { err = localStorage.getItem("mitraCreative_lastProyekMirrorError") || ""; } catch (e) {}
+  alert(sisa.length
+    ? `Masih ${sisa.length} proyek GAGAL terkirim ke cloud.\n\nAlasan: ${err || "tidak diketahui"}\n\nKirimkan pesan error di atas ke pengembang untuk ditindaklanjuti.`
+    : "Semua proyek berhasil terkirim ke cloud. Minta perangkat lain me-refresh (Ctrl+Shift+R) — daftar proyeknya akan sama.");
+});
 function renderProyekList() {
+  renderProyekSyncHint();
   const projects = state.proyek.map(p => ({ ...p, ...projectCalc(p) }));
   const totalKontrak = projects.reduce((s, p) => s + (p.nilaiKontrak || 0), 0);
   const totalBiaya = projects.reduce((s, p) => s + p.totalBiaya, 0);

@@ -23,6 +23,9 @@ window.__mockSb = {
   from(table) {
     return {
       upsert: async (row) => {
+        if (table === 'proyek' && window.__failProyek) {
+          return { error: { message: 'uji: server menolak (simulasi kegagalan lain)' } };
+        }
         for (const r of (window.__fkRules[table] || [])) {
           if (row[r.col] && !(window.__store[r.parent] || []).some(x => x.id === row[r.col])) {
             return { error: { code: '23503', message: 'insert or update on table "' + table + '" violates foreign key constraint "' + r.name + '"' } };
@@ -141,8 +144,42 @@ with sync_playwright() as p:
     assert st4["rab"] and st4["pw"] and st4["klien"], st4
     print("Skenario 4 (RAB & Penawaran ber-klien: sembuh dengan pola yang sama) OK")
 
+    # ===== 5. Banner "proyek belum tersinkron" + tombol kirim ulang =====
+    page.evaluate("""
+      () => {
+        currentSyncUser = { id: 'u-owner' };
+        window.__failProyek = true;
+        state.proyek.push({ id: 'pr-banner', nama: 'Proyek Macet Sinkron', klienId: '', klien: '',
+          status: 'berjalan', nilaiKontrak: 5000000, tanggalMulai: hariIniIso(), biayaBahan: 0,
+          biayaUpah: 0, biayaLain: 0, karyawanIds: [], subkontraktor: [], belanjaMaterial: [], dokumen: [] });
+      }
+    """)
+    page.evaluate("(async () => { await mirrorProyekUpsert(state.proyek.find(x => x.id === 'pr-banner')); })()")
+    page.wait_for_timeout(300)
+    page.evaluate("showPage('proyek'); renderProyekList();")
+    page.wait_for_timeout(200)
+    st5a = page.evaluate("""
+      () => ({
+        tampil: document.getElementById('pr_syncHint').style.display !== 'none',
+        teks: document.getElementById('pr_syncHintText').textContent
+      })
+    """)
+    assert st5a["tampil"] and "Proyek Macet Sinkron" in st5a["teks"], st5a
+    assert "uji: server menolak" in st5a["teks"], "alasan kegagalan terakhir harus tampil di banner"
+    page.evaluate("window.__failProyek = false")
+    page.click("#pr_syncRetryBtn")
+    page.wait_for_timeout(500)
+    st5b = page.evaluate("""
+      () => ({
+        terkirim: window.__store.proyek.some(r => r.id === 'pr-banner'),
+        bannerHilang: document.getElementById('pr_syncHint').style.display === 'none'
+      })
+    """)
+    assert st5b["terkirim"] and st5b["bannerHilang"], st5b
+    print("Skenario 5 (banner proyek belum tersinkron + alasan error + tombol kirim ulang berfungsi) OK")
+
     js_errors = [e for e in errors if "favicon" not in e and "ERR_TUNNEL" not in e and "Failed to load resource" not in e]
     assert not js_errors, f"Error JS: {js_errors}"
     print()
-    print("SEMUA SKENARIO PASS (4 skenario)")
+    print("SEMUA SKENARIO PASS (5 skenario)")
     browser.close()
