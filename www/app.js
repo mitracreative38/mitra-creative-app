@@ -846,10 +846,53 @@ function rabToRow(r) {
     updated_at: new Date().toISOString()
   };
 }
+// ===== Penyembuhan foreign key saat mirror =====
+// Baris yang menunjuk induk (klien/proyek) yang BELUM ada di cloud ditolak
+// PERMANEN oleh foreign key -- percobaan ulang lewat antrean pending pun
+// selalu gagal lagi, sehingga dokumen "hidup hanya di perangkat pembuatnya"
+// dan tidak pernah terlihat anggota tim lain (kasus 2 proyek KLA Bandung
+// yang tidak muncul di perangkat Admin, 23/9). Obatnya: saat upsert ditolak
+// FK, kirim dulu baris INDUKNYA lalu ulangi; kalau induknya memang sudah
+// tidak ada di state, kirim ulang tanpa tautan id -- kolom teks nama tetap
+// membawa informasinya, dan datanya sampai ke semua perangkat.
+function fkError(error) {
+  return !!error && /foreign key|fkey|23503/i.test(`${error.code || ""} ${error.message || ""}`);
+}
+async function kirimIndukKlien(id) {
+  const k = (state.klien || []).find(x => x.id === id);
+  if (k) await sb.from("klien").upsert(klienToRow(k));
+}
+async function kirimIndukProyek(id) {
+  const p = (state.proyek || []).find(x => x.id === id);
+  if (!p) return;
+  const row = proyekToRow(p);
+  let { error } = await sb.from("proyek").upsert(row);
+  if (fkError(error) && row.klien_id) {
+    await kirimIndukKlien(row.klien_id);
+    ({ error } = await sb.from("proyek").upsert(row));
+    if (fkError(error)) await sb.from("proyek").upsert({ ...row, klien_id: null });
+  }
+}
+async function upsertDenganInduk(table, row, indukList) {
+  let hasil = await sb.from(table).upsert(row);
+  if (fkError(hasil.error)) {
+    for (const induk of indukList) {
+      if (row[induk.kolom]) await induk.kirim(row[induk.kolom]);
+    }
+    hasil = await sb.from(table).upsert(row);
+    if (fkError(hasil.error)) {
+      const tanpaTautan = { ...row };
+      indukList.forEach(i => { if (i.kolom in tanpaTautan) tanpaTautan[i.kolom] = null; });
+      hasil = await sb.from(table).upsert(tanpaTautan);
+    }
+  }
+  return hasil;
+}
+
 async function mirrorRabUpsert(r, isNew) {
   if (!sb || !targetCompanyId) return;
   try {
-    const { error } = await sb.from("rab").upsert(rabToRow(r));
+    const { error } = await upsertDenganInduk("rab", rabToRow(r), [{ kolom: "klien_id", kirim: kirimIndukKlien }]);
     if (error) throw error;
     clearPendingMirror("rab", r.id);
     if (isNew) {
@@ -936,7 +979,7 @@ function penawaranToRow(p) {
 async function mirrorPenawaranUpsert(p, isNew) {
   if (!sb || !targetCompanyId) return;
   try {
-    const { error } = await sb.from("penawaran").upsert(penawaranToRow(p));
+    const { error } = await upsertDenganInduk("penawaran", penawaranToRow(p), [{ kolom: "klien_id", kirim: kirimIndukKlien }]);
     if (error) throw error;
     clearPendingMirror("penawaran", p.id);
     if (isNew) {
@@ -1028,7 +1071,7 @@ async function mirrorProyekUpsert(p, existing) {
   if (!sb || !targetCompanyId) return;
   mirrorInFlight++;
   try {
-    const { error } = await sb.from("proyek").upsert(proyekToRow(p));
+    const { error } = await upsertDenganInduk("proyek", proyekToRow(p), [{ kolom: "klien_id", kirim: kirimIndukKlien }]);
     if (error) throw error;
     clearPendingMirror("proyek", p.id);
     if (existing !== undefined) logActivityNow("proyek", existing ? "update" : "create", p.id, existing, p);
@@ -1733,7 +1776,8 @@ async function mirrorKasUsahaUpsert(t, existing) {
   if (!sb || !targetCompanyId) return;
   mirrorInFlight++;
   try {
-    const { error } = await sb.from("kas_usaha_transaksi").upsert(kasUsahaTxnToRow(t));
+    const { error } = await upsertDenganInduk("kas_usaha_transaksi", kasUsahaTxnToRow(t),
+      [{ kolom: "proyek_id", kirim: kirimIndukProyek }, { kolom: "klien_id", kirim: kirimIndukKlien }]);
     if (error) throw error;
     clearPendingMirror("kasUsaha", t.id);
     if (existing !== undefined) logActivityNow("kasUsaha", existing ? "update" : "create", t.id, existing, t);
