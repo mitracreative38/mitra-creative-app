@@ -5597,7 +5597,7 @@ function buildInvoicePrintHtml(p, inv) {
       ${nilaiKontrak ? `<tr><td>Sisa Tagihan Setelah Invoice Ini</td><td class="r"><strong>${rupiah(sisaSetelahIni)}</strong></td></tr>` : ""}
     </table>
     <p class="doc-p">Terbilang: <em>${terbilangRupiah(inv.jumlah)}</em></p>
-    ${state.rekening ? `<p class="doc-p">Pembayaran mohon ditransfer ke rekening: <strong>${escapeHtml(state.rekening)}</strong></p>` : ""}
+    <p class="doc-p">Pembayaran mohon ditransfer ke rekening: <strong>${escapeHtml(state.rekening || COMPANY_REKENING)}</strong></p>
     <div style="display:flex; justify-content:flex-end; margin-top:30px; font-size:12.5px;">
       <div style="text-align:right;">
         Hormat kami,<br>${escapeHtml(state.company || "CV. Mitra Creative")}
@@ -15254,7 +15254,7 @@ function openMouModal() {
   document.getElementById("mou_deadline").value = m.deadline || "";
   document.getElementById("mou_dendaPersen").value = m.dendaPersen != null ? m.dendaPersen : 1;
   document.getElementById("mou_garansiBulan").value = m.garansiBulan != null ? m.garansiBulan : 3;
-  document.getElementById("mou_rekening").value = m.rekening || state.rekening || "";
+  document.getElementById("mou_rekening").value = m.rekening || state.rekening || COMPANY_REKENING;
   document.getElementById("mou_fasilitas").value = m.fasilitas || defaultMouFasilitas(pw);
   document.getElementById("mouModal").classList.add("open");
 }

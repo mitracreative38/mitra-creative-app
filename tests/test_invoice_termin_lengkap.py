@@ -78,6 +78,8 @@ with sync_playwright() as p:
     assert "Sudah Dibayar Sebelumnya" in teks and "Rp 88.500.000" in teks
     assert "Total Tagihan Ini" in teks and "Rp 118.000.000" in teks
     assert "Sisa Tagihan Setelah Invoice Ini" in teks, "sisa tagihan wajib tampil"
+    # Rekening bawaan perusahaan wajib tampil walau Pengaturan > Rekening kosong.
+    assert "854-6013940" in teks, "rekening bawaan CV harus tercetak di invoice"
     # 295jt - 88.5jt - 118jt = 88.5jt (muncul minimal 2x: termin lunas & sisa)
     assert teks.count("Rp 88.500.000") >= 2, teks.count("Rp 88.500.000")
     print("Skenario 3 (ringkasan: dibayar 88,5jt, tagihan ini 118jt, sisa setelah invoice ini 88,5jt) OK")
