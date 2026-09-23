@@ -5514,7 +5514,54 @@ function invoiceLetterhead(judul) {
     <h3 style="text-align:center; margin:6px 0 16px; letter-spacing:.5px;">${judul}</h3>
   `;
 }
+// Invoice termin lengkap (permintaan Owner 23/9): bukan cuma 1 baris
+// tagihan, tapi juga (1) rincian nilai kontrak/harga deal per bagian
+// pekerjaan dari penawaran/RAB yang disahkan, (2) status SEMUA termin --
+// yang sudah lunas, tagihan ini, dan yang belum ditagih, (3) ringkasan
+// sudah dibayar + sisa tagihan setelah invoice ini.
 function buildInvoicePrintHtml(p, inv) {
+  const doc = dokSumberProyek(p);
+  const nilaiKontrak = p.nilaiKontrak || 0;
+  // Rincian nilai kontrak: sub total per kelompok dari dokumen sumber
+  // (ringkas -- item detailnya sudah ada di penawaran/MOU).
+  let rincianKontrakRows = "";
+  if (doc && (doc.items || []).length) {
+    const groups = groupItemsByKelompok(doc.items);
+    rincianKontrakRows = groups.map(g => `
+      <tr><td>${escapeHtml(g.kelompok || "Pekerjaan sesuai dokumen " + (doc.nomor || ""))}</td><td class="r">${rupiah(g.subtotal)}</td></tr>
+    `).join("");
+    const t = penawaranTotals(doc);
+    if (doc.diskon) rincianKontrakRows += `<tr><td>Diskon (${doc.diskon}%)</td><td class="r">- ${rupiah(t.diskonValue)}</td></tr>`;
+    if (doc.ppn) rincianKontrakRows += `<tr><td>PPN (${doc.ppn}%)</td><td class="r">${rupiah(t.ppnValue)}</td></tr>`;
+    if (doc.pph) rincianKontrakRows += `<tr><td>PPh Final (${doc.pph}%)</td><td class="r">${rupiah(t.pphValue)}</td></tr>`;
+    if (doc.biayaLain) rincianKontrakRows += `<tr><td>Biaya Lain-lain</td><td class="r">${rupiah(doc.biayaLain)}</td></tr>`;
+    // Harga deal hasil nego bisa berbeda dari total dokumen -- tampilkan
+    // sebagai baris penyesuaian supaya angkanya jujur sampai ke kontrak.
+    if (Math.round(t.total) !== Math.round(nilaiKontrak) && nilaiKontrak > 0) {
+      const selisih = nilaiKontrak - t.total;
+      rincianKontrakRows += `<tr><td>Penyesuaian Harga Deal/Nego</td><td class="r">${selisih < 0 ? "- " : "+ "}${rupiah(Math.abs(selisih))}</td></tr>`;
+    }
+  }
+  // Status semua termin: lunas / tagihan ini / sudah ditagih / belum ditagih.
+  const terminRows = (p.rencanaTermin || []).map(r => {
+    const tInv = r.invoiceId ? (p.invoices || []).find(i => i.id === r.invoiceId) : null;
+    let status;
+    if (tInv && tInv.id === inv.id) status = "<strong>📌 TAGIHAN INI</strong>";
+    else if (tInv && tInv.status === "dibayar") status = `✅ Lunas${tInv.tanggalBayar ? ` (${formatTanggal(tInv.tanggalBayar)})` : ""}`;
+    else if (tInv) status = `Sudah ditagih — ${escapeHtml(tInv.nomor)}`;
+    else status = "Belum ditagih";
+    return `<tr>
+      <td>${escapeHtml(r.label)}${r.tipe === "retensi" ? " (retensi)" : ""}</td>
+      <td class="r">${r.persen}%</td>
+      <td class="r">${rupiah(r.nilai)}</td>
+      <td>${status}</td>
+    </tr>`;
+  }).join("");
+  // Ringkasan pembayaran: dibayar sebelumnya = seluruh invoice proyek ini
+  // berstatus Dibayar selain invoice yang sedang dicetak.
+  const sudahDibayar = (p.invoices || []).filter(i => i.status === "dibayar" && i.id !== inv.id)
+    .reduce((s, i) => s + (i.jumlah || 0), 0);
+  const sisaSetelahIni = nilaiKontrak - sudahDibayar - (inv.jumlah || 0);
   return `
     ${invoiceLetterhead("INVOICE")}
     <table class="meta-table" style="margin-bottom:14px;">
@@ -5522,13 +5569,32 @@ function buildInvoicePrintHtml(p, inv) {
       <tr><td>Tanggal</td><td>:</td><td>${formatTanggal(inv.tanggal)}</td></tr>
       <tr><td>Kepada</td><td>:</td><td>${escapeHtml(p.klien || "-")}</td></tr>
       <tr><td>Proyek</td><td>:</td><td>${escapeHtml(p.nama || "-")}${p.lokasi ? ", " + escapeHtml(p.lokasi) : ""}</td></tr>
+      ${nilaiKontrak ? `<tr><td>Nilai Kontrak</td><td>:</td><td><strong>${rupiah(nilaiKontrak)}</strong> (harga deal yang disahkan)</td></tr>` : ""}
     </table>
+    ${rincianKontrakRows ? `
+    <p class="doc-p" style="margin-bottom:4px;"><strong>Rincian Nilai Kontrak</strong> <span class="muted" style="font-size:11px;">(sesuai ${doc && doc.nomor ? escapeHtml(doc.nomor) : "dokumen"} yang disahkan)</span></p>
+    <table class="doc-items">
+      <thead><tr><th>Bagian Pekerjaan</th><th class="r">Sub Total</th></tr></thead>
+      <tbody>${rincianKontrakRows}
+        <tr><td><strong>Nilai Kontrak (Harga Deal)</strong></td><td class="r"><strong>${rupiah(nilaiKontrak)}</strong></td></tr>
+      </tbody>
+    </table>` : ""}
+    <p class="doc-p" style="margin-bottom:4px;"><strong>Tagihan Ini</strong></p>
     <table class="doc-items">
       <thead><tr><th>Uraian</th><th class="r">Jumlah</th></tr></thead>
       <tbody><tr><td>${escapeHtml(inv.keterangan)}</td><td class="r">${rupiah(inv.jumlah)}</td></tr></tbody>
     </table>
+    ${terminRows ? `
+    <p class="doc-p" style="margin-bottom:4px;"><strong>Status Termin Pembayaran</strong></p>
+    <table class="doc-items">
+      <thead><tr><th>Termin</th><th class="r">%</th><th class="r">Nilai</th><th>Status</th></tr></thead>
+      <tbody>${terminRows}</tbody>
+    </table>` : ""}
     <table class="doc-summary-table">
-      <tr class="total-row"><td>Total Tagihan</td><td class="r">${rupiah(inv.jumlah)}</td></tr>
+      ${nilaiKontrak ? `<tr><td>Nilai Kontrak</td><td class="r">${rupiah(nilaiKontrak)}</td></tr>` : ""}
+      ${sudahDibayar ? `<tr><td>Sudah Dibayar Sebelumnya</td><td class="r">- ${rupiah(sudahDibayar)}</td></tr>` : ""}
+      <tr class="total-row"><td>Total Tagihan Ini</td><td class="r">${rupiah(inv.jumlah)}</td></tr>
+      ${nilaiKontrak ? `<tr><td>Sisa Tagihan Setelah Invoice Ini</td><td class="r"><strong>${rupiah(sisaSetelahIni)}</strong></td></tr>` : ""}
     </table>
     <p class="doc-p">Terbilang: <em>${terbilangRupiah(inv.jumlah)}</em></p>
     ${state.rekening ? `<p class="doc-p">Pembayaran mohon ditransfer ke rekening: <strong>${escapeHtml(state.rekening)}</strong></p>` : ""}
