@@ -75,6 +75,9 @@ const JENIS_KOMPONEN = ["Bahan", "Upah", "Alat"];
 const OWNER_INFO = { nama: "Aditya Khresna", jabatan: "Owner / Direktur" };
 const COMPANY_ADDRESS = "Jl. Taman Asri No. 15, Pedurungan Tengah, Semarang";
 const COMPANY_PHONE = "0895811220203";
+// Rekening bawaan perusahaan (dipakai Invoice/MOU bila Pengaturan >
+// Rekening belum diisi -- pola yang sama dengan COMPANY_ADDRESS/PHONE).
+const COMPANY_REKENING = "BCA 854-6013940 a.n. CV. MITRA CREATIVE";
 
 // Logo asli (bukan pendekatan SVG LOGO_SVG di bawah) & tanda tangan asli
 // Owner (Aditya Khresna), dipakai KHUSUS di template cetak Penawaran Mitra
