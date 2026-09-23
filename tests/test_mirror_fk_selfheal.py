@@ -26,6 +26,13 @@ window.__mockSb = {
         if (table === 'proyek' && window.__failProyek) {
           return { error: { message: 'uji: server menolak (simulasi kegagalan lain)' } };
         }
+        // Simulasi kolom yang belum dibuat di DB (SQL fixN belum dijalankan)
+        // -- persis pesan PostgREST asli yang dialami Owner 23/9.
+        for (const kol of (window.__missingCols && window.__missingCols[table]) || []) {
+          if (kol in row) {
+            return { error: { message: "Could not find the '" + kol + "' column of '" + table + "' in the schema cache" } };
+          }
+        }
         for (const r of (window.__fkRules[table] || [])) {
           if (row[r.col] && !(window.__store[r.parent] || []).some(x => x.id === row[r.col])) {
             return { error: { code: '23503', message: 'insert or update on table "' + table + '" violates foreign key constraint "' + r.name + '"' } };
@@ -143,6 +150,32 @@ with sync_playwright() as p:
     """)
     assert st4["rab"] and st4["pw"] and st4["klien"], st4
     print("Skenario 4 (RAB & Penawaran ber-klien: sembuh dengan pola yang sama) OK")
+
+    # ===== 4b. Kolom belum ada di DB (kasus 19 proyek macet 23/9) =====
+    # Kolom skema_pembayaran belum dibuat di tabel proyek -> dulu SELURUH
+    # upsert proyek ditolak permanen. Kini kolom yang hilang dilepas otomatis
+    # dan barisnya tetap tersimpan.
+    page.evaluate("""
+      () => {
+        window.__missingCols = { proyek: ['skema_pembayaran'] };
+        state.proyek.push({ id: 'pr-kolom', nama: 'Proyek Kolom Hilang', klienId: '', klien: '',
+          status: 'berjalan', nilaiKontrak: 7, tanggalMulai: hariIniIso(), biayaBahan: 0, biayaUpah: 0,
+          biayaLain: 0, karyawanIds: [], subkontraktor: [], belanjaMaterial: [], dokumen: [],
+          skemaPembayaran: [{ id: 's', label: 'DP', persen: 50 }] });
+      }
+    """)
+    page.evaluate("(async () => { await mirrorProyekUpsert(state.proyek.find(x => x.id === 'pr-kolom')); })()")
+    page.wait_for_timeout(300)
+    st4b = page.evaluate("""
+      () => {
+        const r = window.__store.proyek.find(x => x.id === 'pr-kolom');
+        window.__missingCols = null;
+        return { ada: !!r, tanpaKolom: r && !('skema_pembayaran' in r), namaTetap: r && r.nama === 'Proyek Kolom Hilang',
+          pendingBersih: !((JSON.parse(localStorage.getItem('mitraCreative_pendingMirror_v1') || '{}').proyek) || []).includes('pr-kolom') };
+      }
+    """)
+    assert st4b["ada"] and st4b["tanpaKolom"] and st4b["namaTetap"] and st4b["pendingBersih"], st4b
+    print("Skenario 4b (kolom DB belum dibuat: kolom dilepas otomatis, proyek tetap tersinkron) OK")
 
     # ===== 5. Banner "proyek belum tersinkron" + tombol kirim ulang =====
     page.evaluate("""
