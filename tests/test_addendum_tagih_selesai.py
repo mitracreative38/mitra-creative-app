@@ -26,7 +26,15 @@ with sync_playwright() as p:
     page = browser.new_page()
     errors = []
     dialogs = []
-    page.on("dialog", lambda d: (dialogs.append(f"{d.type}:{d.message[:350]}"), d.accept()))
+    respons_queue = []  # aksi per-dialog berurutan; kosong = accept semua
+    def on_dialog(d):
+        dialogs.append(f"{d.type}:{d.message[:350]}")
+        aksi = respons_queue.pop(0) if respons_queue else "accept"
+        if aksi == "dismiss":
+            d.dismiss()
+        else:
+            d.accept()
+    page.on("dialog", on_dialog)
     page.on("pageerror", lambda exc: errors.append(f"PAGEERROR: {exc}"))
     page.goto("http://localhost:8939/index.html")
     page.wait_for_timeout(1200)
@@ -96,13 +104,22 @@ with sync_playwright() as p:
     assert not st2["d"].get("invoiceId"), "catatan yang tertaut penawaran tidak boleh ikut invoice"
     print("Skenario 2 (Invoice Addendum berisi pekerjaan Dikerjakan+Selesai; total & tautan benar; status tidak berubah) OK")
 
-    # ===== 3. Klik kedua -> anti-dobel =====
+    # ===== 3. Klik kedua -> anti-dobel: yang sudah ditagih tidak ikut lagi;
+    # sisa satu-satunya catatan (ps-d, tertaut penawaran) ditawarkan ALIHKAN
+    # dan bila ditolak tidak ada apa pun yang berubah.
     dialogs.clear()
+    respons_queue.append("dismiss")
     page.evaluate("document.getElementById('ps_invAddendumBtn').click()")
     page.wait_for_timeout(300)
-    assert any(d.startswith("alert:") and "siap ditagihkan" in d for d in dialogs), dialogs
-    assert page.evaluate("state.proyek.find(x => x.id === 'p-add').invoices.length") == 1, "tidak boleh ada invoice dobel"
-    print("Skenario 3 (klik kedua: alert anti-dobel, tidak ada invoice dobel) OK")
+    assert any(d.startswith("confirm:") and "masih tertaut ke Penawaran Addendum" in d for d in dialogs), dialogs
+    st3 = page.evaluate("""
+      () => {
+        const p = state.proyek.find(x => x.id === 'p-add');
+        return { inv: p.invoices.length, d: p.pekerjaanTambahan.find(x => x.id === 'ps-d').penawaranId };
+      }
+    """)
+    assert st3 == {"inv": 1, "d": "pw-lama"}, ("tidak boleh ada invoice dobel / perubahan tautan", st3)
+    print("Skenario 3 (klik kedua: yang sudah ditagih dilewati; tawaran alihkan ditolak = tanpa perubahan) OK")
 
     # ===== 4. Cetakan invoice addendum =====
     html = page.evaluate("""
@@ -180,8 +197,56 @@ with sync_playwright() as p:
     assert page.evaluate("state.penawaran.length") == jumlah_pw + 1, (dialogs, "catatan survey Rencana harus bisa jadi penawaran")
     print("Skenario 7 (survey: massal hanya status Rencana; yang selesai diarahkan ke Invoice Addendum) OK")
 
+    # ===== 8. Alihkan: catatan Selesai yang terlanjur tertaut Penawaran =====
+    # (kasus nyata KLA Computer 30/9: semua catatan tertaut penawaran lama
+    # dari aturan sebelumnya -> tombol invoice menawarkan alihkan)
+    page.evaluate("""
+      () => {
+        state.proyek.push({ id: 'p-alih', nama: 'KLA Alih', klien: 'KLA', klienId: '', lokasi: '',
+          nilaiKontrak: 0, tanggalMulai: hariIniIso(), status: 'berjalan', items: [], rencanaTermin: [],
+          invoices: [], bap: [], dokumen: [], pekerjaanTambahan: [
+            { id: 'ps-f', tanggal: hariIniIso(), sumber: 'Permintaan Klien', uraian: 'Lampu T8', ahspId: '',
+              volume: 20, satuan: 'unit', hargaSatuan: 135000, status: 'selesai', catatan: '', penawaranId: 'pw-lama' },
+            { id: 'ps-g', tanggal: hariIniIso(), sumber: 'Permintaan Klien', uraian: 'Doorcloser', ahspId: '',
+              volume: 1, satuan: 'unit', hargaSatuan: 450000, status: 'dikerjakan', catatan: '', penawaranId: 'pw-lama' }
+          ] });
+        saveState();
+        currentProyekId = 'p-alih';
+      }
+    """)
+    # 8a. Batal di konfirmasi rincian -> tidak ada yang berubah
+    dialogs.clear()
+    respons_queue.extend(["accept", "dismiss"])
+    page.evaluate("document.getElementById('ps_invAddendumBtn').click()")
+    page.wait_for_timeout(400)
+    st8a = page.evaluate("""
+      () => {
+        const p = state.proyek.find(x => x.id === 'p-alih');
+        return { inv: p.invoices.length, f: p.pekerjaanTambahan[0].penawaranId };
+      }
+    """)
+    assert any("masih tertaut ke Penawaran Addendum" in d and "PH-LAMA" in d for d in dialogs), dialogs
+    assert st8a == {"inv": 0, "f": "pw-lama"}, ("batal harus tanpa perubahan", st8a)
+    # 8b. Setujui keduanya -> tautan penawaran lepas, invoice terbuat
+    dialogs.clear()
+    page.evaluate("document.getElementById('ps_invAddendumBtn').click()")
+    page.wait_for_timeout(500)
+    st8b = page.evaluate("""
+      () => {
+        const p = state.proyek.find(x => x.id === 'p-alih');
+        const inv = p.invoices[0];
+        return { jumlahInv: p.invoices.length, jumlah: inv && inv.jumlah, nItem: inv && inv.addendumItems.length,
+                 f: p.pekerjaanTambahan[0], g: p.pekerjaanTambahan[1] };
+      }
+    """)
+    assert any("2 pekerjaan" in d for d in dialogs), dialogs
+    assert st8b["jumlahInv"] == 1 and st8b["nItem"] == 2 and st8b["jumlah"] == 20 * 135000 + 450000, st8b
+    assert st8b["f"]["penawaranId"] == "" and st8b["f"]["invoiceId"] and st8b["f"]["status"] == "selesai", st8b
+    assert st8b["g"]["penawaranId"] == "" and st8b["g"]["invoiceId"] and st8b["g"]["status"] == "dikerjakan", st8b
+    print("Skenario 8 (catatan Selesai yang terlanjur tertaut penawaran lama: ditawarkan ALIHKAN ke invoice; batal = tanpa perubahan) OK")
+
     js_errors = [e for e in errors if "favicon" not in e and "Failed to load resource" not in e]
     assert not js_errors, f"Error JS: {js_errors}"
     print()
-    print("SEMUA SKENARIO PASS (7 skenario)")
+    print("SEMUA SKENARIO PASS (8 skenario)")
     browser.close()

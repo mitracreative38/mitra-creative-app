@@ -6988,11 +6988,24 @@ function invoiceAddendumTertaut(p, item) {
 document.getElementById("ps_invAddendumBtn").addEventListener("click", () => {
   const p = state.proyek.find(x => x.id === currentProyekId);
   if (!p) return;
-  const siap = (p.pekerjaanTambahan || []).filter(x =>
+  let siap = (p.pekerjaanTambahan || []).filter(x =>
     ["dikerjakan", "selesai"].includes(x.status) && !x.penawaranId && !invoiceAddendumTertaut(p, x));
   if (!siap.length) {
-    alert('Tidak ada catatan berstatus Dikerjakan/Selesai yang siap ditagihkan.\n\nYang sudah pernah ditagihkan (ada tombol "🧾 <nomor invoice>" di kolom Status) atau sudah dibuatkan penawaran tidak diikutkan lagi — anti dobel. Catatan berstatus "Rencana" dibuatkan PENAWARAN dulu (tombol 📄) karena pekerjaannya belum dikerjakan.');
-    return;
+    // Kasus transisi (KLA Computer 30/9): catatan yang sudah Selesai
+    // terlanjur dibuatkan Penawaran Addendum di aturan lama, jadi semuanya
+    // tertaut penawaran dan tombol invoice buntu. Tawarkan ALIHKAN:
+    // tautan penawarannya dilepas lalu langsung ditagihkan lewat invoice
+    // (dokumen penawarannya tidak dihapus otomatis).
+    const tertautPw = (p.pekerjaanTambahan || []).filter(x =>
+      ["dikerjakan", "selesai"].includes(x.status) && x.penawaranId && !invoiceAddendumTertaut(p, x));
+    if (tertautPw.length) {
+      const nomorPw = [...new Set(tertautPw.map(x => nomorPwTertaut(x.penawaranId)))].join(", ");
+      if (!confirm(`${tertautPw.length} catatan yang sudah Dikerjakan/Selesai masih tertaut ke Penawaran Addendum (${nomorPw}).\n\nAlihkan ke INVOICE sekarang? Tautan penawarannya dilepas otomatis supaya bisa ditagihkan — dokumen penawarannya TIDAK terhapus (hapus manual di menu Penawaran bila memang tidak dipakai).`)) return;
+      siap = tertautPw; // tautan dilepas nanti, setelah konfirmasi rincian
+    } else {
+      alert('Tidak ada catatan berstatus Dikerjakan/Selesai yang siap ditagihkan.\n\nYang sudah pernah ditagihkan (ada tombol "🧾 <nomor invoice>" di kolom Status) tidak diikutkan lagi — anti dobel. Catatan berstatus "Rencana" dibuatkan PENAWARAN dulu (tombol 📄) karena pekerjaannya belum dikerjakan.');
+      return;
+    }
   }
   // Harga tiap item dipatok ke harga satuan penawaran ACC bila pekerjaannya
   // cocok (sama seperti Penawaran Addendum); sisanya harga di catatan.
@@ -7018,7 +7031,9 @@ document.getElementById("ps_invAddendumBtn").addEventListener("click", () => {
     acuanNomor: nomorAcuan ? nomorAcuan.nomor : ""
   };
   p.invoices.push(inv);
-  siap.forEach(x => { x.invoiceId = inv.id; });
+  // Tautan penawaran (kasus alihkan di atas) baru dilepas di sini -- kalau
+  // pengguna batal di konfirmasi rincian, tidak ada data yang berubah.
+  siap.forEach(x => { x.penawaranId = ""; x.invoiceId = inv.id; });
   saveState();
   mirrorProyekUpsert(p);
   renderProyekDetail();
