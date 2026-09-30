@@ -6647,6 +6647,16 @@ function statusTindakLanjutBadge(status) {
   const s = STATUS_TINDAK_LANJUT[status] || STATUS_TINDAK_LANJUT.rencana;
   return `<span class="badge-margin ${s.badge}">${s.label}</span>`;
 }
+// Anti-dobel catatan addendum/survey dikunci ke TAUTAN penawaran
+// (penawaranId), BUKAN ke status pekerjaan -- alur "dikerjakan dulu,
+// ditagih belakangan" (mis. KLA Computer) membuat catatan sudah berstatus
+// Dikerjakan/Selesai saat tagihannya baru mau dibuat. Nomor penawaran
+// tertaut ditampilkan di tabel supaya jelas catatan mana yang sudah punya
+// dokumen tagihan.
+function nomorPwTertaut(pwId) {
+  const pw = (state.penawaran || []).find(x => x.id === pwId);
+  return pw ? (pw.nomor || "Lihat Penawaran") : "Penawaran terhapus";
+}
 // Picker AHSP yang sama dengan modal item RAB/Penawaran -- supaya harga
 // TIDAK diketik manual dua kali: pilih item AHSP, uraian/satuan/harga
 // langsung terisi dari analisa yang sudah ada (integrasi lintas menu).
@@ -6726,8 +6736,14 @@ document.getElementById("pj_susulanTable").addEventListener("click", e => {
   const editBtn = e.target.closest("[data-edit-susulan]");
   const delBtn = e.target.closest("[data-delete-susulan]");
   const pwBtn = e.target.closest("[data-pw-susulan]");
+  const gotoPwBtn = e.target.closest("[data-goto-pw-susulan]");
   const p = state.proyek.find(x => x.id === currentProyekId);
   if (!p) return;
+  if (gotoPwBtn) {
+    if (state.penawaran.some(x => x.id === gotoPwBtn.dataset.gotoPwSusulan)) goToDoc("pw", gotoPwBtn.dataset.gotoPwSusulan);
+    else alert('Penawaran yang tertaut sudah dihapus. Jalankan "Periksa Integrasi" di Dashboard (Lepas & Rapikan) supaya catatan ini bisa dibuatkan penawaran lagi.');
+    return;
+  }
   if (editBtn) {
     const item = (p.pekerjaanTambahan || []).find(x => x.id === editBtn.dataset.editSusulan);
     if (item) openPekerjaanSusulanModal(item);
@@ -6746,7 +6762,9 @@ document.getElementById("pj_susulanTable").addEventListener("click", e => {
       kepada: p.klien || "", klienId: p.klienId || "",
       perihal: item.uraian, item
     });
-    item.status = "penawaran";
+    // Status pekerjaan yang sudah jalan/selesai TIDAK ditimpa -- cukup
+    // "rencana" yang naik jadi "penawaran"; anti-dobelnya di penawaranId.
+    if ((item.status || "rencana") === "rencana") item.status = "penawaran";
     item.penawaranId = pw.id;
     saveState();
     mirrorProyekUpsert(p);
@@ -6795,10 +6813,10 @@ function renderPekerjaanSusulan(p) {
       <td>${escapeHtml(item.sumber || "-")}</td>
       <td class="num">${item.volume ? `${item.volume} ${escapeHtml(item.satuan || "")}` : "-"}</td>
       <td class="num">${nilaiTindakLanjut(item) ? rupiah(nilaiTindakLanjut(item)) : "-"}</td>
-      <td>${statusTindakLanjutBadge(item.status)}</td>
+      <td>${statusTindakLanjutBadge(item.status)}${item.penawaranId ? `<br><button type="button" class="btn-ghost" data-goto-pw-susulan="${item.penawaranId}" style="padding:2px 8px; font-size:11px; margin-top:4px;" title="Buka penawaran addendum yang tertaut ke catatan ini">📄 ${escapeHtml(nomorPwTertaut(item.penawaranId))}</button>` : ""}</td>
       <td>${escapeHtml(item.catatan || "-")}</td>
       <td><div class="row-actions">
-        ${item.status === "rencana" ? `<button class="icon-btn" data-pw-susulan="${item.id}" title="Buat Penawaran dari pekerjaan susulan ini">📄</button>` : ""}
+        ${!item.penawaranId ? `<button class="icon-btn" data-pw-susulan="${item.id}" title="Buat Penawaran dari pekerjaan susulan ini">📄</button>` : ""}
         <button class="icon-btn" data-edit-susulan="${item.id}" title="Edit / perbarui catatan">✏️</button>
         <button class="icon-btn" data-delete-susulan="${item.id}" title="Hapus">🗑️</button>
       </div></td>
@@ -6838,9 +6856,12 @@ function hargaAcuanAddendum(p, item) {
 document.getElementById("ps_pwAddendumBtn").addEventListener("click", () => {
   const p = state.proyek.find(x => x.id === currentProyekId);
   if (!p) return;
-  const siap = (p.pekerjaanTambahan || []).filter(x => (x.status || "rencana") === "rencana");
+  // Semua catatan yang BELUM tertaut penawaran ikut -- termasuk yang sudah
+  // Dikerjakan/Selesai (alur "kerjakan dulu, tagih belakangan"). Anti-dobel:
+  // catatan yang sudah punya penawaranId tidak diikutkan lagi.
+  const siap = (p.pekerjaanTambahan || []).filter(x => !x.penawaranId);
   if (!siap.length) {
-    alert('Tidak ada catatan addendum berstatus "Rencana" yang siap dibuatkan penawaran.\n\nCatatan yang sudah pernah ditransfer (status Penawaran/Dikerjakan/Selesai) tidak diikutkan lagi — anti dobel.');
+    alert('Semua catatan pekerjaan susulan proyek ini SUDAH pernah dibuatkan penawaran (tertaut ke dokumennya masing-masing — anti dobel).\n\nLihat kolom Status: tombol "📄 <nomor penawaran>" membuka dokumen tagihannya. Catat pekerjaan susulan baru dulu bila ada tagihan baru.');
     return;
   }
   // Harga tiap item dipatok ke harga acuan penawaran ACC bila pekerjaannya
@@ -6862,7 +6883,10 @@ document.getElementById("ps_pwAddendumBtn").addEventListener("click", () => {
     pw.syarat = `${pw.syarat}\nHarga satuan addendum mengikuti Penawaran ${nomorAcuan.nomor} yang telah disetujui; tagihan addendum ini terpisah dari kontrak utama.`;
     mirrorPenawaranUpsert(pw);
   }
-  siap.forEach(x => { x.status = "penawaran"; x.penawaranId = pw.id; });
+  siap.forEach(x => {
+    if ((x.status || "rencana") === "rencana") x.status = "penawaran";
+    x.penawaranId = pw.id;
+  });
   saveState();
   mirrorProyekUpsert(p);
   goToDoc("pw", pw.id);
@@ -18238,10 +18262,10 @@ function renderTindakLanjutLaporan(l) {
       <td>${escapeHtml(item.rencana || "-")}</td>
       <td class="num">${item.volume ? `${item.volume} ${escapeHtml(item.satuan || "")}` : "-"}${nilai ? `<br><strong>${rupiah(nilai)}</strong>` : ""}</td>
       <td><div style="display:flex; gap:4px; flex-wrap:wrap; align-items:center;">${fotoHtml}${videoHtml}${!fotoHtml && !videoHtml ? '<span class="muted" style="font-size:12px;">-</span>' : ""}</div></td>
-      <td>${statusTindakLanjutBadge(item.status)}</td>
+      <td>${statusTindakLanjutBadge(item.status)}${item.penawaranId ? `<br><button type="button" class="btn-ghost" data-goto-pw-tindaklanjut="${item.penawaranId}" style="padding:2px 8px; font-size:11px; margin-top:4px;" title="Buka penawaran yang tertaut ke catatan survey ini">📄 ${escapeHtml(nomorPwTertaut(item.penawaranId))}</button>` : ""}</td>
       <td>${escapeHtml(item.catatan || "-")}</td>
       <td><div class="row-actions">
-        ${item.status === "rencana" && item.rencana === "Dibuat Penawaran" ? `<button class="icon-btn" data-pw-tindaklanjut="${item.id}" title="Buat Penawaran dari hasil survey ini">📄</button>` : ""}
+        ${!item.penawaranId && item.rencana === "Dibuat Penawaran" ? `<button class="icon-btn" data-pw-tindaklanjut="${item.id}" title="Buat Penawaran dari hasil survey ini">📄</button>` : ""}
         <button class="icon-btn" data-edit-tindaklanjut="${item.id}" title="Edit / perbarui catatan">✏️</button>
         <button class="icon-btn" data-delete-tindaklanjut="${item.id}" title="Hapus">🗑️</button>
       </div></td>
@@ -18339,9 +18363,12 @@ document.getElementById("lkr_addTindakLanjutBtn").addEventListener("click", () =
 document.getElementById("lkr_pwSemuaBtn").addEventListener("click", () => {
   const l = state.laporanKerja.find(x => x.id === currentLaporanKerjaId);
   if (!l) return;
-  const siap = (l.tindakLanjut || []).filter(x => x.status === "rencana" && x.rencana === "Dibuat Penawaran");
+  // Sama seperti addendum proyek: yang diikutkan = catatan "Dibuat
+  // Penawaran" yang BELUM tertaut penawaran, apa pun status pekerjaannya
+  // (dikerjakan dulu, tagih belakangan tetap bisa). Anti-dobel di penawaranId.
+  const siap = (l.tindakLanjut || []).filter(x => !x.penawaranId && x.rencana === "Dibuat Penawaran");
   if (!siap.length) {
-    alert('Tidak ada catatan yang siap dibuatkan penawaran.\n\nCatatan harus berstatus "Rencana" dengan tindak lanjut "Dibuat Penawaran". Catatan yang sudah pernah ditransfer tidak diikutkan lagi (anti dobel).');
+    alert('Tidak ada catatan yang siap dibuatkan penawaran.\n\nCatatan harus ber-tindak lanjut "Dibuat Penawaran" dan belum tertaut ke penawaran mana pun (yang sudah pernah ditransfer tidak diikutkan lagi — anti dobel).');
     return;
   }
   const total = siap.reduce((s, x) => s + nilaiTindakLanjut(x), 0);
@@ -18351,7 +18378,10 @@ document.getElementById("lkr_pwSemuaBtn").addEventListener("click", () => {
     kepada: klien ? klien.nama : (l.judul || ""), klienId: l.klienId || "",
     perihal: l.judul || `Hasil survey ${formatTanggal(l.tanggal)}`, items: siap
   });
-  siap.forEach(x => { x.status = "penawaran"; x.penawaranId = pw.id; });
+  siap.forEach(x => {
+    if ((x.status || "rencana") === "rencana") x.status = "penawaran";
+    x.penawaranId = pw.id;
+  });
   saveState();
   mirrorLaporanKerjaUpsert(l, l);
   goToDoc("pw", pw.id);
@@ -18433,10 +18463,16 @@ document.getElementById("lkr_tindakLanjutTable").addEventListener("click", e => 
   const editBtn = e.target.closest("[data-edit-tindaklanjut]");
   const delBtn = e.target.closest("[data-delete-tindaklanjut]");
   const pwBtn = e.target.closest("[data-pw-tindaklanjut]");
+  const gotoPwBtn = e.target.closest("[data-goto-pw-tindaklanjut]");
   const fotoEl = e.target.closest("[data-tlfoto]");
   const videoEl = e.target.closest("[data-tlvideo]");
   const l = state.laporanKerja.find(x => x.id === currentLaporanKerjaId);
   if (!l) return;
+  if (gotoPwBtn) {
+    if (state.penawaran.some(x => x.id === gotoPwBtn.dataset.gotoPwTindaklanjut)) goToDoc("pw", gotoPwBtn.dataset.gotoPwTindaklanjut);
+    else alert('Penawaran yang tertaut sudah dihapus. Jalankan "Periksa Integrasi" di Dashboard (Lepas & Rapikan) supaya catatan ini bisa dibuatkan penawaran lagi.');
+    return;
+  }
   if (fotoEl) {
     const [itemId, idxStr] = fotoEl.dataset.tlfoto.split(":");
     const item = (l.tindakLanjut || []).find(x => x.id === itemId);
@@ -18479,7 +18515,7 @@ document.getElementById("lkr_tindakLanjutTable").addEventListener("click", e => 
       kepada: klien ? klien.nama : (l.judul || ""), klienId: l.klienId || "",
       perihal: item.uraian, item
     });
-    item.status = "penawaran";
+    if ((item.status || "rencana") === "rencana") item.status = "penawaran";
     item.penawaranId = pw.id;
     saveState();
     mirrorLaporanKerjaUpsert(l, l);
