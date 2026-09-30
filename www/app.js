@@ -5600,8 +5600,12 @@ document.querySelector("#pd_invoiceTable tbody").addEventListener("click", e => 
     cetakPrintArea();
   } else if (delBtn) {
     if (proyekArsipGuard(p)) return;
-    if (confirm("Hapus invoice ini? Nomor urut invoice yang sudah terpakai tidak dikembalikan.")) {
+    if (confirm("Hapus invoice ini? Nomor urut invoice yang sudah terpakai tidak dikembalikan. Catatan pekerjaan susulan yang tertaut otomatis bisa ditagihkan lagi.")) {
       p.invoices = (p.invoices || []).filter(i => i.id !== delBtn.dataset.deleteInvoice);
+      // Lepas tautan catatan addendum yang menunjuk invoice ini supaya
+      // bisa ditagihkan ulang (eligibilitas juga mengecek invoice masih
+      // ada, jadi data lama dengan tautan buntu tetap aman).
+      (p.pekerjaanTambahan || []).forEach(x => { if (x.invoiceId === delBtn.dataset.deleteInvoice) x.invoiceId = ""; });
       saveState();
       mirrorProyekUpsert(p);
       renderInvoiceProyek(p);
@@ -5628,6 +5632,48 @@ function invoiceLetterhead(judul) {
 // yang sudah lunas, tagihan ini, dan yang belum ditagih, (3) ringkasan
 // sudah dibayar + sisa tagihan setelah invoice ini.
 function buildInvoicePrintHtml(p, inv) {
+  // Invoice Addendum: tagihan pekerjaan tambahan yang sudah dikerjakan --
+  // TERPISAH dari nilai kontrak utama, jadi rincian kontrak/status termin
+  // tidak ikut dicetak (menyesatkan kalau ikut); yang dicetak tabel item
+  // pekerjaan addendum lengkap + total + rekening.
+  if (Array.isArray(inv.addendumItems) && inv.addendumItems.length) {
+    const itemRows = inv.addendumItems.map((it, i) => `<tr>
+      <td class="r">${i + 1}</td>
+      <td>${escapeHtml(it.uraian)}</td>
+      <td class="r">${it.volume || 1}</td>
+      <td>${escapeHtml(it.satuan || "ls")}</td>
+      <td class="r">${rupiah(it.hargaSatuan || 0)}</td>
+      <td class="r">${rupiah((it.volume || 1) * (it.hargaSatuan || 0))}</td>
+    </tr>`).join("");
+    return `
+      ${invoiceLetterhead("INVOICE")}
+      <table class="meta-table" style="margin-bottom:14px;">
+        <tr><td>Nomor</td><td>:</td><td><strong>${escapeHtml(inv.nomor)}</strong></td></tr>
+        <tr><td>Tanggal</td><td>:</td><td>${formatTanggal(inv.tanggal)}</td></tr>
+        <tr><td>Kepada</td><td>:</td><td>${escapeHtml(p.klien || "-")}</td></tr>
+        <tr><td>Proyek</td><td>:</td><td>${escapeHtml(p.nama || "-")}${p.lokasi ? ", " + escapeHtml(p.lokasi) : ""}</td></tr>
+        <tr><td>Perihal</td><td>:</td><td><strong>Tagihan Pekerjaan Tambahan (Addendum)</strong> — pekerjaan telah dilaksanakan</td></tr>
+      </table>
+      <p class="doc-p" style="margin-bottom:4px;"><strong>Rincian Pekerjaan Tambahan yang Ditagihkan</strong></p>
+      <table class="doc-items">
+        <thead><tr><th class="r">No</th><th>Uraian Pekerjaan</th><th class="r">Volume</th><th>Satuan</th><th class="r">Harga Satuan</th><th class="r">Jumlah</th></tr></thead>
+        <tbody>${itemRows}</tbody>
+      </table>
+      <table class="doc-summary-table">
+        <tr class="total-row"><td>Total Tagihan Ini</td><td class="r">${rupiah(inv.jumlah)}</td></tr>
+      </table>
+      <p class="doc-p">Terbilang: <em>${terbilangRupiah(inv.jumlah)}</em></p>
+      ${inv.acuanNomor ? `<p class="doc-p muted" style="font-size:11.5px;">Harga satuan mengikuti Penawaran ${escapeHtml(inv.acuanNomor)} yang telah disetujui. Tagihan addendum ini terpisah dari nilai kontrak utama.</p>` : `<p class="doc-p muted" style="font-size:11.5px;">Tagihan pekerjaan tambahan (addendum) ini terpisah dari nilai kontrak utama.</p>`}
+      <p class="doc-p">Pembayaran mohon ditransfer ke rekening: <strong>${escapeHtml(state.rekening || COMPANY_REKENING)}</strong></p>
+      <div style="display:flex; justify-content:flex-end; margin-top:30px; font-size:12.5px;">
+        <div style="text-align:right;">
+          Hormat kami,<br>${escapeHtml(state.company || "CV. Mitra Creative")}
+          ${ownerTtdOrSpace(state.ownerNama)}
+          <strong>${escapeHtml(state.ownerNama)}</strong><br>${escapeHtml(state.ownerJabatan)}
+        </div>
+      </div>
+    `;
+  }
   const doc = dokSumberProyek(p);
   const nilaiKontrak = p.nilaiKontrak || 0;
   // Rincian nilai kontrak: sub total per kelompok dari dokumen sumber
@@ -6722,7 +6768,8 @@ document.getElementById("pekerjaanSusulanForm").addEventListener("submit", e => 
     hargaSatuan: parseNumberInput(document.getElementById("ps_hargaSatuan").value),
     status: document.getElementById("ps_status").value,
     catatan: document.getElementById("ps_catatan").value.trim(),
-    penawaranId: existing ? (existing.penawaranId || "") : ""
+    penawaranId: existing ? (existing.penawaranId || "") : "",
+    invoiceId: existing ? (existing.invoiceId || "") : ""
   };
   if (!item.uraian) { alert("Isi uraian pekerjaan susulan terlebih dahulu."); return; }
   const idx = p.pekerjaanTambahan.findIndex(x => x.id === id);
@@ -6736,9 +6783,40 @@ document.getElementById("pj_susulanTable").addEventListener("click", e => {
   const editBtn = e.target.closest("[data-edit-susulan]");
   const delBtn = e.target.closest("[data-delete-susulan]");
   const pwBtn = e.target.closest("[data-pw-susulan]");
+  const invBtn = e.target.closest("[data-inv-susulan]");
   const gotoPwBtn = e.target.closest("[data-goto-pw-susulan]");
+  const gotoInvBtn = e.target.closest("[data-goto-inv-susulan]");
   const p = state.proyek.find(x => x.id === currentProyekId);
   if (!p) return;
+  if (gotoInvBtn) {
+    const inv = (p.invoices || []).find(i => i.id === gotoInvBtn.dataset.gotoInvSusulan);
+    if (inv) printInvoice(p, inv);
+    else alert("Invoice yang tertaut sudah dihapus — catatan ini otomatis bisa ditagihkan lagi lewat tombol 🧾.");
+    return;
+  }
+  if (invBtn) {
+    const item = (p.pekerjaanTambahan || []).find(x => x.id === invBtn.dataset.invSusulan);
+    if (!item) return;
+    const acuan = hargaAcuanAddendum(p, item);
+    const hargaFinal = acuan ? acuan.harga : (item.hargaSatuan || 0);
+    const jumlah = (item.volume || 1) * hargaFinal;
+    if (!confirm(`Buat Invoice untuk pekerjaan "${item.uraian}"${item.volume ? ` (${item.volume} ${item.satuan || ""})` : ""} @ ${rupiah(hargaFinal)}${acuan ? " ← harga penawaran ACC" : ""}?\n\nTotal tagihan: ${rupiah(jumlah)}. Invoice masuk daftar Invoice & Kwitansi proyek.`)) return;
+    if (!p.invoices) p.invoices = [];
+    const inv = {
+      id: uid(), nomor: nextInvoiceNomor(), tanggal: hariIniIso(),
+      keterangan: `Addendum: ${item.uraian} — ${p.nama}`,
+      jumlah, status: "draft", tanggalBayar: "",
+      addendumItems: [{ uraian: item.uraian, volume: item.volume || 1, satuan: item.satuan || "ls", hargaSatuan: hargaFinal, acuanNomor: acuan ? acuan.nomor : "" }],
+      acuanNomor: acuan ? acuan.nomor : ""
+    };
+    p.invoices.push(inv);
+    item.invoiceId = inv.id;
+    saveState();
+    mirrorProyekUpsert(p);
+    renderProyekDetail();
+    printInvoice(p, inv);
+    return;
+  }
   if (gotoPwBtn) {
     if (state.penawaran.some(x => x.id === gotoPwBtn.dataset.gotoPwSusulan)) goToDoc("pw", gotoPwBtn.dataset.gotoPwSusulan);
     else alert('Penawaran yang tertaut sudah dihapus. Jalankan "Periksa Integrasi" di Dashboard (Lepas & Rapikan) supaya catatan ini bisa dibuatkan penawaran lagi.');
@@ -6813,10 +6891,11 @@ function renderPekerjaanSusulan(p) {
       <td>${escapeHtml(item.sumber || "-")}</td>
       <td class="num">${item.volume ? `${item.volume} ${escapeHtml(item.satuan || "")}` : "-"}</td>
       <td class="num">${nilaiTindakLanjut(item) ? rupiah(nilaiTindakLanjut(item)) : "-"}</td>
-      <td>${statusTindakLanjutBadge(item.status)}${item.penawaranId ? `<br><button type="button" class="btn-ghost" data-goto-pw-susulan="${item.penawaranId}" style="padding:2px 8px; font-size:11px; margin-top:4px;" title="Buka penawaran addendum yang tertaut ke catatan ini">📄 ${escapeHtml(nomorPwTertaut(item.penawaranId))}</button>` : ""}</td>
+      <td>${statusTindakLanjutBadge(item.status)}${item.penawaranId ? `<br><button type="button" class="btn-ghost" data-goto-pw-susulan="${item.penawaranId}" style="padding:2px 8px; font-size:11px; margin-top:4px;" title="Buka penawaran addendum yang tertaut ke catatan ini">📄 ${escapeHtml(nomorPwTertaut(item.penawaranId))}</button>` : ""}${invoiceAddendumTertaut(p, item) ? `<br><button type="button" class="btn-ghost" data-goto-inv-susulan="${item.invoiceId}" style="padding:2px 8px; font-size:11px; margin-top:4px;" title="Cetak invoice addendum yang menagihkan pekerjaan ini">🧾 ${escapeHtml(((p.invoices || []).find(i => i.id === item.invoiceId) || {}).nomor || "Invoice")}</button>` : ""}</td>
       <td>${escapeHtml(item.catatan || "-")}</td>
       <td><div class="row-actions">
-        ${!item.penawaranId ? `<button class="icon-btn" data-pw-susulan="${item.id}" title="Buat Penawaran dari pekerjaan susulan ini">📄</button>` : ""}
+        ${(item.status || "rencana") === "rencana" && !item.penawaranId ? `<button class="icon-btn" data-pw-susulan="${item.id}" title="Buat Penawaran dari pekerjaan susulan ini (belum dikerjakan — minta persetujuan klien dulu)">📄</button>` : ""}
+        ${["dikerjakan", "selesai"].includes(item.status) && !item.penawaranId && !invoiceAddendumTertaut(p, item) ? `<button class="icon-btn" data-inv-susulan="${item.id}" title="Buat Invoice dari pekerjaan ini (sudah dikerjakan — langsung ditagihkan)">🧾</button>` : ""}
         <button class="icon-btn" data-edit-susulan="${item.id}" title="Edit / perbarui catatan">✏️</button>
         <button class="icon-btn" data-delete-susulan="${item.id}" title="Hapus">🗑️</button>
       </div></td>
@@ -6856,12 +6935,16 @@ function hargaAcuanAddendum(p, item) {
 document.getElementById("ps_pwAddendumBtn").addEventListener("click", () => {
   const p = state.proyek.find(x => x.id === currentProyekId);
   if (!p) return;
-  // Semua catatan yang BELUM tertaut penawaran ikut -- termasuk yang sudah
-  // Dikerjakan/Selesai (alur "kerjakan dulu, tagih belakangan"). Anti-dobel:
-  // catatan yang sudah punya penawaranId tidak diikutkan lagi.
-  const siap = (p.pekerjaanTambahan || []).filter(x => !x.penawaranId);
+  // Aturan Owner (30/9): PENAWARAN hanya untuk pekerjaan yang BELUM
+  // dikerjakan (status Rencana) -- disetujui klien dulu baru dikerjakan.
+  // Pekerjaan yang sudah Dikerjakan/Selesai ditagih lewat tombol
+  // "🧾 Buat Invoice Addendum" (tagihan langsung), bukan penawaran lagi.
+  const siap = (p.pekerjaanTambahan || []).filter(x => (x.status || "rencana") === "rencana" && !x.penawaranId);
   if (!siap.length) {
-    alert('Semua catatan pekerjaan susulan proyek ini SUDAH pernah dibuatkan penawaran (tertaut ke dokumennya masing-masing — anti dobel).\n\nLihat kolom Status: tombol "📄 <nomor penawaran>" membuka dokumen tagihannya. Catat pekerjaan susulan baru dulu bila ada tagihan baru.');
+    const sudahJalan = (p.pekerjaanTambahan || []).filter(x => ["dikerjakan", "selesai"].includes(x.status) && !x.penawaranId && !invoiceAddendumTertaut(p, x)).length;
+    alert('Tidak ada catatan berstatus "Rencana" yang siap dibuatkan penawaran (penawaran = persetujuan klien SEBELUM pekerjaan dikerjakan).' +
+      (sudahJalan ? `\n\nAda ${sudahJalan} catatan yang sudah Dikerjakan/Selesai — pekerjaan yang sudah jalan ditagih lewat tombol "🧾 Buat Invoice Addendum".` :
+        "\n\nCatatan yang sudah pernah dibuatkan penawaran/invoice tidak diikutkan lagi — anti dobel."));
     return;
   }
   // Harga tiap item dipatok ke harga acuan penawaran ACC bila pekerjaannya
@@ -6890,6 +6973,56 @@ document.getElementById("ps_pwAddendumBtn").addEventListener("click", () => {
   saveState();
   mirrorProyekUpsert(p);
   goToDoc("pw", pw.id);
+});
+// Invoice Addendum (aturan Owner 30/9, alur "kerjakan dulu, tagih
+// belakangan" mis. KLA Computer): pekerjaan tambahan yang SUDAH
+// Dikerjakan/Selesai tidak lagi lewat penawaran -- langsung dibuatkan
+// INVOICE dengan rincian item, masuk daftar Invoice & Kwitansi proyek
+// (ikut alur status Draft/Terkirim/Dibayar + otomatis tercatat ke Kas).
+// Anti-dobel: catatan yang sudah tertaut invoice (yang masih ada) atau
+// penawaran tidak diikutkan lagi. Tautan dicek ke invoice yang MASIH ADA
+// supaya data lama dengan invoiceId buntu tetap bisa ditagihkan ulang.
+function invoiceAddendumTertaut(p, item) {
+  return !!(item.invoiceId && (p.invoices || []).some(i => i.id === item.invoiceId));
+}
+document.getElementById("ps_invAddendumBtn").addEventListener("click", () => {
+  const p = state.proyek.find(x => x.id === currentProyekId);
+  if (!p) return;
+  const siap = (p.pekerjaanTambahan || []).filter(x =>
+    ["dikerjakan", "selesai"].includes(x.status) && !x.penawaranId && !invoiceAddendumTertaut(p, x));
+  if (!siap.length) {
+    alert('Tidak ada catatan berstatus Dikerjakan/Selesai yang siap ditagihkan.\n\nYang sudah pernah ditagihkan (ada tombol "🧾 <nomor invoice>" di kolom Status) atau sudah dibuatkan penawaran tidak diikutkan lagi — anti dobel. Catatan berstatus "Rencana" dibuatkan PENAWARAN dulu (tombol 📄) karena pekerjaannya belum dikerjakan.');
+    return;
+  }
+  // Harga tiap item dipatok ke harga satuan penawaran ACC bila pekerjaannya
+  // cocok (sama seperti Penawaran Addendum); sisanya harga di catatan.
+  const itemsFinal = siap.map(x => {
+    const acuan = hargaAcuanAddendum(p, x);
+    return { item: x, acuan, hargaFinal: acuan ? acuan.harga : (x.hargaSatuan || 0) };
+  });
+  const total = itemsFinal.reduce((s, f) => s + (f.item.volume || 1) * f.hargaFinal, 0);
+  const nomorAcuan = (itemsFinal.find(f => f.acuan) || { acuan: null }).acuan;
+  if (!confirm(`Buat SATU Invoice Addendum untuk proyek "${p.nama}" berisi ${siap.length} pekerjaan yang sudah dikerjakan?\n\n${itemsFinal.map(f =>
+    `- ${f.item.uraian}${f.item.volume ? ` (${f.item.volume} ${f.item.satuan || ""})` : ""} @ ${rupiah(f.hargaFinal)}${f.acuan ? " ← harga penawaran ACC" : ""}`).join("\n")}\n\nTotal tagihan: ${rupiah(total)}. Invoice masuk daftar Invoice & Kwitansi proyek (status Draft — ubah ke Terkirim/Dibayar seperti biasa) dan tagihannya TERPISAH dari nilai kontrak utama.`)) return;
+  if (!p.invoices) p.invoices = [];
+  const inv = {
+    id: uid(), nomor: nextInvoiceNomor(), tanggal: hariIniIso(),
+    keterangan: `Addendum Pekerjaan Tambahan — ${p.nama}`,
+    jumlah: total, status: "draft", tanggalBayar: "",
+    // Rincian item disimpan di invoice-nya sendiri supaya cetakan invoice
+    // menampilkan tabel pekerjaan lengkap (bukan 1 baris tagihan saja).
+    addendumItems: itemsFinal.map(f => ({
+      uraian: f.item.uraian, volume: f.item.volume || 1, satuan: f.item.satuan || "ls",
+      hargaSatuan: f.hargaFinal, acuanNomor: f.acuan ? f.acuan.nomor : ""
+    })),
+    acuanNomor: nomorAcuan ? nomorAcuan.nomor : ""
+  };
+  p.invoices.push(inv);
+  siap.forEach(x => { x.invoiceId = inv.id; });
+  saveState();
+  mirrorProyekUpsert(p);
+  renderProyekDetail();
+  printInvoice(p, inv);
 });
 
 // ===== Klien (CRM/Pipeline) =====
@@ -18265,7 +18398,7 @@ function renderTindakLanjutLaporan(l) {
       <td>${statusTindakLanjutBadge(item.status)}${item.penawaranId ? `<br><button type="button" class="btn-ghost" data-goto-pw-tindaklanjut="${item.penawaranId}" style="padding:2px 8px; font-size:11px; margin-top:4px;" title="Buka penawaran yang tertaut ke catatan survey ini">📄 ${escapeHtml(nomorPwTertaut(item.penawaranId))}</button>` : ""}</td>
       <td>${escapeHtml(item.catatan || "-")}</td>
       <td><div class="row-actions">
-        ${!item.penawaranId && item.rencana === "Dibuat Penawaran" ? `<button class="icon-btn" data-pw-tindaklanjut="${item.id}" title="Buat Penawaran dari hasil survey ini">📄</button>` : ""}
+        ${(item.status || "rencana") === "rencana" && !item.penawaranId && item.rencana === "Dibuat Penawaran" ? `<button class="icon-btn" data-pw-tindaklanjut="${item.id}" title="Buat Penawaran dari hasil survey ini">📄</button>` : ""}
         <button class="icon-btn" data-edit-tindaklanjut="${item.id}" title="Edit / perbarui catatan">✏️</button>
         <button class="icon-btn" data-delete-tindaklanjut="${item.id}" title="Hapus">🗑️</button>
       </div></td>
@@ -18363,12 +18496,13 @@ document.getElementById("lkr_addTindakLanjutBtn").addEventListener("click", () =
 document.getElementById("lkr_pwSemuaBtn").addEventListener("click", () => {
   const l = state.laporanKerja.find(x => x.id === currentLaporanKerjaId);
   if (!l) return;
-  // Sama seperti addendum proyek: yang diikutkan = catatan "Dibuat
-  // Penawaran" yang BELUM tertaut penawaran, apa pun status pekerjaannya
-  // (dikerjakan dulu, tagih belakangan tetap bisa). Anti-dobel di penawaranId.
-  const siap = (l.tindakLanjut || []).filter(x => !x.penawaranId && x.rencana === "Dibuat Penawaran");
+  // Aturan Owner (30/9): penawaran hanya untuk pekerjaan yang BELUM
+  // dikerjakan -- status "Rencana" dengan tindak lanjut "Dibuat Penawaran"
+  // dan belum tertaut penawaran (anti-dobel di penawaranId). Pekerjaan yang
+  // sudah dikerjakan ditagih lewat Invoice Addendum di halaman proyeknya.
+  const siap = (l.tindakLanjut || []).filter(x => (x.status || "rencana") === "rencana" && !x.penawaranId && x.rencana === "Dibuat Penawaran");
   if (!siap.length) {
-    alert('Tidak ada catatan yang siap dibuatkan penawaran.\n\nCatatan harus ber-tindak lanjut "Dibuat Penawaran" dan belum tertaut ke penawaran mana pun (yang sudah pernah ditransfer tidak diikutkan lagi — anti dobel).');
+    alert('Tidak ada catatan yang siap dibuatkan penawaran.\n\nCatatan harus berstatus "Rencana" (belum dikerjakan) dengan tindak lanjut "Dibuat Penawaran", dan belum pernah ditransfer (anti dobel). Pekerjaan yang sudah dikerjakan ditagih lewat "🧾 Buat Invoice Addendum" di halaman proyeknya.');
     return;
   }
   const total = siap.reduce((s, x) => s + nilaiTindakLanjut(x), 0);
