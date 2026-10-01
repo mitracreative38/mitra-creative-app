@@ -75,14 +75,38 @@ with sync_playwright() as p:
     print("Skenario 2 (status semua termin: Lunas / TAGIHAN INI / 2x Belum ditagih + penanda retensi) OK")
 
     # ===== 3. Ringkasan pembayaran =====
-    assert "Sudah Dibayar Sebelumnya" in teks and "Rp 88.500.000" in teks
+    # (dibetulkan 1/10 atas laporan Owner: sisa = yang BELUM DITAGIH, jadi
+    # invoice sebelumnya dikurangkan walau statusnya baru Terkirim)
+    assert "Sudah Ditagih Sebelumnya" in teks and "Rp 88.500.000" in teks
+    assert "dibayar Rp 88.500.000" in teks, "keterangan porsi yang sudah dibayar harus tampil"
     assert "Total Tagihan Ini" in teks and "Rp 118.000.000" in teks
-    assert "Sisa Tagihan Setelah Invoice Ini" in teks, "sisa tagihan wajib tampil"
+    assert "Sisa Belum Ditagih Setelah Invoice Ini" in teks, "sisa belum ditagih wajib tampil"
     # Rekening bawaan perusahaan wajib tampil walau Pengaturan > Rekening kosong.
     assert "854-6013940" in teks, "rekening bawaan CV harus tercetak di invoice"
     # 295jt - 88.5jt - 118jt = 88.5jt (muncul minimal 2x: termin lunas & sisa)
     assert teks.count("Rp 88.500.000") >= 2, teks.count("Rp 88.500.000")
-    print("Skenario 3 (ringkasan: dibayar 88,5jt, tagihan ini 118jt, sisa setelah invoice ini 88,5jt) OK")
+    print("Skenario 3 (ringkasan: ditagih sebelumnya 88,5jt (dibayar), tagihan ini 118jt, sisa belum ditagih 88,5jt) OK")
+
+    # ===== 3b. Kasus Owner 1/10: termin 1 baru "Terkirim" (belum dibayar)
+    # tetap dikurangkan; invoice ADDENDUM tidak ikut mengurangi kontrak =====
+    teks3b = page.evaluate("""
+      () => {
+        const p = state.proyek.find(x => x.id === 'pr-inv');
+        p.invoices[0].status = 'terkirim';
+        p.invoices[0].tanggalBayar = '';
+        p.invoices.push({ id: 'inv-add', nomor: '009/MC-INV/X/2026', tanggal: hariIniIso(),
+          keterangan: 'Addendum Pekerjaan Tambahan', jumlah: 20000000, status: 'terkirim', tanggalBayar: '',
+          addendumItems: [{ uraian: 'Pekerjaan tambahan', volume: 1, satuan: 'ls', hargaSatuan: 20000000 }] });
+        document.getElementById('printArea').innerHTML = buildInvoicePrintHtml(p, p.invoices[1]);
+        return document.getElementById('printArea').textContent;
+      }
+    """)
+    assert "Sudah Ditagih Sebelumnya" in teks3b and "Rp 88.500.000" in teks3b, "termin terkirim (belum dibayar) tetap dikurangkan"
+    assert "dibayar" not in teks3b.split("Sudah Ditagih Sebelumnya")[1][:60], "tidak ada porsi dibayar -> keterangan dibayar tidak tampil"
+    # Sisa = 295 - 88.5 - 118 = 88.5jt; invoice addendum 20jt TIDAK boleh ikut mengurangi
+    assert "Sisa Belum Ditagih Setelah Invoice Ini" in teks3b and teks3b.count("Rp 88.500.000") >= 2, teks3b.count("Rp 88.500.000")
+    assert "Rp 108.500.000" not in teks3b and "Rp 68.500.000" not in teks3b, "addendum tidak boleh menggeser sisa kontrak"
+    print("Skenario 3b (invoice terkirim belum dibayar tetap mengurangi sisa; invoice addendum tidak ikut hitungan kontrak) OK")
 
     # ===== 4. Fallback proyek polos =====
     st4 = page.evaluate("""
@@ -101,5 +125,5 @@ with sync_playwright() as p:
     js_errors = [e for e in errors if "favicon" not in e and "ERR_TUNNEL" not in e and "Failed to load resource" not in e]
     assert not js_errors, f"Error JS: {js_errors}"
     print()
-    print("SEMUA SKENARIO PASS (4 skenario)")
+    print("SEMUA SKENARIO PASS (5 skenario)")
     browser.close()
