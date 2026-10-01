@@ -5713,11 +5713,18 @@ function buildInvoicePrintHtml(p, inv) {
       <td>${status}</td>
     </tr>`;
   }).join("");
-  // Ringkasan pembayaran: dibayar sebelumnya = seluruh invoice proyek ini
-  // berstatus Dibayar selain invoice yang sedang dicetak.
-  const sudahDibayar = (p.invoices || []).filter(i => i.status === "dibayar" && i.id !== inv.id)
+  // Ringkasan pembayaran (dibetulkan 1/10 atas laporan Owner: sisa di
+  // invoice Termin 2 tidak mengurangi Termin 1 yang baru "Terkirim"):
+  // sisa dihitung dari SEMUA invoice kontrak yang sudah DITAGIHKAN
+  // sebelumnya, apa pun status bayarnya -- sejalan dengan tabel Status
+  // Termin ("Sudah ditagih" = tidak ditagihkan ulang). Invoice addendum
+  // TIDAK ikut dihitung karena tagihannya terpisah dari nilai kontrak.
+  const invoiceKontrakLain = (p.invoices || []).filter(i =>
+    i.id !== inv.id && !(Array.isArray(i.addendumItems) && i.addendumItems.length));
+  const sudahDitagih = invoiceKontrakLain.reduce((s, i) => s + (i.jumlah || 0), 0);
+  const sudahDibayar = invoiceKontrakLain.filter(i => i.status === "dibayar")
     .reduce((s, i) => s + (i.jumlah || 0), 0);
-  const sisaSetelahIni = nilaiKontrak - sudahDibayar - (inv.jumlah || 0);
+  const sisaSetelahIni = nilaiKontrak - sudahDitagih - (inv.jumlah || 0);
   return `
     ${invoiceLetterhead("INVOICE")}
     <table class="meta-table" style="margin-bottom:14px;">
@@ -5748,9 +5755,9 @@ function buildInvoicePrintHtml(p, inv) {
     </table>` : ""}
     <table class="doc-summary-table">
       ${nilaiKontrak ? `<tr><td>Nilai Kontrak</td><td class="r">${rupiah(nilaiKontrak)}</td></tr>` : ""}
-      ${sudahDibayar ? `<tr><td>Sudah Dibayar Sebelumnya</td><td class="r">- ${rupiah(sudahDibayar)}</td></tr>` : ""}
+      ${sudahDitagih ? `<tr><td>Sudah Ditagih Sebelumnya${sudahDibayar ? ` <span class="muted" style="font-size:11px;">(dibayar ${rupiah(sudahDibayar)})</span>` : ""}</td><td class="r">- ${rupiah(sudahDitagih)}</td></tr>` : ""}
       <tr class="total-row"><td>Total Tagihan Ini</td><td class="r">${rupiah(inv.jumlah)}</td></tr>
-      ${nilaiKontrak ? `<tr><td>Sisa Tagihan Setelah Invoice Ini</td><td class="r"><strong>${rupiah(sisaSetelahIni)}</strong></td></tr>` : ""}
+      ${nilaiKontrak ? `<tr><td>Sisa Belum Ditagih Setelah Invoice Ini</td><td class="r"><strong>${rupiah(sisaSetelahIni)}</strong></td></tr>` : ""}
     </table>
     <p class="doc-p">Terbilang: <em>${terbilangRupiah(inv.jumlah)}</em></p>
     <p class="doc-p">Pembayaran mohon ditransfer ke rekening: <strong>${escapeHtml(state.rekening || COMPANY_REKENING)}</strong></p>
@@ -6220,7 +6227,11 @@ document.querySelector("#pd_bapTable tbody").addEventListener("click", e => {
     // "Buat & Cetak Invoice", tidak perlu menghitung/mengetik ulang.
     const b = (p.bap || []).find(x => x.id === invBtn.dataset.invoiceBap);
     if (!b) return;
-    const sudahDitagih = (p.invoices || []).reduce((s, i) => s + (i.jumlah || 0), 0);
+    // Invoice addendum tidak dihitung: tagihannya terpisah dari kontrak,
+    // jadi tidak boleh mengurangi jatah progres kontrak yang bisa ditagih.
+    const sudahDitagih = (p.invoices || [])
+      .filter(i => !(Array.isArray(i.addendumItems) && i.addendumItems.length))
+      .reduce((s, i) => s + (i.jumlah || 0), 0);
     const nilaiProgres = Math.round((p.nilaiKontrak || 0) * (b.persen || 0) / 100);
     const sisa = Math.max(0, nilaiProgres - sudahDitagih);
     document.getElementById("inv_tanggal").value = hariIniIso();
