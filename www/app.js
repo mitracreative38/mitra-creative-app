@@ -5637,12 +5637,14 @@ function buildInvoicePrintHtml(p, inv) {
   // tidak ikut dicetak (menyesatkan kalau ikut); yang dicetak tabel item
   // pekerjaan addendum lengkap + total + rekening.
   if (Array.isArray(inv.addendumItems) && inv.addendumItems.length) {
+    // Permintaan Owner (1/10): harga satuan TIDAK diperlihatkan di tagihan
+    // addendum -- cukup jumlah per pekerjaan (harga satuan tetap tersimpan
+    // di data invoice untuk hitungan internal).
     const itemRows = inv.addendumItems.map((it, i) => `<tr>
       <td class="r">${i + 1}</td>
       <td>${escapeHtml(it.uraian)}</td>
       <td class="r">${it.volume || 1}</td>
       <td>${escapeHtml(it.satuan || "ls")}</td>
-      <td class="r">${rupiah(it.hargaSatuan || 0)}</td>
       <td class="r">${rupiah((it.volume || 1) * (it.hargaSatuan || 0))}</td>
     </tr>`).join("");
     return `
@@ -5656,7 +5658,7 @@ function buildInvoicePrintHtml(p, inv) {
       </table>
       <p class="doc-p" style="margin-bottom:4px;"><strong>Rincian Pekerjaan Tambahan yang Ditagihkan</strong></p>
       <table class="doc-items">
-        <thead><tr><th class="r">No</th><th>Uraian Pekerjaan</th><th class="r">Volume</th><th>Satuan</th><th class="r">Harga Satuan</th><th class="r">Jumlah</th></tr></thead>
+        <thead><tr><th class="r">No</th><th>Uraian Pekerjaan</th><th class="r">Volume</th><th>Satuan</th><th class="r">Jumlah</th></tr></thead>
         <tbody>${itemRows}</tbody>
       </table>
       <table class="doc-summary-table">

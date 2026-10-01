@@ -132,7 +132,11 @@ with sync_playwright() as p:
     assert "854-6013940" in html, "rekening tidak tercetak"
     assert "Status Termin" not in html and "Nilai Kontrak" not in html, "bagian kontrak/termin tidak boleh ikut di invoice addendum"
     assert "terpisah dari nilai kontrak" in html, html[:300]
-    print("Skenario 4 (cetakan invoice addendum: tabel rincian + rekening, tanpa bagian kontrak/termin) OK")
+    # Permintaan Owner 1/10: kolom Harga Satuan tidak diperlihatkan di
+    # tagihan addendum (cukup Jumlah per pekerjaan).
+    assert "Harga Satuan" not in html, "kolom Harga Satuan tidak boleh tampil di invoice addendum"
+    assert "Rp 150.000" in html and "Rp 1.120.000" in html, "jumlah per pekerjaan harus tetap tampil"
+    print("Skenario 4 (cetakan invoice addendum: tabel rincian + rekening, tanpa harga satuan & tanpa bagian kontrak/termin) OK")
 
     # ===== 5. Invoice terhapus -> bisa ditagihkan ulang =====
     dialogs.clear()
