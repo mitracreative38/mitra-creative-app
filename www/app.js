@@ -1046,7 +1046,7 @@ async function migratePenawaranIfNeeded() {
 // best-effort.
 function proyekToRow(p) {
   const realisasiTerbaru = (p.progressRealisasi || []).slice().sort((a, b) => (b.tanggal || "").localeCompare(a.tanggal || ""))[0];
-  return {
+  const row = {
     id: p.id,
     company_id: targetCompanyId,
     nama: p.nama || "",
@@ -1085,6 +1085,11 @@ function proyekToRow(p) {
     arsip: p.arsip === true,
     updated_at: new Date().toISOString()
   };
+  // Kolom acuan_penawaran (fix58) dikirim kondisional seperti mou: bila
+  // SQL-nya belum dijalankan, upsertKolomAdaptif tinggal melepas kolom ini
+  // tanpa menggagalkan sinkron proyek.
+  if (p.acuanPenawaran) row.acuan_penawaran = p.acuanPenawaran;
+  return row;
 }
 async function mirrorProyekUpsert(p, existing) {
   if (!sb || !targetCompanyId) return;
@@ -2019,6 +2024,7 @@ function rowToProyek(r) {
     qc: r.qc || [],
     tahapan: r.tahapan || [], invoices: r.invoices || [], bap: r.bap || [],
     skemaPembayaran: r.skema_pembayaran || [], rencanaTermin: r.rencana_termin || [],
+    acuanPenawaran: r.acuan_penawaran || null,
     arsip: r.arsip === true
   };
 }
@@ -5222,6 +5228,7 @@ function renderProyekDetail() {
   renderLaporanHarian(p);
   renderPerubahanPekerjaan(p);
   renderPekerjaanSusulan(p);
+  renderAcuanPenawaran(p);
   renderTahapanProyek(p, today);
   renderRencanaTermin(p);
   renderInvoiceProyek(p);
@@ -5362,6 +5369,43 @@ function terbilangRupiah(n) {
 // ----- Cetak SPK & BAST (Integrasi B: dokumen tersusun otomatis dari
 // data yang SUDAH ada -- proyek, item penawaran/RAB, QC serah terima,
 // garansi -- tidak perlu mengetik ulang di Word) -----
+// Permintaan Owner (9/10): rincian perhitungan penawaran tetap terlihat di
+// Margin Proyek sebagai acuan BACA-SAJA -- bahan koreksi bila ada lonjakan
+// volume/material atau salah hitung yang mau diperbaiki di penawaran
+// berikutnya. Sumbernya snapshot permanen di proyek (acuanPenawaranProyek),
+// jadi tetap tampil walau dokumen penawaran/RAB sumbernya sudah dihapus.
+function renderAcuanPenawaran(p) {
+  const panel = document.getElementById("pd_acuanPanel");
+  if (!panel) return;
+  const a = acuanPenawaranProyek(p);
+  if (!a) { panel.style.display = "none"; return; }
+  panel.style.display = "block";
+  document.getElementById("pd_acuanKet").textContent =
+    `Salinan baca-saja perhitungan ${a.jenis === "rab" ? "RAB" : "Penawaran"} ${a.nomor || ""}${a.tanggal ? ` (${formatTanggal(a.tanggal)})` : ""} saat proyek ini dibuat — ` +
+    "acuan koreksi bila ada lonjakan volume/material; angka tersimpan permanen di proyek walau dokumen sumbernya diubah/dihapus. " +
+    "Untuk revisi hitungan, buat penawaran/adendum baru dari dokumen sumbernya.";
+  const rows = (a.items || []).map((it, i) => `<tr>
+    <td class="num">${i + 1}</td>
+    <td>${escapeHtml(it.uraian)}${it.spesifikasi ? `<br><span class="muted" style="font-size:11.5px;">${escapeHtml(it.spesifikasi)}</span>` : ""}</td>
+    <td>${escapeHtml(it.kelompok || "-")}</td>
+    <td class="num">${it.volume || 0}</td>
+    <td>${escapeHtml(it.satuan || "-")}</td>
+    <td class="num">${rupiah(it.hargaSatuan || 0)}</td>
+    <td class="num">${rupiah((it.volume || 0) * (it.hargaSatuan || 0))}</td>
+  </tr>`).join("");
+  const t = a.totals || {};
+  const baris = (label, nilai, minus) => nilai ? `<tr><td colspan="6" class="num"><strong>${label}</strong></td><td class="num"><strong>${minus ? "- " : ""}${rupiah(nilai)}</strong></td></tr>` : "";
+  document.querySelector("#pd_acuanTable tbody").innerHTML = rows +
+    baris("Subtotal", t.subtotal) +
+    baris(`Diskon (${a.diskon}%)`, t.diskonValue, true) +
+    baris(`PPN (${a.ppn}%)`, t.ppnValue) +
+    baris(`PPh Final (${a.pph}%)`, t.pphValue) +
+    baris("Biaya Lain-lain", a.biayaLain) +
+    baris("Total Penawaran", t.total) +
+    (p.nilaiKontrak && t.total && Math.round(t.total) !== Math.round(p.nilaiKontrak)
+      ? baris("Penyesuaian Harga Deal/Nego", Math.abs(p.nilaiKontrak - t.total), p.nilaiKontrak < t.total) + baris("Nilai Kontrak (Harga Deal)", p.nilaiKontrak)
+      : "");
+}
 function dokSumberProyek(p) {
   return (p.sumberPenawaranId && (state.penawaran || []).find(x => x.id === p.sumberPenawaranId)) ||
     (p.sumberRabId && (state.proyekRab || []).find(x => x.id === p.sumberRabId)) || null;
@@ -5802,15 +5846,24 @@ function buildInvoicePrintHtml(p, inv) {
   // 9/10) -- selisih <= Rp 5 dianggap nol supaya invoice penutup bersih.
   let sisaSetelahIni = nilaiKontrak - sudahDitagih - (inv.jumlah || 0);
   if (Math.abs(sisaSetelahIni) <= 5) sisaSetelahIni = 0;
-  // PPh Final GLOBAL (permintaan Owner 9/10, direvisi: "jangan per
-  // tagihan, tetapi global dan akan dibayar pph waktu tagihan terakhir"):
-  // tampilkan PPh atas SELURUH nilai kontrak -- tarif ikut dokumen
-  // penawaran/RAB sumber (bawaan PPh Final UMKM 0,5% bila dokumennya
-  // tidak tertaut). Di tagihan terakhir (sisa belum ditagih = 0) baris
-  // ini menandakan PPh-nya disetor sekarang; di tagihan sebelumnya hanya
-  // informasi. Nilainya sudah termasuk di nilai kontrak, bukan tambahan.
-  const pphRate = doc ? (doc.pph || 0) : 0.5;
-  const pphKontrak = pphRate > 0 && nilaiKontrak > 0 ? Math.round(nilaiKontrak * pphRate / 100) : 0;
+  // PPh Final GLOBAL (permintaan Owner 9/10, direvisi dua kali: "jangan
+  // per tagihan, global, dibayar waktu tagihan terakhir" + "sesuai pph
+  // final yang ADA DI PENAWARAN, jangan ditambahkan ke harga yang sudah
+  // disepakati"): angkanya diambil persis dari nilai PPh dokumen
+  // penawaran/RAB sumber (atau snapshot acuan proyek), BUKAN dihitung
+  // ulang dari nilai kontrak. Di tagihan terakhir (sisa belum ditagih =
+  // 0) baris ini menandakan PPh-nya disetor sekarang; di tagihan
+  // sebelumnya hanya informasi. Murni informasi setor pajak -- tidak
+  // menambah nilai tagihan/kontrak yang sudah disepakati.
+  const acuanP = p.acuanPenawaran || null;
+  const pphRate = doc ? (doc.pph || 0) : (acuanP ? (acuanP.pph || 0) : 0.5);
+  let pphKontrak = 0;
+  if (pphRate > 0 && nilaiKontrak > 0) {
+    if (doc) pphKontrak = Math.round(penawaranTotals(doc).pphValue || 0);
+    else if (acuanP && acuanP.totals) pphKontrak = Math.round(acuanP.totals.pphValue || 0);
+    else pphKontrak = Math.round(nilaiKontrak * pphRate / 100);
+  }
+  const pphSumberNomor = (doc && doc.nomor) || (acuanP && acuanP.nomor) || "";
   const tagihanTerakhir = nilaiKontrak > 0 && sisaSetelahIni === 0;
   return `
     ${invoiceLetterhead("INVOICE")}
@@ -5844,7 +5897,7 @@ function buildInvoicePrintHtml(p, inv) {
       ${nilaiKontrak ? `<tr><td>Nilai Kontrak</td><td class="r">${rupiah(nilaiKontrak)}</td></tr>` : ""}
       ${sudahDitagih ? `<tr><td>Sudah Ditagih Sebelumnya${sudahDibayar ? ` <span class="muted" style="font-size:11px;">(dibayar ${rupiah(sudahDibayar)})</span>` : ""}</td><td class="r">- ${rupiah(sudahDitagih)}</td></tr>` : ""}
       <tr class="total-row"><td>Total Tagihan Ini</td><td class="r">${rupiah(inv.jumlah)}</td></tr>
-      ${pphKontrak ? `<tr><td>PPh Final (${pphRate}%) dari Nilai Kontrak <span class="muted" style="font-size:11px;">(${tagihanTerakhir ? "disetor pada tagihan terakhir INI" : "informasi — disetor sekali pada tagihan terakhir"}; sudah termasuk di nilai kontrak${doc && doc.nomor ? `, tarif sesuai ${escapeHtml(doc.nomor)}` : ""})</span></td><td class="r">${rupiah(pphKontrak)}</td></tr>` : ""}
+      ${pphKontrak ? `<tr><td>PPh Final (${pphRate}%)${pphSumberNomor ? ` sesuai ${escapeHtml(pphSumberNomor)}` : ""} <span class="muted" style="font-size:11px;">(${tagihanTerakhir ? "disetor pada tagihan terakhir INI" : "informasi — disetor sekali pada tagihan terakhir"}; sudah termasuk dalam harga yang disepakati, bukan tambahan tagihan)</span></td><td class="r">${rupiah(pphKontrak)}</td></tr>` : ""}
       ${nilaiKontrak ? `<tr><td>Sisa Belum Ditagih Setelah Invoice Ini</td><td class="r"><strong>${rupiah(sisaSetelahIni)}</strong></td></tr>` : ""}
     </table>
     <p class="doc-p">Terbilang: <em>${terbilangRupiah(inv.jumlah)}</em></p>
@@ -14716,6 +14769,35 @@ function anggaranFromItems(items) {
   });
   return { anggaranBahan: Math.round(bahan), anggaranUpah: Math.round(upah), anggaranLain: Math.round(lain), allocated, unallocated };
 }
+// Snapshot rincian perhitungan dokumen sumber (penawaran/RAB) yang
+// disimpan permanen di proyek -- id tidak ikut dibawa supaya jelas ini
+// SALINAN acuan, bukan tautan.
+function buatAcuanPenawaran(kind, doc) {
+  const t = (kind === "rab" ? rabTotals : penawaranTotals)(doc);
+  return {
+    jenis: kind, nomor: doc.nomor || "", tanggal: doc.tanggal || "",
+    items: (doc.items || []).map(it => ({
+      uraian: it.uraian || "", spesifikasi: it.spesifikasi || "", kelompok: it.kelompok || "",
+      satuan: it.satuan || "", volume: it.volume || 0, hargaSatuan: it.hargaSatuan || 0
+    })),
+    diskon: doc.diskon || 0, ppn: doc.ppn || 0, pph: doc.pph || 0, biayaLain: doc.biayaLain || 0,
+    totals: {
+      subtotal: Math.round(t.subtotal || 0), diskonValue: Math.round(t.diskonValue || 0),
+      ppnValue: Math.round(t.ppnValue || 0), pphValue: Math.round(t.pphValue || 0),
+      total: Math.round(t.total || 0)
+    }
+  };
+}
+// Acuan utk proyek: snapshot bila ada; proyek lama tanpa snapshot memakai
+// dokumen sumber live (dan sekalian disnapshotkan supaya tahan hapus).
+function acuanPenawaranProyek(p) {
+  if (p.acuanPenawaran && (p.acuanPenawaran.items || []).length) return p.acuanPenawaran;
+  const doc = dokSumberProyek(p);
+  if (!doc || !(doc.items || []).length) return null;
+  p.acuanPenawaran = buatAcuanPenawaran(p.sumberRabId && doc.id === p.sumberRabId ? "rab" : "pw", doc);
+  saveState();
+  return p.acuanPenawaran;
+}
 function createProyekFromDoc(kind, doc) {
   // Cegah proyek dobel: satu RAB/Penawaran hanya wajar melahirkan satu
   // proyek. Klik kedua (sengaja/tidak) harus dikonfirmasi sadar.
@@ -14746,7 +14828,13 @@ function createProyekFromDoc(kind, doc) {
     sumberRabId: kind === "rab" ? doc.id : "",
     sumberPenawaranId: kind === "pw" ? doc.id : "",
     skemaPembayaran: (doc.skemaPembayaran || []).map(r => ({ ...r })),
-    rencanaTermin: materializeRencanaTermin(doc.skemaPembayaran || [], nilaiDeal)
+    rencanaTermin: materializeRencanaTermin(doc.skemaPembayaran || [], nilaiDeal),
+    // Permintaan Owner (9/10): rincian perhitungan penawaran JANGAN hilang
+    // saat naik jadi proyek -- di-SNAPSHOT di sini sebagai acuan baca-saja
+    // di Margin Proyek (bahan koreksi lonjakan volume/material & kesalahan
+    // hitung utk penawaran berikutnya), tetap ada walau dokumen sumbernya
+    // nanti diubah/dihapus.
+    acuanPenawaran: buatAcuanPenawaran(kind, doc)
   };
   state.proyek.push(proj);
   doc.proyekId = proj.id;
