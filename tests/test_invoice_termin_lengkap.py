@@ -122,17 +122,19 @@ with sync_playwright() as p:
             { id: 'iv2', nomor: 'I2', tanggal: hariIniIso(), keterangan: 'Termin 4', jumlah: 22576496, status: 'draft' }
           ] };
         const html2 = buildInvoicePrintHtml(p2, p2.invoices[1]);
-        return { adaPph: html.includes('PPh Final (0.5%) dari Nilai Kontrak'), nilaiPph: html.includes('Rp 1.475.000'),
+        return { adaPph: html.includes('PPh Final (0.5%) sesuai 047/MC-PH/IX/2026'), nilaiPph: html.includes('Rp 1.500.000'),
                  infoTerakhir: html.includes('disetor sekali pada tagihan terakhir'),
-                 acuan: html.includes('047/MC-PH/IX/2026'), sisaNol: html2.includes('Rp 0'), minusSatu: html2.includes('Rp -1'),
+                 sisaNol: html2.includes('Rp 0'), minusSatu: html2.includes('Rp -1'),
                  pphTerakhir: html2.includes('disetor pada tagihan terakhir INI') && html2.includes('Rp 1.128.825') };
       }
     """)
-    assert st3c["adaPph"] and st3c["nilaiPph"] and st3c["acuan"], ("PPh global 0,5% x kontrak 295jt = 1.475.000 harus tampil", st3c)
+    # Revisi Owner: angka PPh diambil PERSIS dari penawaran (0,5% x subtotal
+    # 300jt = Rp 1.500.000), bukan dihitung ulang dari nilai kontrak nego.
+    assert st3c["adaPph"] and st3c["nilaiPph"], ("PPh harus persis angka penawaran: Rp 1.500.000 + nomor acuan", st3c)
     assert st3c["infoTerakhir"], ("di tagihan non-terakhir harus tertulis disetor sekali pada tagihan terakhir", st3c)
     assert st3c["sisaNol"] and not st3c["minusSatu"], ("sisa pembulatan -1 harus tampil Rp 0", st3c)
-    assert st3c["pphTerakhir"], ("di tagihan terakhir: PPh global 0,5% x 225.764.959 = 1.128.825 ditandai disetor SEKARANG", st3c)
-    print("Skenario 3c (PPh Final global dari nilai kontrak; disetor di tagihan terakhir; sisa -1 jadi Rp 0) OK")
+    assert st3c["pphTerakhir"], ("tanpa dokumen sumber: fallback 0,5% x kontrak, ditandai disetor di tagihan terakhir INI", st3c)
+    print("Skenario 3c (PPh Final persis dari penawaran; disetor di tagihan terakhir; sisa -1 jadi Rp 0) OK")
 
     # ===== 4. Fallback proyek polos =====
     st4 = page.evaluate("""
