@@ -2418,14 +2418,20 @@ function rupiah(n) {
   n = Number(n) || 0;
   return "Rp " + n.toLocaleString("id-ID", { maximumFractionDigits: 0 });
 }
+// BUG KRITIS yang disembuhkan 9/10 (nilai kontrak KLA Bandung jadi 42,8
+// MILIAR): total penawaran bisa pecahan (PPh 0,5% dst.), formatNumberInput
+// lama memformatnya "428.255.876,25", lalu parseNumberInput membuang SEMUA
+// tanda baca -> digit desimal "25" menempel jadi 42.825.587.625 (100x) tiap
+// kali modal Edit Info Proyek disimpan. Rupiah selalu bilangan bulat, jadi:
+// format SELALU membulatkan, parse membuang pecahan ",25"/".25" di ujung.
 function parseNumberInput(str) {
-  if (typeof str === "number") return str;
+  if (typeof str === "number") return Math.round(str);
   if (!str) return 0;
-  const cleaned = str.toString().replace(/[^0-9-]/g, "");
+  const cleaned = str.toString().trim().replace(/[,.]\d{1,2}$/, "").replace(/[^0-9-]/g, "");
   return cleaned ? parseInt(cleaned, 10) : 0;
 }
 function formatNumberInput(n) {
-  n = Number(n) || 0;
+  n = Math.round(Number(n) || 0);
   return n.toLocaleString("id-ID");
 }
 // Dipakai untuk field persen (PPN/PPh/Diskon) yang HTML-nya sudah punya
@@ -6610,7 +6616,7 @@ function renderLaporanHarian(p) {
 function applyPerubahanPekerjaanEffect(p, sebelum, sesudah) {
   const efekSebelum = (sebelum && sebelum.status === "disetujui") ? (sebelum.nilaiPerubahan || 0) : 0;
   const efekSesudah = (sesudah && sesudah.status === "disetujui") ? (sesudah.nilaiPerubahan || 0) : 0;
-  p.nilaiKontrak = (p.nilaiKontrak || 0) - efekSebelum + efekSesudah;
+  p.nilaiKontrak = Math.round((p.nilaiKontrak || 0) - efekSebelum + efekSesudah);
 }
 const perubahanPekerjaanModal = document.getElementById("perubahanPekerjaanModal");
 function openPerubahanPekerjaanModal(existing) {
@@ -14637,7 +14643,7 @@ function createProyekFromDoc(kind, doc) {
   const totals = kind === "rab" ? rabTotals(doc) : penawaranTotals(doc);
   // Penawaran yang lolos meja nego: nilai kontrak proyek memakai harga
   // DEAL terakhir (bukan harga penawaran awal), termasuk rencana termin.
-  const nilaiDeal = kind === "pw" ? hargaDealPenawaran(doc) : totals.total;
+  const nilaiDeal = Math.round(kind === "pw" ? hargaDealPenawaran(doc) : totals.total);
   const alokasi = anggaranFromItems(doc.items);
   const proj = {
     id: uid(),
@@ -15826,7 +15832,31 @@ window.addEventListener("afterprint", () => {
   document.body.classList.remove("printing-quote");
 });
 
+// Penyembuhan data korban bug formatNumberInput (nilai kontrak bengkak
+// ~100x, kasus KLA Bandung 9/10: 428.255.876,25 -> 42.825.587.625).
+// Deteksi berkeyakinan tinggi lewat rencana termin proyek itu sendiri:
+// persen termin menjumlah ~100% (termin = pecahan kontrak penuh) tapi
+// nilai kontrak ~100x total nilai terminnya -> pasti korban bug, bukan
+// angka sungguhan -> kembalikan ke nilai/100. Idempoten & berjalan di
+// setiap renderAll supaya data korup yang datang belakangan dari cloud
+// ikut sembuh di perangkat mana pun.
+function healNilaiKontrakBengkak() {
+  (state.proyek || []).forEach(p => {
+    const termin = p.rencanaTermin || [];
+    if (!termin.length || !(p.nilaiKontrak > 0)) return;
+    const totalPersen = termin.reduce((s, r) => s + (r.persen || 0), 0);
+    const totalNilai = termin.reduce((s, r) => s + (r.nilai || 0), 0);
+    if (totalPersen < 95 || totalPersen > 100.5 || !(totalNilai > 0)) return;
+    const rasio = p.nilaiKontrak / totalNilai;
+    if (rasio > 99 && rasio < 101) {
+      p.nilaiKontrak = Math.round(p.nilaiKontrak / 100);
+      saveState();
+      mirrorProyekUpsert(p);
+    }
+  });
+}
 function renderAll() {
+  healNilaiKontrakBengkak();
   prosesGajiOwnerOtomatis();
   renderDashboard();
   renderKasBook("kasUsaha");
