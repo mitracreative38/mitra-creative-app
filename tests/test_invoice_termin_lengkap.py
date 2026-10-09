@@ -122,13 +122,17 @@ with sync_playwright() as p:
             { id: 'iv2', nomor: 'I2', tanggal: hariIniIso(), keterangan: 'Termin 4', jumlah: 22576496, status: 'draft' }
           ] };
         const html2 = buildInvoicePrintHtml(p2, p2.invoices[1]);
-        return { adaPph: html.includes('PPh Final (0.5%) atas tagihan ini'), nilaiPph: html.includes('Rp 590.000'),
-                 acuan: html.includes('047/MC-PH/IX/2026'), sisaNol: html2.includes('Rp 0'), minusSatu: html2.includes('Rp -1') };
+        return { adaPph: html.includes('PPh Final (0.5%) dari Nilai Kontrak'), nilaiPph: html.includes('Rp 1.475.000'),
+                 infoTerakhir: html.includes('disetor sekali pada tagihan terakhir'),
+                 acuan: html.includes('047/MC-PH/IX/2026'), sisaNol: html2.includes('Rp 0'), minusSatu: html2.includes('Rp -1'),
+                 pphTerakhir: html2.includes('disetor pada tagihan terakhir INI') && html2.includes('Rp 1.128.825') };
       }
     """)
-    assert st3c["adaPph"] and st3c["nilaiPph"] and st3c["acuan"], ("PPh 0,5% dari penawaran harus tampil: 0,5% x 118jt = 590rb", st3c)
+    assert st3c["adaPph"] and st3c["nilaiPph"] and st3c["acuan"], ("PPh global 0,5% x kontrak 295jt = 1.475.000 harus tampil", st3c)
+    assert st3c["infoTerakhir"], ("di tagihan non-terakhir harus tertulis disetor sekali pada tagihan terakhir", st3c)
     assert st3c["sisaNol"] and not st3c["minusSatu"], ("sisa pembulatan -1 harus tampil Rp 0", st3c)
-    print("Skenario 3c (PPh Final 0,5% tampil sebagai dasar setor pajak; sisa pembulatan -1 jadi Rp 0) OK")
+    assert st3c["pphTerakhir"], ("di tagihan terakhir: PPh global 0,5% x 225.764.959 = 1.128.825 ditandai disetor SEKARANG", st3c)
+    print("Skenario 3c (PPh Final global dari nilai kontrak; disetor di tagihan terakhir; sisa -1 jadi Rp 0) OK")
 
     # ===== 4. Fallback proyek polos =====
     st4 = page.evaluate("""
@@ -142,18 +146,17 @@ with sync_playwright() as p:
       }
     """)
     assert st4["tagihan"] and st4["tanpaTermin"] and st4["tanpaRincian"], st4
-    # Tanpa dokumen sumber: tarif bawaan PPh Final UMKM 0,5% tetap tampil
-    # (0,5% x 500rb = 2.500) supaya Owner selalu punya dasar setor pajak.
+    # Tanpa nilai kontrak (proyek polos/maintenance) tidak ada dasar PPh
+    # global -> baris PPh tidak tampil.
     st4b = page.evaluate("""
       () => {
         const polos = { id: 'pr-polos2', nama: 'Proyek Polos', klien: 'Klien X', nilaiKontrak: 0,
           invoices: [{ id: 'iv', nomor: 'INV-X', tanggal: hariIniIso(), keterangan: 'Tagihan jasa', jumlah: 500000, status: 'draft' }] };
-        const t = buildInvoicePrintHtml(polos, polos.invoices[0]);
-        return t.includes('PPh Final (0.5%)') && t.includes('Rp 2.500');
+        return !buildInvoicePrintHtml(polos, polos.invoices[0]).includes('PPh Final');
       }
     """)
-    assert st4b, "tarif bawaan 0,5% harus tampil saat dokumen sumber tidak tertaut"
-    print("Skenario 4 (proyek tanpa termin/dokumen sumber: invoice tetap benar + PPh bawaan 0,5% tampil) OK")
+    assert st4b, "tanpa nilai kontrak baris PPh global tidak boleh tampil"
+    print("Skenario 4 (proyek tanpa termin/dokumen sumber: invoice tetap benar; tanpa kontrak = tanpa baris PPh) OK")
 
     js_errors = [e for e in errors if "favicon" not in e and "ERR_TUNNEL" not in e and "Failed to load resource" not in e]
     assert not js_errors, f"Error JS: {js_errors}"
