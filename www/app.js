@@ -5797,7 +5797,21 @@ function buildInvoicePrintHtml(p, inv) {
   const sudahDitagih = invoiceKontrakLain.reduce((s, i) => s + (i.jumlah || 0), 0);
   const sudahDibayar = invoiceKontrakLain.filter(i => i.status === "dibayar")
     .reduce((s, i) => s + (i.jumlah || 0), 0);
-  const sisaSetelahIni = nilaiKontrak - sudahDitagih - (inv.jumlah || 0);
+  // Sisa pembulatan termin (persen x kontrak dibulatkan per baris) bisa
+  // menyisakan selisih recehan (kasus "Rp -1" di Termin 4 KLA Mataram,
+  // 9/10) -- selisih <= Rp 5 dianggap nol supaya invoice penutup bersih.
+  let sisaSetelahIni = nilaiKontrak - sudahDitagih - (inv.jumlah || 0);
+  if (Math.abs(sisaSetelahIni) <= 5) sisaSetelahIni = 0;
+  // PPh Final GLOBAL (permintaan Owner 9/10, direvisi: "jangan per
+  // tagihan, tetapi global dan akan dibayar pph waktu tagihan terakhir"):
+  // tampilkan PPh atas SELURUH nilai kontrak -- tarif ikut dokumen
+  // penawaran/RAB sumber (bawaan PPh Final UMKM 0,5% bila dokumennya
+  // tidak tertaut). Di tagihan terakhir (sisa belum ditagih = 0) baris
+  // ini menandakan PPh-nya disetor sekarang; di tagihan sebelumnya hanya
+  // informasi. Nilainya sudah termasuk di nilai kontrak, bukan tambahan.
+  const pphRate = doc ? (doc.pph || 0) : 0.5;
+  const pphKontrak = pphRate > 0 && nilaiKontrak > 0 ? Math.round(nilaiKontrak * pphRate / 100) : 0;
+  const tagihanTerakhir = nilaiKontrak > 0 && sisaSetelahIni === 0;
   return `
     ${invoiceLetterhead("INVOICE")}
     <table class="meta-table" style="margin-bottom:14px;">
@@ -5830,6 +5844,7 @@ function buildInvoicePrintHtml(p, inv) {
       ${nilaiKontrak ? `<tr><td>Nilai Kontrak</td><td class="r">${rupiah(nilaiKontrak)}</td></tr>` : ""}
       ${sudahDitagih ? `<tr><td>Sudah Ditagih Sebelumnya${sudahDibayar ? ` <span class="muted" style="font-size:11px;">(dibayar ${rupiah(sudahDibayar)})</span>` : ""}</td><td class="r">- ${rupiah(sudahDitagih)}</td></tr>` : ""}
       <tr class="total-row"><td>Total Tagihan Ini</td><td class="r">${rupiah(inv.jumlah)}</td></tr>
+      ${pphKontrak ? `<tr><td>PPh Final (${pphRate}%) dari Nilai Kontrak <span class="muted" style="font-size:11px;">(${tagihanTerakhir ? "disetor pada tagihan terakhir INI" : "informasi — disetor sekali pada tagihan terakhir"}; sudah termasuk di nilai kontrak${doc && doc.nomor ? `, tarif sesuai ${escapeHtml(doc.nomor)}` : ""})</span></td><td class="r">${rupiah(pphKontrak)}</td></tr>` : ""}
       ${nilaiKontrak ? `<tr><td>Sisa Belum Ditagih Setelah Invoice Ini</td><td class="r"><strong>${rupiah(sisaSetelahIni)}</strong></td></tr>` : ""}
     </table>
     <p class="doc-p">Terbilang: <em>${terbilangRupiah(inv.jumlah)}</em></p>

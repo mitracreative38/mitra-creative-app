@@ -108,6 +108,32 @@ with sync_playwright() as p:
     assert "Rp 108.500.000" not in teks3b and "Rp 68.500.000" not in teks3b, "addendum tidak boleh menggeser sisa kontrak"
     print("Skenario 3b (invoice terkirim belum dibayar tetap mengurangi sisa; invoice addendum tidak ikut hitungan kontrak) OK")
 
+    # ===== 3c. PPh Final per tagihan + pembulatan sisa (Owner 9/10) =====
+    st3c = page.evaluate("""
+      () => {
+        const pw = state.penawaran.find(x => x.id === 'pw-inv');
+        pw.pph = 0.5;
+        const p = state.proyek.find(x => x.id === 'pr-inv');
+        const html = buildInvoicePrintHtml(p, p.invoices[1]);
+        // Kasus Rp -1: invoice penutup yang sisa pembulatannya -1 harus tampil Rp 0
+        const p2 = { id: 'pr-sisa', nama: 'KLA Mataram', klien: 'KLA', nilaiKontrak: 225764959, rencanaTermin: [],
+          invoices: [
+            { id: 'iv1', nomor: 'I1', tanggal: hariIniIso(), keterangan: 'T1-3', jumlah: 203188464, status: 'terkirim' },
+            { id: 'iv2', nomor: 'I2', tanggal: hariIniIso(), keterangan: 'Termin 4', jumlah: 22576496, status: 'draft' }
+          ] };
+        const html2 = buildInvoicePrintHtml(p2, p2.invoices[1]);
+        return { adaPph: html.includes('PPh Final (0.5%) dari Nilai Kontrak'), nilaiPph: html.includes('Rp 1.475.000'),
+                 infoTerakhir: html.includes('disetor sekali pada tagihan terakhir'),
+                 acuan: html.includes('047/MC-PH/IX/2026'), sisaNol: html2.includes('Rp 0'), minusSatu: html2.includes('Rp -1'),
+                 pphTerakhir: html2.includes('disetor pada tagihan terakhir INI') && html2.includes('Rp 1.128.825') };
+      }
+    """)
+    assert st3c["adaPph"] and st3c["nilaiPph"] and st3c["acuan"], ("PPh global 0,5% x kontrak 295jt = 1.475.000 harus tampil", st3c)
+    assert st3c["infoTerakhir"], ("di tagihan non-terakhir harus tertulis disetor sekali pada tagihan terakhir", st3c)
+    assert st3c["sisaNol"] and not st3c["minusSatu"], ("sisa pembulatan -1 harus tampil Rp 0", st3c)
+    assert st3c["pphTerakhir"], ("di tagihan terakhir: PPh global 0,5% x 225.764.959 = 1.128.825 ditandai disetor SEKARANG", st3c)
+    print("Skenario 3c (PPh Final global dari nilai kontrak; disetor di tagihan terakhir; sisa -1 jadi Rp 0) OK")
+
     # ===== 4. Fallback proyek polos =====
     st4 = page.evaluate("""
       () => {
@@ -120,10 +146,20 @@ with sync_playwright() as p:
       }
     """)
     assert st4["tagihan"] and st4["tanpaTermin"] and st4["tanpaRincian"], st4
-    print("Skenario 4 (proyek tanpa termin/dokumen sumber: invoice sederhana tetap benar) OK")
+    # Tanpa nilai kontrak (proyek polos/maintenance) tidak ada dasar PPh
+    # global -> baris PPh tidak tampil.
+    st4b = page.evaluate("""
+      () => {
+        const polos = { id: 'pr-polos2', nama: 'Proyek Polos', klien: 'Klien X', nilaiKontrak: 0,
+          invoices: [{ id: 'iv', nomor: 'INV-X', tanggal: hariIniIso(), keterangan: 'Tagihan jasa', jumlah: 500000, status: 'draft' }] };
+        return !buildInvoicePrintHtml(polos, polos.invoices[0]).includes('PPh Final');
+      }
+    """)
+    assert st4b, "tanpa nilai kontrak baris PPh global tidak boleh tampil"
+    print("Skenario 4 (proyek tanpa termin/dokumen sumber: invoice tetap benar; tanpa kontrak = tanpa baris PPh) OK")
 
     js_errors = [e for e in errors if "favicon" not in e and "ERR_TUNNEL" not in e and "Failed to load resource" not in e]
     assert not js_errors, f"Error JS: {js_errors}"
     print()
-    print("SEMUA SKENARIO PASS (5 skenario)")
+    print("SEMUA SKENARIO PASS (6 skenario)")
     browser.close()
