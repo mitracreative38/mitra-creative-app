@@ -4192,6 +4192,37 @@ function computePemeriksaanIntegrasi() {
     });
   }
 
+  // 1c. Pembayaran invoice tercatat DOBEL di Kas (laporan Owner 9/10:
+  // Termin Diterima KLA Mataram 406jt > nilai kontrak 225jt): uang masuk
+  // dicatat manual saat diterima, LALU invoice di-set Dibayar sehingga
+  // tercipta Kas Masuk otomatis kedua utk uang yang sama. Deteksi: tiap
+  // invoice Dibayar yang punya txn otomatis (sumberInvoiceId) dipasangkan
+  // 1-banding-1 dengan txn manual lunas belum tertaut yang proyek &
+  // jumlahnya persis sama. Perbaikan satu klik: txn manual dipertahankan
+  // dan ditautkan ke invoice, txn otomatis (duplikat) dihapus.
+  const kasDobel = [];
+  const manualTerpakai = new Set();
+  (state.proyek || []).forEach(p => (p.invoices || []).forEach(inv => {
+    if (inv.status !== "dibayar") return;
+    const auto = state.kasUsaha.transactions.find(t => t.sumberInvoiceId === inv.id);
+    if (!auto) return;
+    const manual = state.kasUsaha.transactions.find(t =>
+      !manualTerpakai.has(t.id) && t.id !== auto.id && t.tipe === "Masuk" && t.status === "lunas" &&
+      t.proyekId === p.id && !t.sumberInvoiceId && (t.jumlah || 0) === (inv.jumlah || 0));
+    if (!manual) return;
+    manualTerpakai.add(manual.id);
+    kasDobel.push({ proyekNama: p.nama, inv, auto, manual });
+  }));
+  if (kasDobel.length) {
+    temuan.push({
+      icon: "🧾", page: "proyek", fix: "kasDobelInvoice",
+      judul: `${kasDobel.length} pembayaran invoice tercatat DOBEL di Kas (manual + otomatis)`,
+      detail: "Termin Diterima/Laporan jadi kelebihan hitung. Klik \"Rapikan Dobel\": catatan manual dipertahankan & ditautkan ke invoice-nya, catatan otomatis yang duplikat dihapus — " +
+        kasDobel.map(x => `${x.inv.nomor} (${x.proyekNama}, ${rupiah(x.inv.jumlah || 0)})`).join("; "),
+      data: kasDobel
+    });
+  }
+
   // 2. Transaksi biaya proyek tanpa tautan proyek -> margin proyek kurang hitung.
   const biayaTanpaProyek = state.kasUsaha.transactions.filter(t =>
     t.tipe === "Keluar" && KATEGORI_BIAYA_PROYEK.includes(t.kategori) && !t.proyekId);
@@ -4488,6 +4519,7 @@ function renderPemeriksaanIntegrasi() {
             ${t.fix === "proyekHilang" ? `<button class="btn-ghost" data-fix-proyek-hilang="${i}">🧹 Lepas Kaitan</button>` : ""}
             ${t.fix === "kasPribadiTerputus" ? `<button class="btn-ghost" data-fix-kas-pribadi="${i}">👤 Catat ke Kas Perusahaan</button>` : ""}
             ${t.fix === "tautanGantung" ? `<button class="btn-ghost" data-fix-tautan-gantung="${i}">🔗 Lepas & Rapikan</button>` : ""}
+            ${t.fix === "kasDobelInvoice" ? `<button class="btn-ghost" data-fix-kas-dobel="${i}">🧹 Rapikan Dobel</button>` : ""}
             <button class="btn-ghost" data-goto-page="${t.page}">Buka</button>
           </span>
         </div>
@@ -4501,7 +4533,28 @@ document.getElementById("dash_integrasiHasil").addEventListener("click", e => {
   const lepasBtn = e.target.closest("[data-fix-proyek-hilang]");
   const priveBtn = e.target.closest("[data-fix-kas-pribadi]");
   const tautanBtn = e.target.closest("[data-fix-tautan-gantung]");
+  const dobelBtn = e.target.closest("[data-fix-kas-dobel]");
   const gotoBtn = e.target.closest("[data-goto-page]");
+  if (dobelBtn) {
+    const temuan = computePemeriksaanIntegrasi().find(t => t.fix === "kasDobelInvoice");
+    if (!temuan) return;
+    if (!confirm(`Rapikan ${temuan.data.length} pembayaran invoice yang tercatat dobel di Kas?\n\n${temuan.data.map(x =>
+      `- ${x.inv.nomor} (${x.proyekNama}, ${rupiah(x.inv.jumlah || 0)})`).join("\n")}\n\nCatatan Kas MANUAL dipertahankan dan ditautkan ke invoice-nya; catatan OTOMATIS yang duplikat dihapus. Termin Diterima & Laporan langsung benar.`)) return;
+    temuan.data.forEach(x => {
+      state.kasUsaha.transactions = state.kasUsaha.transactions.filter(t => t.id !== x.auto.id);
+      mirrorKasUsahaDelete(x.auto.id, x.auto);
+      const manual = state.kasUsaha.transactions.find(t => t.id === x.manual.id);
+      if (manual) {
+        manual.sumberInvoiceId = x.inv.id;
+        mirrorKasUsahaUpsert(manual, manual);
+      }
+    });
+    saveState();
+    renderAll();
+    renderPemeriksaanIntegrasi();
+    alert(`${temuan.data.length} pembayaran dobel sudah dirapikan — Termin Diterima & Laporan kembali benar.`);
+    return;
+  }
   if (tautanBtn) {
     if (!confirm('Lepas semua tautan yang menunjuk data terhapus?\n\n- Kaitan klien yang sudah dihapus dilepas (nama di dokumen tetap tersimpan).\n- Catatan addendum/survey yang penawarannya hilang dikembalikan ke status "Rencana" supaya bisa dibuatkan penawaran lagi.\n- Sumber penawaran/RAB proyek yang sudah dihapus dilepas.')) return;
     const jumlah = perbaikiTautanGantung();
@@ -5565,21 +5618,35 @@ document.querySelector("#pd_invoiceTable tbody").addEventListener("change", e =>
     return;
   }
   if (inv.status === "dibayar" && !txnTertaut) {
-    const txn = {
-      id: uid(),
-      sumberInvoiceId: inv.id,
-      proyekId: p.id,
-      tipe: "Masuk",
-      status: "lunas",
-      tanggal: inv.tanggalBayar,
-      jumlah: inv.jumlah || 0,
-      kategori: "Pendapatan Jasa",
-      keterangan: `Pembayaran Invoice ${inv.nomor} — ${p.nama}`,
-      extra: p.klien || "",
-      catatan: "Otomatis dari invoice Dibayar"
-    };
-    state.kasUsaha.transactions.push(txn);
-    mirrorKasUsahaUpsert(txn, null);
+    // Anti dobel (laporan Owner 9/10, Termin Diterima KLA Mataram 406jt
+    // padahal kontrak 225jt): uang yang sama sering SUDAH dicatat manual
+    // di Kas saat diterima, lalu invoice di-set Dibayar membuat Kas Masuk
+    // otomatis lagi. Bila ada Kas Masuk manual belum tertaut invoice
+    // dengan proyek & jumlah sama, tawarkan TAUTKAN saja (tanpa catatan
+    // baru) supaya tidak terhitung dua kali.
+    const manualCocok = state.kasUsaha.transactions.find(t =>
+      t.tipe === "Masuk" && t.proyekId === p.id && !t.sumberInvoiceId && (t.jumlah || 0) === (inv.jumlah || 0));
+    if (manualCocok && confirm(`Sudah ada catatan Kas Masuk ${rupiah(manualCocok.jumlah)} (${formatTanggal(manualCocok.tanggal)} — "${manualCocok.keterangan || "tanpa keterangan"}") di proyek ini yang belum tertaut ke invoice mana pun.\n\nOK = tautkan catatan itu ke Invoice ${inv.nomor} — uang yang sama, TIDAK dicatat dobel (disarankan).\nBatal = tetap buat catatan Kas Masuk baru (awas dobel hitung di Termin/Laporan).`)) {
+      manualCocok.sumberInvoiceId = inv.id;
+      manualCocok.status = "lunas";
+      mirrorKasUsahaUpsert(manualCocok, manualCocok);
+    } else {
+      const txn = {
+        id: uid(),
+        sumberInvoiceId: inv.id,
+        proyekId: p.id,
+        tipe: "Masuk",
+        status: "lunas",
+        tanggal: inv.tanggalBayar,
+        jumlah: inv.jumlah || 0,
+        kategori: "Pendapatan Jasa",
+        keterangan: `Pembayaran Invoice ${inv.nomor} — ${p.nama}`,
+        extra: p.klien || "",
+        catatan: "Otomatis dari invoice Dibayar"
+      };
+      state.kasUsaha.transactions.push(txn);
+      mirrorKasUsahaUpsert(txn, null);
+    }
   } else if (statusLama === "dibayar" && inv.status !== "dibayar" && txnTertaut) {
     state.kasUsaha.transactions = state.kasUsaha.transactions.filter(t => t.id !== txnTertaut.id);
     mirrorKasUsahaDelete(txnTertaut.id, txnTertaut);
