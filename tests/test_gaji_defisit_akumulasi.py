@@ -70,8 +70,11 @@ with sync_playwright() as p:
       }
     """)
     assert st1["bersih"] == -50000 and st1["dibayar"] == 0 and st1["defisit"] == 50000, st1
-    assert st1["adaTxn"] and st1["kas"] == 0 and not st1["adaMinus"], f"Kas tidak boleh minus: {st1}"
-    print("Skenario 1 (slip minus: dibayar Rp 0, Kas 0 bukan -50rb, defisit 50rb tercatat) OK")
+    # Sejak 12/10 (Kas sinkron realita): uang makan 150rb yang SUDAH
+    # diberikan harian ikut tercatat sebagai Kas Keluar walau gaji bersihnya
+    # 0 -- kas slip = dibayar (0) + uang makan & bon (150rb), tetap tanpa minus.
+    assert st1["adaTxn"] and st1["kas"] == 150000 and not st1["adaMinus"], f"Kas = uang makan terbagi, tanpa minus: {st1}"
+    print("Skenario 1 (slip minus: dibayar Rp 0 + Kas uang makan 150rb, tanpa transaksi minus, defisit 50rb tercatat) OK")
 
     # ===== 2. Preview minggu 2 menampilkan potongan defisit =====
     page.evaluate("""
@@ -133,7 +136,8 @@ with sync_playwright() as p:
         };
       }
     """)
-    assert st4["s1Dibayar"] == 50000 and st4["s1Kas"] == 50000, st4
+    # s1Kas = dibayar 50rb + uang makan 50rb (kas sinkron realita 12/10)
+    assert st4["s1Dibayar"] == 50000 and st4["s1Kas"] == 100000, st4
     assert st4["s2Dibayar"] == 200000 and st4["s2Kas"] == 200000, f"slip 2 harus otomatis dibayar penuh setelah slip 1 tidak minus: {st4}"
     print("Skenario 4 (koreksi slip 1: defisit hilang -> slip 2 & transaksi Kas-nya otomatis disamakan) OK")
 
@@ -180,7 +184,9 @@ with sync_playwright() as p:
         };
       }
     """)
-    assert st5["kasLama"] == 0, f"transaksi minus lama harus dibetulkan ke 0: {st5}"
+    # Sejak 12/10: slip lama disembuhkan jadi gaji dibayar 0 + uang makan
+    # 130rb yang sudah diberikan = Kas 130rb (dulu diharapkan 0), tetap tanpa minus.
+    assert st5["kasLama"] == 130000, f"transaksi minus lama dibetulkan: dibayar 0 + uang makan 130rb: {st5}"
     assert st5["baruDefisit"] == 30000 and st5["baruDibayar"] == 170000 and st5["kasBaru"] == 170000, st5
     assert not st5["masihAdaMinus"], st5
     print("Skenario 5 (transaksi gaji minus peninggalan dibetulkan ke 0, defisit 30rb dipotong di slip baru) OK")
