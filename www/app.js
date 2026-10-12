@@ -9375,6 +9375,20 @@ function sisaPinjaman(k) {
 function slipTotalPotongan(sl) {
   return (sl.uangMakan || 0) + (sl.bon || 0) + (sl.potonganPinjaman || 0);
 }
+// Uang makan & bon di slip = uang TUNAI yang sudah diberikan harian selama
+// periode (makanya dipotong dari gaji kotor saat gajian) -- kas perusahaan
+// benar-benar keluar sebesar ini juga, bukan cuma gaji bersihnya (laporan
+// Owner 12/10: "uang makan & bon tidak tercatat keluar di kas").
+// Potongan pinjaman TIDAK termasuk: itu pengurang piutang karyawan, bukan
+// uang keluar saat gajian.
+function slipUangMakanBon(sl) {
+  return (sl.uangMakan || 0) + (sl.bon || 0);
+}
+// Total yang seharusnya tercermin di Kas untuk satu slip: gaji bersih yang
+// dibayarkan + uang makan & bon yang sudah diberikan harian.
+function slipKasTotal(sl) {
+  return slipGajiDibayar(sl) + slipUangMakanBon(sl);
+}
 function slipGajiBersih(sl) {
   return (sl.upahKotor || 0) - slipTotalPotongan(sl);
 }
@@ -10947,7 +10961,7 @@ function resyncSlipKasBerubah(k, kecualiId) {
     if (sl.id === kecualiId) return;
     if (state.periodeTerkunci && (sl.selesai || "").slice(0, 7) <= state.periodeTerkunci) return;
     const tercatat = state.kasUsaha.transactions.filter(t => t.sumberSlipId === sl.id).reduce((s, t) => s + (t.jumlah || 0), 0);
-    if (tercatat !== slipGajiDibayar(sl)) syncSlipGajiKasTxn(k, sl);
+    if (tercatat !== slipKasTotal(sl)) syncSlipGajiKasTxn(k, sl);
   });
 }
 // Slip gaji adalah sumber utama, transaksi Kas Perusahaan yang tercatat
@@ -10963,10 +10977,12 @@ function resyncSlipKasBerubah(k, kecualiId) {
 // bagian "tanpa proyek" -- tetap tercatat di Kas, hanya tidak masuk margin
 // proyek manapun. Pecahan pembulatan ditaruh di bagian terakhir supaya
 // totalnya selalu persis sama dengan gaji bersih slip.
-function alokasiSlipPerProyek(k, sl) {
+function alokasiSlipPerProyek(k, sl, jumlahOverride) {
   // Yang dialokasikan ke Kas/Margin Proyek = yang BENAR-BENAR dibayarkan
   // (setelah potongan defisit periode lalu, tidak pernah minus).
-  const jumlah = slipGajiDibayar(sl);
+  // jumlahOverride dipakai untuk mengalokasikan nominal lain dengan bobot
+  // hari yang sama (mis. uang makan & bon harian).
+  const jumlah = typeof jumlahOverride === "number" ? jumlahOverride : slipGajiDibayar(sl);
   const hariHadir = (k.absensi || []).filter(a => a.hadir && a.tanggal >= sl.mulai && a.tanggal <= sl.selesai);
   // Bobot per hari memakai porsiHadir: setengah hari kerja menyumbang 0.5
   // ke proyeknya, supaya pembagian upah antar proyek tetap adil.
@@ -11030,6 +11046,36 @@ function syncSlipGajiKasTxn(k, sl) {
     state.kasUsaha.transactions.push(txn);
     txns.push(txn);
   });
+  // Uang makan & bon harian yang sudah diberikan selama periode: kas juga
+  // benar-benar keluar sebesar ini (laporan Owner 12/10) -- dicatat sebagai
+  // transaksi terpisah supaya jelas bedanya dengan gaji bersih yang
+  // dibayarkan saat gajian, dialokasikan ke proyek dengan bobot hari yang
+  // sama. (Catatan: uang makan mingguan Pelaksana TIDAK lewat sini --
+  // nominalnya sudah termasuk upah kotor sehingga ikut gaji bersih.)
+  const umBon = slipUangMakanBon(sl);
+  if (umBon > 0) {
+    let alokasiUm = alokasiSlipPerProyek(k, sl, umBon);
+    if (alokasiUm.length > 1) alokasiUm = alokasiUm.filter(b => b.jumlah);
+    alokasiUm.forEach(bagian => {
+      const proyek = bagian.proyekId ? state.proyek.find(p => p.id === bagian.proyekId) : null;
+      const txn = {
+        id: uid(),
+        sumberSlipId: sl.id,
+        proyekId: bagian.proyekId || "",
+        tipe: "Keluar",
+        status: "lunas",
+        tanggal: sl.selesai,
+        jumlah: bagian.jumlah,
+        keterangan: `Uang makan & bon ${k.nama} (${formatTanggal(sl.mulai)} - ${formatTanggal(sl.selesai)})` +
+          (proyek ? ` — proyek ${proyek.nama}` : ""),
+        kategori: "Biaya Upah/Tenaga",
+        extra: k.nama,
+        catatan: "Otomatis dari slip gaji — uang makan & bon tunai yang sudah diberikan harian (dipotong dari gaji kotor di slip)"
+      };
+      state.kasUsaha.transactions.push(txn);
+      txns.push(txn);
+    });
+  }
   (async () => {
     await mirrorKasUsahaDeleteBySumberSlip(sl.id);
     txns.forEach(txn => mirrorKasUsahaUpsert(txn));
@@ -16025,8 +16071,20 @@ function healNilaiKontrakBengkak() {
     }
   });
 }
+// Penyembuhan slip lama (12/10): uang makan & bon harian dulu tidak pernah
+// tercatat sebagai Kas Keluar -- resync membandingkan total txn tiap slip
+// dengan slipKasTotal (gaji bersih + uang makan & bon) dan membuat ulang
+// cerminan Kas-nya bila beda. Idempoten; slip di periode terkunci dilewati
+// (guard di resyncSlipKasBerubah); non-Owner tidak punya data slip
+// (hydrateSensitiveFields) sehingga loop-nya kosong dan aman.
+function healSlipKasUangMakanBon() {
+  const sebelum = state.kasUsaha.transactions.length;
+  (state.karyawan || []).forEach(k => resyncSlipKasBerubah(k));
+  if (state.kasUsaha.transactions.length !== sebelum) saveState();
+}
 function renderAll() {
   healNilaiKontrakBengkak();
+  healSlipKasUangMakanBon();
   prosesGajiOwnerOtomatis();
   renderDashboard();
   renderKasBook("kasUsaha");
