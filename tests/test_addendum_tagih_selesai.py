@@ -97,7 +97,8 @@ with sync_playwright() as p:
     """)
     assert any(d.startswith("confirm:") and "2 pekerjaan" in d for d in dialogs), dialogs
     assert st2["jumlahInv"] == 1, st2
-    assert st2["inv"]["jumlah"] == 150000 + 1120000, st2["inv"]
+    # 13/10: PPh Final 0,5% DITAMBAHKAN: subtotal 1.270.000 + 6.350
+    assert st2["inv"]["jumlah"] == 1270000 + 6350 and st2["inv"]["pph"] == 0.5, st2["inv"]
     assert len(st2["inv"]["addendumItems"]) == 2, st2["inv"]
     assert st2["a"]["invoiceId"] == st2["inv"]["id"] and st2["a"]["status"] == "selesai", st2
     assert st2["b"]["invoiceId"] == st2["inv"]["id"] and st2["b"]["status"] == "dikerjakan", st2
@@ -136,7 +137,11 @@ with sync_playwright() as p:
     # tagihan addendum (cukup Jumlah per pekerjaan).
     assert "Harga Satuan" not in html, "kolom Harga Satuan tidak boleh tampil di invoice addendum"
     assert "Rp 150.000" in html and "Rp 1.120.000" in html, "jumlah per pekerjaan harus tetap tampil"
-    print("Skenario 4 (cetakan invoice addendum: tabel rincian + rekening, tanpa harga satuan & tanpa bagian kontrak/termin) OK")
+    # 13/10: PPh Final 0,5% ditambahkan di ringkasan
+    assert "Jumlah Pekerjaan" in html and "Rp 1.270.000" in html, "subtotal pekerjaan harus tampil"
+    assert "PPh Final (0.5%)" in html and "Rp 6.350" in html, "baris PPh Final harus tampil"
+    assert "Rp 1.276.350" in html, "total tagihan harus termasuk PPh"
+    print("Skenario 4 (cetakan invoice addendum: rincian + PPh 0,5% ditambahkan + rekening, tanpa harga satuan & bagian kontrak) OK")
 
     # ===== 5. Invoice terhapus -> bisa ditagihkan ulang =====
     dialogs.clear()
@@ -244,13 +249,37 @@ with sync_playwright() as p:
       }
     """)
     assert any("2 pekerjaan" in d for d in dialogs), dialogs
-    assert st8b["jumlahInv"] == 1 and st8b["nItem"] == 2 and st8b["jumlah"] == 20 * 135000 + 450000, st8b
+    # subtotal 3.150.000 + PPh 0,5% (15.750) = 3.165.750
+    assert st8b["jumlahInv"] == 1 and st8b["nItem"] == 2 and st8b["jumlah"] == 3150000 + 15750, st8b
     assert st8b["f"]["penawaranId"] == "" and st8b["f"]["invoiceId"] and st8b["f"]["status"] == "selesai", st8b
     assert st8b["g"]["penawaranId"] == "" and st8b["g"]["invoiceId"] and st8b["g"]["status"] == "dikerjakan", st8b
     print("Skenario 8 (catatan Selesai yang terlanjur tertaut penawaran lama: ditawarkan ALIHKAN ke invoice; batal = tanpa perubahan) OK")
 
+    # ===== 9. Penyembuhan invoice addendum lama (dibuat sebelum PPh ada) =====
+    st9 = page.evaluate("""
+      () => {
+        const p = state.proyek.find(x => x.id === 'p-add');
+        p.invoices.push(
+          { id: 'inv-legacy', nomor: 'INV-L', tanggal: hariIniIso(), keterangan: 'Addendum lama', jumlah: 100000,
+            status: 'terkirim', tanggalBayar: '', addendumItems: [{ uraian: 'Kerja lama', volume: 1, satuan: 'ls', hargaSatuan: 100000 }] },
+          { id: 'inv-paid', nomor: 'INV-P', tanggal: hariIniIso(), keterangan: 'Addendum lunas', jumlah: 200000,
+            status: 'dibayar', tanggalBayar: hariIniIso(), addendumItems: [{ uraian: 'Kerja lunas', volume: 1, satuan: 'ls', hargaSatuan: 200000 }] });
+        saveState();
+        healInvoiceAddendumPph();
+        const legacy = p.invoices.find(i => i.id === 'inv-legacy');
+        const paid = p.invoices.find(i => i.id === 'inv-paid');
+        const htmlPaid = buildInvoicePrintHtml(p, paid);
+        return { legacyJumlah: legacy.jumlah, legacyPph: legacy.pph,
+                 paidJumlah: paid.jumlah, paidPph: paid.pph,
+                 paidTanpaPph: !htmlPaid.includes('PPh Final') };
+      }
+    """)
+    assert st9["legacyJumlah"] == 100500 and st9["legacyPph"] == 0.5, ("invoice lama belum dibayar harus ditambah PPh", st9)
+    assert st9["paidJumlah"] == 200000 and st9["paidPph"] == 0 and st9["paidTanpaPph"], ("invoice lama yang sudah dibayar tidak boleh berubah", st9)
+    print("Skenario 9 (invoice addendum lama: belum dibayar ditambah PPh 0,5%; yang sudah dibayar tidak disentuh) OK")
+
     js_errors = [e for e in errors if "favicon" not in e and "Failed to load resource" not in e]
     assert not js_errors, f"Error JS: {js_errors}"
     print()
-    print("SEMUA SKENARIO PASS (8 skenario)")
+    print("SEMUA SKENARIO PASS (9 skenario)")
     browser.close()
