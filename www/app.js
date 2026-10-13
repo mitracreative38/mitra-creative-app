@@ -5764,6 +5764,14 @@ function buildInvoicePrintHtml(p, inv) {
       <td>${escapeHtml(it.satuan || "ls")}</td>
       <td class="r">${rupiah((it.volume || 1) * (it.hargaSatuan || 0))}</td>
     </tr>`).join("");
+    // PPh Final DITAMBAHKAN di atas jumlah pekerjaan (permintaan Owner
+    // 13/10). Invoice baru menyimpan tarifnya di inv.pph dan inv.jumlah
+    // sudah termasuk PPh; invoice lama (tanpa inv.pph) disembuhkan oleh
+    // healInvoiceAddendumPph -- yang sudah terlanjur Dibayar dibiarkan
+    // (inv.pph = 0) supaya angka Kas tidak berubah diam-diam.
+    const subtotalAdd = inv.addendumItems.reduce((s, it) => s + (it.volume || 1) * (it.hargaSatuan || 0), 0);
+    const pphAddValue = Math.max(0, (inv.jumlah || 0) - subtotalAdd);
+    const pphAddRate = inv.pph || 0;
     return `
       ${invoiceLetterhead("INVOICE")}
       <table class="meta-table" style="margin-bottom:14px;">
@@ -5779,6 +5787,8 @@ function buildInvoicePrintHtml(p, inv) {
         <tbody>${itemRows}</tbody>
       </table>
       <table class="doc-summary-table">
+        <tr><td>Jumlah Pekerjaan</td><td class="r">${rupiah(subtotalAdd)}</td></tr>
+        ${pphAddValue ? `<tr><td>PPh Final (${pphAddRate || 0.5}%)</td><td class="r">${rupiah(pphAddValue)}</td></tr>` : ""}
         <tr class="total-row"><td>Total Tagihan Ini</td><td class="r">${rupiah(inv.jumlah)}</td></tr>
       </table>
       <p class="doc-p">Terbilang: <em>${terbilangRupiah(inv.jumlah)}</em></p>
@@ -6954,12 +6964,14 @@ document.getElementById("pj_susulanTable").addEventListener("click", e => {
     const acuan = hargaAcuanAddendum(p, item);
     const hargaFinal = acuan ? acuan.harga : (item.hargaSatuan || 0);
     const jumlah = (item.volume || 1) * hargaFinal;
-    if (!confirm(`Buat Invoice untuk pekerjaan "${item.uraian}"${item.volume ? ` (${item.volume} ${item.satuan || ""})` : ""} @ ${rupiah(hargaFinal)}${acuan ? " ← harga penawaran ACC" : ""}?\n\nTotal tagihan: ${rupiah(jumlah)}. Invoice masuk daftar Invoice & Kwitansi proyek.`)) return;
+    const pphRateAdd = pphRateUntukProyek(p);
+    const pphAdd = Math.round(jumlah * pphRateAdd / 100);
+    if (!confirm(`Buat Invoice untuk pekerjaan "${item.uraian}"${item.volume ? ` (${item.volume} ${item.satuan || ""})` : ""} @ ${rupiah(hargaFinal)}${acuan ? " ← harga penawaran ACC" : ""}?\n\nJumlah pekerjaan: ${rupiah(jumlah)}${pphAdd ? `\nPPh Final (${pphRateAdd}%): ${rupiah(pphAdd)}` : ""}\nTotal tagihan: ${rupiah(jumlah + pphAdd)}. Invoice masuk daftar Invoice & Kwitansi proyek.`)) return;
     if (!p.invoices) p.invoices = [];
     const inv = {
       id: uid(), nomor: nextInvoiceNomor(), tanggal: hariIniIso(),
       keterangan: `Addendum: ${item.uraian} — ${p.nama}`,
-      jumlah, status: "draft", tanggalBayar: "",
+      jumlah: jumlah + pphAdd, pph: pphRateAdd, status: "draft", tanggalBayar: "",
       addendumItems: [{ uraian: item.uraian, volume: item.volume || 1, satuan: item.satuan || "ls", hargaSatuan: hargaFinal, acuanNomor: acuan ? acuan.nomor : "" }],
       acuanNomor: acuan ? acuan.nomor : ""
     };
@@ -7139,6 +7151,17 @@ document.getElementById("ps_pwAddendumBtn").addEventListener("click", () => {
 function invoiceAddendumTertaut(p, item) {
   return !!(item.invoiceId && (p.invoices || []).some(i => i.id === item.invoiceId));
 }
+// Tarif PPh Final proyek: ikut dokumen penawaran/RAB sumber (atau snapshot
+// acuan bila dokumennya sudah dihapus); bawaan PPh Final UMKM 0,5% bila
+// keduanya tidak ada. Dipakai invoice addendum (permintaan Owner 13/10:
+// "adendum harusnya ada dan DITAMBAH pph 0,5%" -- konsisten dengan
+// penawaranTotals yang menambahkan PPh di atas total).
+function pphRateUntukProyek(p) {
+  const doc = dokSumberProyek(p);
+  if (doc) return doc.pph || 0;
+  if (p.acuanPenawaran) return p.acuanPenawaran.pph || 0;
+  return 0.5;
+}
 document.getElementById("ps_invAddendumBtn").addEventListener("click", () => {
   const p = state.proyek.find(x => x.id === currentProyekId);
   if (!p) return;
@@ -7168,14 +7191,18 @@ document.getElementById("ps_invAddendumBtn").addEventListener("click", () => {
     return { item: x, acuan, hargaFinal: acuan ? acuan.harga : (x.hargaSatuan || 0) };
   });
   const total = itemsFinal.reduce((s, f) => s + (f.item.volume || 1) * f.hargaFinal, 0);
+  // PPh Final DITAMBAHKAN di atas jumlah pekerjaan (permintaan Owner
+  // 13/10), sama seperti penawaran: klien membayar jumlah + PPh.
+  const pphRateAdd = pphRateUntukProyek(p);
+  const pphAdd = Math.round(total * pphRateAdd / 100);
   const nomorAcuan = (itemsFinal.find(f => f.acuan) || { acuan: null }).acuan;
   if (!confirm(`Buat SATU Invoice Addendum untuk proyek "${p.nama}" berisi ${siap.length} pekerjaan yang sudah dikerjakan?\n\n${itemsFinal.map(f =>
-    `- ${f.item.uraian}${f.item.volume ? ` (${f.item.volume} ${f.item.satuan || ""})` : ""} @ ${rupiah(f.hargaFinal)}${f.acuan ? " ← harga penawaran ACC" : ""}`).join("\n")}\n\nTotal tagihan: ${rupiah(total)}. Invoice masuk daftar Invoice & Kwitansi proyek (status Draft — ubah ke Terkirim/Dibayar seperti biasa) dan tagihannya TERPISAH dari nilai kontrak utama.`)) return;
+    `- ${f.item.uraian}${f.item.volume ? ` (${f.item.volume} ${f.item.satuan || ""})` : ""} @ ${rupiah(f.hargaFinal)}${f.acuan ? " ← harga penawaran ACC" : ""}`).join("\n")}\n\nJumlah pekerjaan: ${rupiah(total)}${pphAdd ? `\nPPh Final (${pphRateAdd}%): ${rupiah(pphAdd)}` : ""}\nTotal tagihan: ${rupiah(total + pphAdd)}. Invoice masuk daftar Invoice & Kwitansi proyek (status Draft — ubah ke Terkirim/Dibayar seperti biasa) dan tagihannya TERPISAH dari nilai kontrak utama.`)) return;
   if (!p.invoices) p.invoices = [];
   const inv = {
     id: uid(), nomor: nextInvoiceNomor(), tanggal: hariIniIso(),
     keterangan: `Addendum Pekerjaan Tambahan — ${p.nama}`,
-    jumlah: total, status: "draft", tanggalBayar: "",
+    jumlah: total + pphAdd, pph: pphRateAdd, status: "draft", tanggalBayar: "",
     // Rincian item disimpan di invoice-nya sendiri supaya cetakan invoice
     // menampilkan tabel pekerjaan lengkap (bukan 1 baris tagihan saja).
     addendumItems: itemsFinal.map(f => ({
@@ -16082,9 +16109,33 @@ function healSlipKasUangMakanBon() {
   (state.karyawan || []).forEach(k => resyncSlipKasBerubah(k));
   if (state.kasUsaha.transactions.length !== sebelum) saveState();
 }
+// Penyembuhan invoice addendum lama (13/10): dibuat sebelum PPh Final
+// ditambahkan -- yang BELUM dibayar ditambahkan PPh (jumlah = subtotal
+// item + PPh, tarif ikut dokumen sumber proyek / bawaan 0,5%); yang sudah
+// terlanjur Dibayar ditandai inv.pph = 0 agar tidak disentuh lagi dan
+// angka Kas-nya tidak berubah diam-diam. Idempoten (inv.pph terisi =
+// sudah ditangani).
+function healInvoiceAddendumPph() {
+  let ada = false;
+  (state.proyek || []).forEach(p => {
+    (p.invoices || []).forEach(inv => {
+      if (!(Array.isArray(inv.addendumItems) && inv.addendumItems.length)) return;
+      if (typeof inv.pph === "number") return;
+      if (inv.status === "dibayar") { inv.pph = 0; ada = true; return; }
+      const subtotal = inv.addendumItems.reduce((s, it) => s + (it.volume || 1) * (it.hargaSatuan || 0), 0);
+      const rate = pphRateUntukProyek(p);
+      inv.pph = rate;
+      inv.jumlah = subtotal + Math.round(subtotal * rate / 100);
+      ada = true;
+      mirrorProyekUpsert(p);
+    });
+  });
+  if (ada) saveState();
+}
 function renderAll() {
   healNilaiKontrakBengkak();
   healSlipKasUangMakanBon();
+  healInvoiceAddendumPph();
   prosesGajiOwnerOtomatis();
   renderDashboard();
   renderKasBook("kasUsaha");
