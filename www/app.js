@@ -5757,21 +5757,28 @@ function buildInvoicePrintHtml(p, inv) {
     // Permintaan Owner (1/10): harga satuan TIDAK diperlihatkan di tagihan
     // addendum -- cukup jumlah per pekerjaan (harga satuan tetap tersimpan
     // di data invoice untuk hitungan internal).
-    const itemRows = inv.addendumItems.map((it, i) => `<tr>
+    // Revisi Owner (23/10): PPh Final DISAMARKAN di cetakan -- klien hanya
+    // membayar "total harga pekerjaan" dan baris PPh terabaikan, padahal
+    // PPh-nya sudah disetor Owner. Nilai PPh (inv.jumlah - subtotal dasar)
+    // dibagi proporsional ke JUMLAH tiap uraian pekerjaan (sisa pembulatan
+    // di baris terakhir supaya penjumlahannya persis), sehingga total baris
+    // = Total Tagihan dan tidak ada baris PPh yang terlihat klien. Data
+    // internal (inv.pph, addendumItems harga dasar, Kas) tidak berubah.
+    const subtotalAdd = inv.addendumItems.reduce((s, it) => s + (it.volume || 1) * (it.hargaSatuan || 0), 0);
+    const faktorPph = subtotalAdd > 0 ? (inv.jumlah || 0) / subtotalAdd : 1;
+    let sisaTampil = inv.jumlah || 0;
+    const itemRows = inv.addendumItems.map((it, i) => {
+      const dasar = (it.volume || 1) * (it.hargaSatuan || 0);
+      const tampil = i === inv.addendumItems.length - 1 ? sisaTampil : Math.round(dasar * faktorPph);
+      sisaTampil -= tampil;
+      return `<tr>
       <td class="r">${i + 1}</td>
       <td>${escapeHtml(it.uraian)}</td>
       <td class="r">${it.volume || 1}</td>
       <td>${escapeHtml(it.satuan || "ls")}</td>
-      <td class="r">${rupiah((it.volume || 1) * (it.hargaSatuan || 0))}</td>
-    </tr>`).join("");
-    // PPh Final DITAMBAHKAN di atas jumlah pekerjaan (permintaan Owner
-    // 13/10). Invoice baru menyimpan tarifnya di inv.pph dan inv.jumlah
-    // sudah termasuk PPh; invoice lama (tanpa inv.pph) disembuhkan oleh
-    // healInvoiceAddendumPph -- yang sudah terlanjur Dibayar dibiarkan
-    // (inv.pph = 0) supaya angka Kas tidak berubah diam-diam.
-    const subtotalAdd = inv.addendumItems.reduce((s, it) => s + (it.volume || 1) * (it.hargaSatuan || 0), 0);
-    const pphAddValue = Math.max(0, (inv.jumlah || 0) - subtotalAdd);
-    const pphAddRate = inv.pph || 0;
+      <td class="r">${rupiah(tampil)}</td>
+    </tr>`;
+    }).join("");
     return `
       ${invoiceLetterhead("INVOICE")}
       <table class="meta-table" style="margin-bottom:14px;">
@@ -5787,12 +5794,10 @@ function buildInvoicePrintHtml(p, inv) {
         <tbody>${itemRows}</tbody>
       </table>
       <table class="doc-summary-table">
-        <tr><td>Jumlah Pekerjaan</td><td class="r">${rupiah(subtotalAdd)}</td></tr>
-        ${pphAddValue ? `<tr><td>PPh Final (${pphAddRate || 0.5}%)</td><td class="r">${rupiah(pphAddValue)}</td></tr>` : ""}
         <tr class="total-row"><td>Total Tagihan Ini</td><td class="r">${rupiah(inv.jumlah)}</td></tr>
       </table>
       <p class="doc-p">Terbilang: <em>${terbilangRupiah(inv.jumlah)}</em></p>
-      ${inv.acuanNomor ? `<p class="doc-p muted" style="font-size:11.5px;">Harga satuan mengikuti Penawaran ${escapeHtml(inv.acuanNomor)} yang telah disetujui. Tagihan addendum ini terpisah dari nilai kontrak utama.</p>` : `<p class="doc-p muted" style="font-size:11.5px;">Tagihan pekerjaan tambahan (addendum) ini terpisah dari nilai kontrak utama.</p>`}
+      <p class="doc-p muted" style="font-size:11.5px;">Tagihan pekerjaan tambahan (addendum) ini terpisah dari nilai kontrak utama. Harga sudah termasuk pajak yang berlaku.</p>
       <p class="doc-p">Pembayaran mohon ditransfer ke rekening: <strong>${escapeHtml(state.rekening || COMPANY_REKENING)}</strong></p>
       <div style="display:flex; justify-content:flex-end; margin-top:30px; font-size:12.5px;">
         <div style="text-align:right;">

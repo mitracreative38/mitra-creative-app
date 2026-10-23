@@ -136,12 +136,15 @@ with sync_playwright() as p:
     # Permintaan Owner 1/10: kolom Harga Satuan tidak diperlihatkan di
     # tagihan addendum (cukup Jumlah per pekerjaan).
     assert "Harga Satuan" not in html, "kolom Harga Satuan tidak boleh tampil di invoice addendum"
-    assert "Rp 150.000" in html and "Rp 1.120.000" in html, "jumlah per pekerjaan harus tetap tampil"
-    # 13/10: PPh Final 0,5% ditambahkan di ringkasan
-    assert "Jumlah Pekerjaan" in html and "Rp 1.270.000" in html, "subtotal pekerjaan harus tampil"
-    assert "PPh Final (0.5%)" in html and "Rp 6.350" in html, "baris PPh Final harus tampil"
+    # Revisi Owner 23/10: PPh DISAMARKAN -- dibagi proporsional ke jumlah
+    # tiap uraian (150rb -> 150.750; 1.120.000 -> sisa 1.125.600), tanpa
+    # baris PPh/Jumlah Pekerjaan; total baris = Total Tagihan (termasuk PPh).
+    assert "PPh Final" not in html and "Jumlah Pekerjaan" not in html, "baris PPh harus tersamarkan"
+    assert "Rp 150.750" in html and "Rp 1.125.600" in html, "jumlah per uraian harus sudah termasuk PPh proporsional"
+    assert "Rp 150.000" not in html, "jumlah dasar tanpa PPh tidak boleh tampil"
     assert "Rp 1.276.350" in html, "total tagihan harus termasuk PPh"
-    print("Skenario 4 (cetakan invoice addendum: rincian + PPh 0,5% ditambahkan + rekening, tanpa harga satuan & bagian kontrak) OK")
+    assert "sudah termasuk pajak" in html, "catatan harga termasuk pajak harus ada"
+    print("Skenario 4 (cetakan invoice addendum: PPh tersamarkan ke jumlah tiap uraian, total = jumlah pekerjaan) OK")
 
     # ===== 5. Invoice terhapus -> bisa ditagihkan ulang =====
     dialogs.clear()
