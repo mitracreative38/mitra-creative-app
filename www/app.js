@@ -15502,9 +15502,39 @@ document.getElementById("pw_itemsTable").addEventListener("click", e => {
 });
 
 // ===== Cetak Penawaran (letterhead print) =====
+// Penyamaran PPh Final di dokumen untuk klien (permintaan Owner 25/10,
+// menyusul invoice addendum 23/10): nilai PPh dibagi proporsional ke
+// JUMLAH tiap item (sisa pembulatan di item terakhir supaya penjumlahan
+// persis), sub total kelompok mengikuti, dan baris PPh tidak dicetak --
+// Grand Total dokumen TIDAK berubah, hanya penyajiannya. Data item asli
+// tidak disentuh (murni angka tampilan saat cetak).
+function bagiPphKeDaftar(nilaiDasar, subtotal, pphValue) {
+  const target = Math.round((subtotal || 0) + (pphValue || 0));
+  const faktor = subtotal > 0 ? target / subtotal : 1;
+  let sisa = target;
+  return nilaiDasar.map((v, i) => {
+    const t = i === nilaiDasar.length - 1 ? sisa : Math.round(v * faktor);
+    sisa -= t;
+    return t;
+  });
+}
+function samarkanPphKeItems(pw) {
+  const totals = penawaranTotals(pw);
+  const groups = groupItemsByKelompok(pw.items);
+  const semuaDasar = [];
+  groups.forEach(g => g.items.forEach(it => semuaDasar.push((it.volume || 0) * (it.hargaSatuan || 0))));
+  const semuaTampil = bagiPphKeDaftar(semuaDasar, totals.subtotal, totals.pphValue);
+  let idx = 0;
+  groups.forEach(g => {
+    g.tampil = g.items.map(() => semuaTampil[idx++]);
+    g.subtotalTampil = g.tampil.reduce((a, b) => a + b, 0);
+  });
+  return { groups, subtotalTampil: Math.round(totals.subtotal + totals.pphValue), totals };
+}
 function buildPenawaranPrintHtml(pw) {
   if (pw.brand === "mataresolusi") return buildMataResolusiPenawaranHtml(pw);
-  const { subtotal, diskonValue, ppnValue, pphValue, total } = penawaranTotals(pw);
+  const { groups: groupsSamar, subtotalTampil, totals } = samarkanPphKeItems(pw);
+  const { diskonValue, ppnValue, total } = totals;
   const profil = { company: state.company, alamat: state.alamat || COMPANY_ADDRESS, telepon: state.telepon || COMPANY_PHONE, ownerNama: state.ownerNama, ownerJabatan: state.ownerJabatan };
   // Harga Satuan SENGAJA tidak dicetak (cukup Volume + Jumlah) -- dokumen
   // ini keluar ke pihak luar; harga satuan internal jangan ikut bocor
@@ -15516,9 +15546,9 @@ function buildPenawaranPrintHtml(pw) {
   // tetap bernomor angka biasa seperti sebelumnya.
   const adaKelompok = pw.items.some(it => it.kelompok);
   let nomorUrut = 0;
-  const itemsRows = groupItemsByKelompok(pw.items).map(group => {
+  const itemsRows = groupsSamar.map(group => {
     const header = group.kelompok ? `
-      <tr class="pwmc-group-row"><td colspan="5"><strong>${escapeHtml(group.kelompok)}</strong></td><td class="r"><strong>${rupiah(group.subtotal)}</strong></td></tr>
+      <tr class="pwmc-group-row"><td colspan="5"><strong>${escapeHtml(group.kelompok)}</strong></td><td class="r"><strong>${rupiah(group.subtotalTampil)}</strong></td></tr>
     ` : "";
     const rows = group.items.map((it, i) => `
       <tr>
@@ -15527,7 +15557,7 @@ function buildPenawaranPrintHtml(pw) {
         <td>${escapeHtml(it.spesifikasi || "-")}</td>
         <td class="c">${escapeHtml(it.satuan)}</td>
         <td class="r">${it.volume}</td>
-        <td class="r">${rupiah((it.volume || 0) * (it.hargaSatuan || 0))}</td>
+        <td class="r">${rupiah(group.tampil[i])}</td>
       </tr>
     `).join("");
     return header + rows;
@@ -15596,10 +15626,9 @@ function buildPenawaranPrintHtml(pw) {
       </table>
 
       <table class="pwmc-summary">
-        <tr><td>${adaKelompok ? "Jumlah Seluruh Bagian Pekerjaan" : "Subtotal"}</td><td class="r">${rupiah(subtotal)}</td></tr>
+        <tr><td>${adaKelompok ? "Jumlah Seluruh Bagian Pekerjaan" : "Subtotal"}</td><td class="r">${rupiah(subtotalTampil)}</td></tr>
         ${pw.diskon ? `<tr><td>Diskon (${pw.diskon}%)</td><td class="r">- ${rupiah(diskonValue)}</td></tr>` : ""}
         ${pw.ppn ? `<tr><td>PPN (${pw.ppn}%)</td><td class="r">${rupiah(ppnValue)}</td></tr>` : ""}
-        ${pw.pph ? `<tr><td>PPh Final (${pw.pph}%)</td><td class="r">${rupiah(pphValue)}</td></tr>` : ""}
         ${pw.biayaLain ? `<tr><td>Biaya Lain-lain</td><td class="r">${rupiah(pw.biayaLain)}</td></tr>` : ""}
         <tr class="pwmc-total-row"><td>${adaKelompok ? "Grand Total Penawaran" : "Total Penawaran"}</td><td class="r">${rupiah(total)}</td></tr>
       </table>
@@ -15633,11 +15662,14 @@ function buildMataResolusiPenawaranHtml(pw) {
   const profil = MATA_RESOLUSI_INFO;
   // Harga satuan sengaja tidak ditampilkan (cukup volume + jumlah) --
   // alasan sama dengan cetak penawaran Mitra: dokumen keluar.
+  // PPh disamarkan ke nilai tiap item (urutan item apa adanya, tanpa
+  // pengelompokan) -- lihat bagiPphKeDaftar.
+  const nilaiTampil = bagiPphKeDaftar(pw.items.map(it => (it.volume || 0) * (it.hargaSatuan || 0)), subtotal, pphValue);
   const itemsRows = pw.items.map((it, i) => `
     <tr>
       <td class="c">${i + 1}</td>
       <td>${escapeHtml(it.uraian)}<div class="mr-item-sub">${it.spesifikasi ? escapeHtml(it.spesifikasi) + " — " : ""}${it.volume} ${escapeHtml(it.satuan)}</div></td>
-      <td class="r">${rupiah((it.volume || 0) * (it.hargaSatuan || 0))}</td>
+      <td class="r">${rupiah(nilaiTampil[i])}</td>
     </tr>
   `).join("") || `<tr><td colspan="3" class="c">Belum ada item</td></tr>`;
   const showTtdImg = (pw.ttdNama || profil.ownerNama) === MATA_RESOLUSI_INFO.ownerNama;
@@ -15686,14 +15718,13 @@ function buildMataResolusiPenawaranHtml(pw) {
       <table class="mr-summary">
         ${pw.diskon ? `<tr><td>Diskon (${pw.diskon}%)</td><td class="r">- ${rupiah(diskonValue)}</td></tr>` : ""}
         ${pw.ppn ? `<tr><td>PPN (${pw.ppn}%)</td><td class="r">${rupiah(ppnValue)}</td></tr>` : ""}
-        ${pw.pph ? `<tr><td>PPh Final (${pw.pph}%)</td><td class="r">${rupiah(pphValue)}</td></tr>` : ""}
         ${pw.biayaLain ? `<tr><td>Biaya Lain-lain</td><td class="r">${rupiah(pw.biayaLain)}</td></tr>` : ""}
         <tr class="mr-total-row"><td>TOTAL HARGA PEKERJAAN</td><td class="r">${rupiah(total)}</td></tr>
       </table>
 
-      ${(pw.ppn || pw.pph) ? `
+      ${pw.ppn ? `
       <div class="mr-catatan">
-        <strong>CATATAN:</strong> Harga di atas belum termasuk ${[pw.ppn ? "PPN" : "", pw.pph ? "PPh Final" : ""].filter(Boolean).join(" dan ")} -- sudah ditambahkan ke Total Harga Pekerjaan di atas.
+        <strong>CATATAN:</strong> Harga di atas belum termasuk PPN -- sudah ditambahkan ke Total Harga Pekerjaan di atas.
       </div>
       ` : ""}
 
@@ -15891,13 +15922,16 @@ function buildMouPrintHtml(pw) {
   // 320px rata kanan (untuk ringkasan angka) sehingga kolom uraian para
   // pihak terjepit 1-2 kata per baris (laporan Owner 21/9).
   const m = pw.mou || {};
-  const { subtotal, diskonValue, ppnValue, pphValue, total } = penawaranTotals(pw);
+  // PPh disamarkan ke nilai tiap item -- sama seperti cetak penawaran
+  // (lihat samarkanPphKeItems); Grand Total MOU tidak berubah.
+  const { groups: groupsSamar, subtotalTampil, totals } = samarkanPphKeItems(pw);
+  const { diskonValue, ppnValue, total } = totals;
   const profil = { company: state.company || "CV. Mitra Creative", alamat: state.alamat || COMPANY_ADDRESS, telepon: state.telepon || COMPANY_PHONE };
   const adaKelompok = pw.items.some(it => it.kelompok);
   let nomorUrut = 0;
-  const itemsRows = groupItemsByKelompok(pw.items).map(group => {
+  const itemsRows = groupsSamar.map(group => {
     const header = group.kelompok ? `
-      <tr class="pwmc-group-row"><td colspan="5"><strong>${escapeHtml(group.kelompok)}</strong></td><td class="r"><strong>${rupiah(group.subtotal)}</strong></td></tr>
+      <tr class="pwmc-group-row"><td colspan="5"><strong>${escapeHtml(group.kelompok)}</strong></td><td class="r"><strong>${rupiah(group.subtotalTampil)}</strong></td></tr>
     ` : "";
     const rows = group.items.map((it, i) => `
       <tr>
@@ -15906,7 +15940,7 @@ function buildMouPrintHtml(pw) {
         <td>${escapeHtml(it.spesifikasi || "-")}</td>
         <td class="c">${escapeHtml(it.satuan)}</td>
         <td class="r">${it.volume}</td>
-        <td class="r">${rupiah((it.volume || 0) * (it.hargaSatuan || 0))}</td>
+        <td class="r">${rupiah(group.tampil[i])}</td>
       </tr>
     `).join("");
     return header + rows;
@@ -15914,8 +15948,8 @@ function buildMouPrintHtml(pw) {
   const pajakParts = [];
   if (pw.diskon) pajakParts.push(`diskon ${pw.diskon}%`);
   if (pw.ppn) pajakParts.push(`PPN ${pw.ppn}%`);
-  if (pw.pph) pajakParts.push(`PPh Final ${pw.pph}%`);
   if (pw.biayaLain) pajakParts.push("biaya lain-lain");
+  pajakParts.push("pajak yang berlaku");
   const fasilitasLines = (m.fasilitas || defaultMouFasilitas(pw)).split("\n").map(l => l.trim()).filter(Boolean);
   if (m.garansiBulan > 0) fasilitasLines.push(`Garansi selama ${m.garansiBulan} bulan setelah proses pekerjaan selesai`);
   if (m.deadline) fasilitasLines.push(`Deadline pekerjaan tanggal ${formatTanggal(m.deadline)}, dan apabila penyelesaian melebihi tanggal yang sudah ditetapkan oleh pihak pertama maka pihak kedua akan dikenakan denda sebesar ${m.dendaPersen || 0}% per hari (kecuali jika pekerjaan tinggal finishing dan bagian utama sudah terpasang semua, tidak akan dikenakan denda)`);
@@ -15964,10 +15998,9 @@ function buildMouPrintHtml(pw) {
         <tbody>${itemsRows}</tbody>
       </table>
       <table class="pwmc-summary">
-        <tr><td>${adaKelompok ? "Jumlah Seluruh Bagian Pekerjaan" : "Subtotal"}</td><td class="r">${rupiah(subtotal)}</td></tr>
+        <tr><td>${adaKelompok ? "Jumlah Seluruh Bagian Pekerjaan" : "Subtotal"}</td><td class="r">${rupiah(subtotalTampil)}</td></tr>
         ${pw.diskon ? `<tr><td>Diskon (${pw.diskon}%)</td><td class="r">- ${rupiah(diskonValue)}</td></tr>` : ""}
         ${pw.ppn ? `<tr><td>PPN (${pw.ppn}%)</td><td class="r">${rupiah(ppnValue)}</td></tr>` : ""}
-        ${pw.pph ? `<tr><td>PPh Final (${pw.pph}%)</td><td class="r">${rupiah(pphValue)}</td></tr>` : ""}
         ${pw.biayaLain ? `<tr><td>Biaya Lain-lain</td><td class="r">${rupiah(pw.biayaLain)}</td></tr>` : ""}
         <tr class="pwmc-total-row"><td>GRAND TOTAL</td><td class="r">${rupiah(total)}</td></tr>
       </table>

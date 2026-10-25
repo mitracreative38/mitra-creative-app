@@ -91,6 +91,20 @@ const LOGO_SVG = `<img src="${MITRA_LOGO_DATA_URI}" alt="logo" height="52" style
 // dengan profil perusahaan (company/alamat/telepon/ownerNama/ownerJabatan
 // dari app_state.data). Sengaja menerima objek datar, bukan bentuk state
 // browser, supaya jelas apa saja yang dibutuhkan endpoint ini.
+// Penyamaran PPh Final di dokumen untuk klien (25/10) -- sama persis
+// dengan www/app.js: nilai PPh dibagi proporsional ke jumlah tiap item
+// (sisa pembulatan di item terakhir), baris PPh tidak dicetak, Grand
+// Total tidak berubah.
+function bagiPphKeDaftar(nilaiDasar, subtotal, pphValue) {
+  const target = Math.round((subtotal || 0) + (pphValue || 0));
+  const faktor = subtotal > 0 ? target / subtotal : 1;
+  let sisa = target;
+  return nilaiDasar.map((v, i) => {
+    const t = i === nilaiDasar.length - 1 ? sisa : Math.round(v * faktor);
+    sisa -= t;
+    return t;
+  });
+}
 function buildPenawaranPrintHtml(pw, profilMitra) {
   if (pw.brand === "mataresolusi") return buildMataResolusiPenawaranHtml(pw);
   const { subtotal, diskonValue, ppnValue, pphValue, total } = penawaranTotals(pw);
@@ -102,10 +116,20 @@ function buildPenawaranPrintHtml(pw, profilMitra) {
   // Sama seperti www/app.js: item dikelompokkan per bagian (I./II./...)
   // dengan sub-huruf a./b./c., SUB TOTAL per bagian, dan kolom Spesifikasi.
   const adaKelompok = items.some(it => it.kelompok);
+  const groupsSamar = groupItemsByKelompok(items);
+  const semuaDasar = [];
+  groupsSamar.forEach(g => g.items.forEach(it => semuaDasar.push((it.volume || 0) * (it.hargaSatuan || 0))));
+  const semuaTampil = bagiPphKeDaftar(semuaDasar, subtotal, pphValue);
+  let idxTampil = 0;
+  groupsSamar.forEach(g => {
+    g.tampil = g.items.map(() => semuaTampil[idxTampil++]);
+    g.subtotalTampil = g.tampil.reduce((a, b) => a + b, 0);
+  });
+  const subtotalTampil = Math.round(subtotal + pphValue);
   let nomorUrut = 0;
-  const itemsRows = groupItemsByKelompok(items).map(group => {
+  const itemsRows = groupsSamar.map(group => {
     const header = group.kelompok ? `
-      <tr class="pwmc-group-row"><td colspan="5"><strong>${escapeHtml(group.kelompok)}</strong></td><td class="r"><strong>${rupiah(group.subtotal)}</strong></td></tr>
+      <tr class="pwmc-group-row"><td colspan="5"><strong>${escapeHtml(group.kelompok)}</strong></td><td class="r"><strong>${rupiah(group.subtotalTampil)}</strong></td></tr>
     ` : "";
     const rows = group.items.map((it, i) => `
       <tr>
@@ -114,7 +138,7 @@ function buildPenawaranPrintHtml(pw, profilMitra) {
         <td>${escapeHtml(it.spesifikasi || "-")}</td>
         <td class="c">${escapeHtml(it.satuan)}</td>
         <td class="r">${it.volume}</td>
-        <td class="r">${rupiah((it.volume || 0) * (it.hargaSatuan || 0))}</td>
+        <td class="r">${rupiah(group.tampil[i])}</td>
       </tr>
     `).join("");
     return header + rows;
@@ -183,10 +207,9 @@ function buildPenawaranPrintHtml(pw, profilMitra) {
       </table>
 
       <table class="pwmc-summary">
-        <tr><td>${adaKelompok ? "Jumlah Seluruh Bagian Pekerjaan" : "Subtotal"}</td><td class="r">${rupiah(subtotal)}</td></tr>
+        <tr><td>${adaKelompok ? "Jumlah Seluruh Bagian Pekerjaan" : "Subtotal"}</td><td class="r">${rupiah(subtotalTampil)}</td></tr>
         ${pw.diskon ? `<tr><td>Diskon (${pw.diskon}%)</td><td class="r">- ${rupiah(diskonValue)}</td></tr>` : ""}
         ${pw.ppn ? `<tr><td>PPN (${pw.ppn}%)</td><td class="r">${rupiah(ppnValue)}</td></tr>` : ""}
-        ${pw.pph ? `<tr><td>PPh Final (${pw.pph}%)</td><td class="r">${rupiah(pphValue)}</td></tr>` : ""}
         ${pw.biaya_lain ? `<tr><td>Biaya Lain-lain</td><td class="r">${rupiah(pw.biaya_lain)}</td></tr>` : ""}
         <tr class="pwmc-total-row"><td>${adaKelompok ? "Grand Total Penawaran" : "Total Penawaran"}</td><td class="r">${rupiah(total)}</td></tr>
       </table>
@@ -210,14 +233,16 @@ function buildPenawaranPrintHtml(pw, profilMitra) {
 // di www/app.js (lihat catatan lengkap di sana untuk alasan tata letak ini
 // meniru persis dokumen penawaran Mata Resolusi sungguhan).
 function buildMataResolusiPenawaranHtml(pw) {
-  const { diskonValue, ppnValue, pphValue, total } = penawaranTotals(pw);
+  const { subtotal, diskonValue, ppnValue, pphValue, total } = penawaranTotals(pw);
   const profil = MATA_RESOLUSI_INFO;
   const items = pw.items || [];
+  // PPh disamarkan ke nilai tiap item (25/10) -- lihat bagiPphKeDaftar.
+  const nilaiTampil = bagiPphKeDaftar(items.map(it => (it.volume || 0) * (it.hargaSatuan || 0)), subtotal, pphValue);
   const itemsRows = items.map((it, i) => `
     <tr>
       <td class="c">${i + 1}</td>
       <td>${escapeHtml(it.uraian)}<div class="mr-item-sub">${it.volume} ${escapeHtml(it.satuan)}</div></td>
-      <td class="r">${rupiah((it.volume || 0) * (it.hargaSatuan || 0))}</td>
+      <td class="r">${rupiah(nilaiTampil[i])}</td>
     </tr>
   `).join("") || `<tr><td colspan="3" class="c">Belum ada item</td></tr>`;
   const showTtdImg = (pw.ttd_nama || profil.ownerNama) === MATA_RESOLUSI_INFO.ownerNama;
@@ -266,14 +291,13 @@ function buildMataResolusiPenawaranHtml(pw) {
       <table class="mr-summary">
         ${pw.diskon ? `<tr><td>Diskon (${pw.diskon}%)</td><td class="r">- ${rupiah(diskonValue)}</td></tr>` : ""}
         ${pw.ppn ? `<tr><td>PPN (${pw.ppn}%)</td><td class="r">${rupiah(ppnValue)}</td></tr>` : ""}
-        ${pw.pph ? `<tr><td>PPh Final (${pw.pph}%)</td><td class="r">${rupiah(pphValue)}</td></tr>` : ""}
         ${pw.biaya_lain ? `<tr><td>Biaya Lain-lain</td><td class="r">${rupiah(pw.biaya_lain)}</td></tr>` : ""}
         <tr class="mr-total-row"><td>TOTAL HARGA PEKERJAAN</td><td class="r">${rupiah(total)}</td></tr>
       </table>
 
-      ${(pw.ppn || pw.pph) ? `
+      ${pw.ppn ? `
       <div class="mr-catatan">
-        <strong>CATATAN:</strong> Harga di atas belum termasuk ${[pw.ppn ? "PPN" : "", pw.pph ? "PPh Final" : ""].filter(Boolean).join(" dan ")} -- sudah ditambahkan ke Total Harga Pekerjaan di atas.
+        <strong>CATATAN:</strong> Harga di atas belum termasuk PPN -- sudah ditambahkan ke Total Harga Pekerjaan di atas.
       </div>
       ` : ""}
 
