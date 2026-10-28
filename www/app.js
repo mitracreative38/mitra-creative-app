@@ -5815,13 +5815,16 @@ function buildInvoicePrintHtml(p, inv) {
   let rincianKontrakRows = "";
   if (doc && (doc.items || []).length) {
     const groups = groupItemsByKelompok(doc.items);
-    rincianKontrakRows = groups.map(g => `
-      <tr><td>${escapeHtml(g.kelompok || "Pekerjaan sesuai dokumen " + (doc.nomor || ""))}</td><td class="r">${rupiah(g.subtotal)}</td></tr>
-    `).join("");
     const t = penawaranTotals(doc);
+    // PPh disamarkan (28/10, konsisten dgn cetak Penawaran/MOU/addendum):
+    // nilainya dibagi proporsional ke sub total tiap bagian pekerjaan
+    // (sisa pembulatan di baris terakhir) dan baris PPh tidak dicetak.
+    const subtotalTampil = bagiPphKeDaftar(groups.map(g => g.subtotal), t.subtotal, t.pphValue);
+    rincianKontrakRows = groups.map((g, i) => `
+      <tr><td>${escapeHtml(g.kelompok || "Pekerjaan sesuai dokumen " + (doc.nomor || ""))}</td><td class="r">${rupiah(subtotalTampil[i])}</td></tr>
+    `).join("");
     if (doc.diskon) rincianKontrakRows += `<tr><td>Diskon (${doc.diskon}%)</td><td class="r">- ${rupiah(t.diskonValue)}</td></tr>`;
     if (doc.ppn) rincianKontrakRows += `<tr><td>PPN (${doc.ppn}%)</td><td class="r">${rupiah(t.ppnValue)}</td></tr>`;
-    if (doc.pph) rincianKontrakRows += `<tr><td>PPh Final (${doc.pph}%)</td><td class="r">${rupiah(t.pphValue)}</td></tr>`;
     if (doc.biayaLain) rincianKontrakRows += `<tr><td>Biaya Lain-lain</td><td class="r">${rupiah(doc.biayaLain)}</td></tr>`;
     // Harga deal hasil nego bisa berbeda dari total dokumen -- tampilkan
     // sebagai baris penyesuaian supaya angkanya jujur sampai ke kontrak.
@@ -5861,25 +5864,11 @@ function buildInvoicePrintHtml(p, inv) {
   // 9/10) -- selisih <= Rp 5 dianggap nol supaya invoice penutup bersih.
   let sisaSetelahIni = nilaiKontrak - sudahDitagih - (inv.jumlah || 0);
   if (Math.abs(sisaSetelahIni) <= 5) sisaSetelahIni = 0;
-  // PPh Final GLOBAL (permintaan Owner 9/10, direvisi dua kali: "jangan
-  // per tagihan, global, dibayar waktu tagihan terakhir" + "sesuai pph
-  // final yang ADA DI PENAWARAN, jangan ditambahkan ke harga yang sudah
-  // disepakati"): angkanya diambil persis dari nilai PPh dokumen
-  // penawaran/RAB sumber (atau snapshot acuan proyek), BUKAN dihitung
-  // ulang dari nilai kontrak. Di tagihan terakhir (sisa belum ditagih =
-  // 0) baris ini menandakan PPh-nya disetor sekarang; di tagihan
-  // sebelumnya hanya informasi. Murni informasi setor pajak -- tidak
-  // menambah nilai tagihan/kontrak yang sudah disepakati.
-  const acuanP = p.acuanPenawaran || null;
-  const pphRate = doc ? (doc.pph || 0) : (acuanP ? (acuanP.pph || 0) : 0.5);
-  let pphKontrak = 0;
-  if (pphRate > 0 && nilaiKontrak > 0) {
-    if (doc) pphKontrak = Math.round(penawaranTotals(doc).pphValue || 0);
-    else if (acuanP && acuanP.totals) pphKontrak = Math.round(acuanP.totals.pphValue || 0);
-    else pphKontrak = Math.round(nilaiKontrak * pphRate / 100);
-  }
-  const pphSumberNomor = (doc && doc.nomor) || (acuanP && acuanP.nomor) || "";
-  const tagihanTerakhir = nilaiKontrak > 0 && sisaSetelahIni === 0;
+  // Baris info PPh global DIHAPUS dari cetakan (revisi Owner 28/10):
+  // PPh sudah tersamar di dalam nilai kontrak/rincian bagian pekerjaan,
+  // jadi tidak ada tulisan PPh yang terlihat klien. Angka PPh untuk
+  // setor pajak Owner tetap ada di panel Acuan Perhitungan Penawaran
+  // (internal, Margin Proyek).
   return `
     ${invoiceLetterhead("INVOICE")}
     <table class="meta-table" style="margin-bottom:14px;">
@@ -5912,7 +5901,6 @@ function buildInvoicePrintHtml(p, inv) {
       ${nilaiKontrak ? `<tr><td>Nilai Kontrak</td><td class="r">${rupiah(nilaiKontrak)}</td></tr>` : ""}
       ${sudahDitagih ? `<tr><td>Sudah Ditagih Sebelumnya${sudahDibayar ? ` <span class="muted" style="font-size:11px;">(dibayar ${rupiah(sudahDibayar)})</span>` : ""}</td><td class="r">- ${rupiah(sudahDitagih)}</td></tr>` : ""}
       <tr class="total-row"><td>Total Tagihan Ini</td><td class="r">${rupiah(inv.jumlah)}</td></tr>
-      ${pphKontrak ? `<tr><td>PPh Final (${pphRate}%)${pphSumberNomor ? ` sesuai ${escapeHtml(pphSumberNomor)}` : ""} <span class="muted" style="font-size:11px;">(${tagihanTerakhir ? "disetor pada tagihan terakhir INI" : "informasi — disetor sekali pada tagihan terakhir"}; sudah termasuk dalam harga yang disepakati, bukan tambahan tagihan)</span></td><td class="r">${rupiah(pphKontrak)}</td></tr>` : ""}
       ${nilaiKontrak ? `<tr><td>Sisa Belum Ditagih Setelah Invoice Ini</td><td class="r"><strong>${rupiah(sisaSetelahIni)}</strong></td></tr>` : ""}
     </table>
     <p class="doc-p">Terbilang: <em>${terbilangRupiah(inv.jumlah)}</em></p>

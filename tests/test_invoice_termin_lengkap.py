@@ -108,7 +108,9 @@ with sync_playwright() as p:
     assert "Rp 108.500.000" not in teks3b and "Rp 68.500.000" not in teks3b, "addendum tidak boleh menggeser sisa kontrak"
     print("Skenario 3b (invoice terkirim belum dibayar tetap mengurangi sisa; invoice addendum tidak ikut hitungan kontrak) OK")
 
-    # ===== 3c. PPh Final per tagihan + pembulatan sisa (Owner 9/10) =====
+    # ===== 3c. PPh tersamarkan di rincian kontrak + pembulatan sisa =====
+    # (Revisi Owner 28/10: TIDAK ada tulisan PPh di invoice -- nilainya
+    # dibagi proporsional ke sub total tiap bagian pekerjaan.)
     st3c = page.evaluate("""
       () => {
         const pw = state.penawaran.find(x => x.id === 'pw-inv');
@@ -122,19 +124,18 @@ with sync_playwright() as p:
             { id: 'iv2', nomor: 'I2', tanggal: hariIniIso(), keterangan: 'Termin 4', jumlah: 22576496, status: 'draft' }
           ] };
         const html2 = buildInvoicePrintHtml(p2, p2.invoices[1]);
-        return { adaPph: html.includes('PPh Final (0.5%) sesuai 047/MC-PH/IX/2026'), nilaiPph: html.includes('Rp 1.500.000'),
-                 infoTerakhir: html.includes('disetor sekali pada tagihan terakhir'),
-                 sisaNol: html2.includes('Rp 0'), minusSatu: html2.includes('Rp -1'),
-                 pphTerakhir: html2.includes('disetor pada tagihan terakhir INI') && html2.includes('Rp 1.128.825') };
+        return { tanpaPph: !html.includes('PPh Final') && !html2.includes('PPh Final'),
+                 barang: html.includes('Rp 201.000.000'), jasa: html.includes('Rp 100.500.000'),
+                 dasarHilang: !html.includes('Rp 200.000.000'),
+                 sisaNol: html2.includes('Rp 0'), minusSatu: html2.includes('Rp -1') };
       }
     """)
-    # Revisi Owner: angka PPh diambil PERSIS dari penawaran (0,5% x subtotal
-    # 300jt = Rp 1.500.000), bukan dihitung ulang dari nilai kontrak nego.
-    assert st3c["adaPph"] and st3c["nilaiPph"], ("PPh harus persis angka penawaran: Rp 1.500.000 + nomor acuan", st3c)
-    assert st3c["infoTerakhir"], ("di tagihan non-terakhir harus tertulis disetor sekali pada tagihan terakhir", st3c)
+    # PPh 0,5% x subtotal 300jt = 1,5jt terbagi: BARANG 200jt -> 201jt,
+    # JASA 100jt -> sisa 100,5jt; tidak ada tulisan PPh di mana pun.
+    assert st3c["tanpaPph"], ("tulisan PPh tidak boleh tampil di invoice", st3c)
+    assert st3c["barang"] and st3c["jasa"] and st3c["dasarHilang"], ("sub total bagian harus sudah termasuk PPh proporsional", st3c)
     assert st3c["sisaNol"] and not st3c["minusSatu"], ("sisa pembulatan -1 harus tampil Rp 0", st3c)
-    assert st3c["pphTerakhir"], ("tanpa dokumen sumber: fallback 0,5% x kontrak, ditandai disetor di tagihan terakhir INI", st3c)
-    print("Skenario 3c (PPh Final persis dari penawaran; disetor di tagihan terakhir; sisa -1 jadi Rp 0) OK")
+    print("Skenario 3c (PPh tersamarkan ke sub total bagian pekerjaan; tanpa tulisan PPh; sisa -1 jadi Rp 0) OK")
 
     # ===== 4. Fallback proyek polos =====
     st4 = page.evaluate("""
