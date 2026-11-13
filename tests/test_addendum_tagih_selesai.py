@@ -48,6 +48,7 @@ with sync_playwright() as p:
           nilaiKontrak: 0, tanggalMulai: hariIniIso(), status: 'berjalan', items: [], rencanaTermin: [],
           invoices: [], bap: [], dokumen: [], pekerjaanTambahan: [
             { id: 'ps-a', tanggal: hariIniIso(), sumber: 'Permintaan Klien', uraian: 'Pasang brankas kasir', ahspId: '',
+              spesifikasi: 'Brankas 100 kg tanam dinding',
               volume: 1, satuan: 'ls', hargaSatuan: 150000, status: 'selesai', catatan: '', penawaranId: '' },
             { id: 'ps-b', tanggal: hariIniIso(), sumber: 'Permintaan Klien', uraian: 'Waterproofing kamar mandi', ahspId: '',
               volume: 1, satuan: 'ls', hargaSatuan: 1120000, status: 'dikerjakan', catatan: '', penawaranId: '' },
@@ -144,7 +145,10 @@ with sync_playwright() as p:
     assert "Rp 150.000" not in html, "jumlah dasar tanpa PPh tidak boleh tampil"
     assert "Rp 1.276.350" in html, "total tagihan harus termasuk PPh"
     assert "sudah termasuk pajak" in html, "catatan harga termasuk pajak harus ada"
-    print("Skenario 4 (cetakan invoice addendum: PPh tersamarkan ke jumlah tiap uraian, total = jumlah pekerjaan) OK")
+    # 13/11: kolom Spesifikasi di tabel addendum (terisi dari catatan; "-" bila kosong)
+    assert "<th>Spesifikasi</th>" in html, "kolom Spesifikasi harus ada"
+    assert "Brankas 100 kg tanam dinding" in html, "spesifikasi catatan harus tercetak"
+    print("Skenario 4 (cetakan invoice addendum: PPh tersamarkan + kolom Spesifikasi, total = jumlah pekerjaan) OK")
 
     # ===== 5. Invoice terhapus -> bisa ditagihkan ulang =====
     dialogs.clear()
