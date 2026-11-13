@@ -5774,6 +5774,7 @@ function buildInvoicePrintHtml(p, inv) {
       return `<tr>
       <td class="r">${i + 1}</td>
       <td>${escapeHtml(it.uraian)}</td>
+      <td>${escapeHtml(it.spesifikasi || "-")}</td>
       <td class="r">${it.volume || 1}</td>
       <td>${escapeHtml(it.satuan || "ls")}</td>
       <td class="r">${rupiah(tampil)}</td>
@@ -5790,7 +5791,7 @@ function buildInvoicePrintHtml(p, inv) {
       </table>
       <p class="doc-p" style="margin-bottom:4px;"><strong>Rincian Pekerjaan Tambahan yang Ditagihkan</strong></p>
       <table class="doc-items">
-        <thead><tr><th class="r">No</th><th>Uraian Pekerjaan</th><th class="r">Volume</th><th>Satuan</th><th class="r">Jumlah</th></tr></thead>
+        <thead><tr><th class="r">No</th><th>Uraian Pekerjaan</th><th>Spesifikasi</th><th class="r">Volume</th><th>Satuan</th><th class="r">Jumlah</th></tr></thead>
         <tbody>${itemRows}</tbody>
       </table>
       <table class="doc-summary-table">
@@ -6891,6 +6892,7 @@ function openPekerjaanSusulanModal(existing) {
   document.getElementById("ps_sumber").value = existing ? (existing.sumber || "Permintaan Klien") : "Permintaan Klien";
   isiAhspPickerOptions(document.getElementById("ps_ahspPick"), existing ? existing.ahspId : "");
   document.getElementById("ps_uraian").value = existing ? (existing.uraian || "") : "";
+  document.getElementById("ps_spesifikasi").value = existing ? (existing.spesifikasi || "") : "";
   document.getElementById("ps_volume").value = existing ? (existing.volume || "") : "";
   document.getElementById("ps_satuan").value = existing ? (existing.satuan || "") : "";
   document.getElementById("ps_hargaSatuan").value = existing ? formatNumberInput(existing.hargaSatuan || existing.nilai || 0) : "";
@@ -6919,6 +6921,7 @@ document.getElementById("pekerjaanSusulanForm").addEventListener("submit", e => 
     tanggal: document.getElementById("ps_tanggal").value,
     sumber: document.getElementById("ps_sumber").value,
     uraian: document.getElementById("ps_uraian").value.trim(),
+    spesifikasi: document.getElementById("ps_spesifikasi").value.trim(),
     ahspId: document.getElementById("ps_ahspPick").value || "",
     volume: parseFloat(document.getElementById("ps_volume").value) || 0,
     satuan: document.getElementById("ps_satuan").value.trim(),
@@ -6965,7 +6968,7 @@ document.getElementById("pj_susulanTable").addEventListener("click", e => {
       id: uid(), nomor: nextInvoiceNomor(), tanggal: hariIniIso(),
       keterangan: `Addendum: ${item.uraian} — ${p.nama}`,
       jumlah: jumlah + pphAdd, pph: pphRateAdd, status: "draft", tanggalBayar: "",
-      addendumItems: [{ uraian: item.uraian, volume: item.volume || 1, satuan: item.satuan || "ls", hargaSatuan: hargaFinal, acuanNomor: acuan ? acuan.nomor : "" }],
+      addendumItems: [{ uraian: item.uraian, spesifikasi: item.spesifikasi || (acuan && acuan.spesifikasi) || "", volume: item.volume || 1, satuan: item.satuan || "ls", hargaSatuan: hargaFinal, acuanNomor: acuan ? acuan.nomor : "" }],
       acuanNomor: acuan ? acuan.nomor : ""
     };
     p.invoices.push(inv);
@@ -7046,7 +7049,7 @@ function renderPekerjaanSusulan(p) {
   document.querySelector("#pj_susulanTable tbody").innerHTML = rows.length ? rows.map(item => `
     <tr>
       <td>${formatTanggal(item.tanggal)}</td>
-      <td>${escapeHtml(item.uraian)}</td>
+      <td>${escapeHtml(item.uraian)}${item.spesifikasi ? `<br><span class="muted" style="font-size:11.5px;">${escapeHtml(item.spesifikasi)}</span>` : ""}</td>
       <td>${escapeHtml(item.sumber || "-")}</td>
       <td class="num">${item.volume ? `${item.volume} ${escapeHtml(item.satuan || "")}` : "-"}</td>
       <td class="num">${nilaiTindakLanjut(item) ? rupiah(nilaiTindakLanjut(item)) : "-"}</td>
@@ -7089,7 +7092,7 @@ function hargaAcuanAddendum(p, item) {
     (item.ahspId && di.ahspId && di.ahspId === item.ahspId) ||
     ((di.uraian || "").trim().toLowerCase() === (item.uraian || "").trim().toLowerCase()));
   if (!cocok || !(cocok.hargaSatuan > 0)) return null;
-  return { harga: cocok.hargaSatuan, nomor: dok.nomor || "", uraian: cocok.uraian || "" };
+  return { harga: cocok.hargaSatuan, nomor: dok.nomor || "", uraian: cocok.uraian || "", spesifikasi: cocok.spesifikasi || "" };
 }
 document.getElementById("ps_pwAddendumBtn").addEventListener("click", () => {
   const p = state.proyek.find(x => x.id === currentProyekId);
@@ -7199,7 +7202,9 @@ document.getElementById("ps_invAddendumBtn").addEventListener("click", () => {
     // Rincian item disimpan di invoice-nya sendiri supaya cetakan invoice
     // menampilkan tabel pekerjaan lengkap (bukan 1 baris tagihan saja).
     addendumItems: itemsFinal.map(f => ({
-      uraian: f.item.uraian, volume: f.item.volume || 1, satuan: f.item.satuan || "ls",
+      uraian: f.item.uraian,
+      spesifikasi: f.item.spesifikasi || (f.acuan && f.acuan.spesifikasi) || "",
+      volume: f.item.volume || 1, satuan: f.item.satuan || "ls",
       hargaSatuan: f.hargaFinal, acuanNomor: f.acuan ? f.acuan.nomor : ""
     })),
     acuanNomor: nomorAcuan ? nomorAcuan.nomor : ""
